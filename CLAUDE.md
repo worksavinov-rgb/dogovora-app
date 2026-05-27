@@ -211,14 +211,14 @@ Wallet → Transactions (история операций)
 ### Фаза 5 — Контрагенты
 | # | Задача | Статус |
 |---|--------|--------|
-| 5.1 | Prisma модели: Counterparty, BankDetail, Signatory | ⬜ |
-| 5.2 | API: CRUD /api/counterparties | ⬜ |
-| 5.3 | API: CRUD /api/counterparties/:id/signatories | ⬜ |
-| 5.4 | Список контрагентов (05-parties.png) | ⬜ |
-| 5.5 | Карточка контрагента (06-party-card.png) | ⬜ |
-| 5.6 | Вкладка «Реквизиты» контрагента (18-party-requisites.png) | ⬜ |
-| 5.7 | Редактирование реквизитов (19-edit-requisites.png) | ⬜ |
-| 5.8 | Drawer подписанта (20-signatory-editor.png) | ⬜ |
+| 5.1 | Prisma модели: Counterparty, BankDetail, Signatory | ✅ |
+| 5.2 | API: CRUD /api/counterparties | ✅ |
+| 5.3 | API: CRUD /api/counterparties/:id/signatories | ✅ |
+| 5.4 | Список контрагентов (05-parties.png) | ✅ |
+| 5.5 | Карточка контрагента (06-party-card.png) | ✅ |
+| 5.6 | Вкладка «Реквизиты» контрагента (18-party-requisites.png) | ✅ |
+| 5.7 | Редактирование реквизитов (19-edit-requisites.png) | ✅ |
+| 5.8 | Drawer подписанта (20-signatory-editor.png) | ✅ |
 
 ### Фаза 6 — Документы и версии
 | # | Задача | Статус |
