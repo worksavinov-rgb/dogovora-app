@@ -18,7 +18,7 @@ export default function StoragePage() {
           <div className="h-[6px] bg-[var(--line)] rounded-full mb-[20px]">
             <div className="h-full bg-[var(--ink)] rounded-full" style={{ width: '0%' }} />
           </div>
-          <div className="grid grid-cols-4 gap-[12px]">
+          <div className="flex flex-wrap gap-x-[20px] gap-y-[10px]">
             {[
               { label: 'Документы', value: '0 МБ', color: '#18181B' },
               { label: 'Версии', value: '0 МБ', color: '#6B6962' },

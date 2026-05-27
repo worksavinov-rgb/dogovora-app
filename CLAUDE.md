@@ -223,14 +223,14 @@ Wallet → Transactions (история операций)
 ### Фаза 6 — Документы и версии
 | # | Задача | Статус |
 |---|--------|--------|
-| 6.1 | Prisma модели: Document, Version | ⬜ |
-| 6.2 | API: POST /api/documents, GET /api/documents | ⬜ |
-| 6.3 | API: GET /api/documents/:id | ⬜ |
-| 6.4 | API: POST /api/documents/:id/versions (append-only!) | ⬜ |
-| 6.5 | Список документов (07-documents.png) | ⬜ |
-| 6.6 | Карточка документа с историей версий (08-document-overview.png) | ⬜ |
-| 6.7 | Мастер создания документа шаг 1 (09-create-document.png) | ⬜ |
-| 6.8 | Настройки ИИ шаг 2 (10-ai-settings.png) | ⬜ |
+| 6.1 | Prisma модели: Document, Version | ✅ |
+| 6.2 | API: POST /api/documents, GET /api/documents | ✅ |
+| 6.3 | API: GET /api/documents/:id | ✅ |
+| 6.4 | API: POST /api/documents/:id/versions (append-only!) | ✅ |
+| 6.5 | Список документов (07-documents.png) | ✅ |
+| 6.6 | Карточка документа с историей версий (08-document-overview.png) | ✅ |
+| 6.7 | Мастер создания документа шаг 1 (09-create-document.png) | ✅ |
+| 6.8 | Настройки ИИ шаг 2 (10-ai-settings.png) | ✅ |
 
 ### Фаза 7 — ИИ и рабочий экран ★
 | # | Задача | Статус |
