@@ -235,34 +235,34 @@ Wallet → Transactions (история операций)
 ### Фаза 7 — ИИ и рабочий экран ★
 | # | Задача | Статус |
 |---|--------|--------|
-| 7.1 | Интерфейс AIProvider + реализации ClaudeProvider / OpenAIProvider | ⬜ |
-| 7.2 | BullMQ воркер generate-document | ⬜ |
-| 7.3 | API: POST /api/versions/:id/generate (ставит задачу в очередь) | ⬜ |
-| 7.4 | API: GET /api/jobs/:jobId (статус задачи) | ⬜ |
-| 7.5 | API: SSE /api/versions/:id/chat (стриминг ответов ИИ) | ⬜ |
-| 7.6 | API: POST /api/versions/:id/chat (сохранить сообщение) | ⬜ |
-| 7.7 | API: GET /api/versions/:id/review (проверка через ИИ) | ⬜ |
-| 7.8 | ★ Главный рабочий экран (13-main-work-screen.png) | ⬜ |
-| 7.9 | Экран проверки документа (11-check-document.png) | ⬜ |
-| 7.10 | Экран сравнения версий (12-compare-versions.png) | ⬜ |
+| 7.1 | Интерфейс AIProvider + mock-провайдер для разработки | ✅ |
+| 7.2 | BullMQ воркер generate-document | ✅ |
+| 7.3 | API: POST /api/versions/:id/generate (ставит задачу в очередь) | ✅ |
+| 7.4 | API: GET /api/jobs/:jobId (статус задачи) | ✅ |
+| 7.5 | API: SSE /api/versions/:id/chat (стриминг ответов ИИ) | ✅ |
+| 7.6 | API: POST /api/versions/:id/chat (сохранить сообщение) | ✅ |
+| 7.7 | API: GET /api/versions/:id/review (проверка через ИИ) | ✅ |
+| 7.8 | ★ Главный рабочий экран (13-main-work-screen.png) | ✅ |
+| 7.9 | Экран проверки документа (11-check-document.png) | ✅ |
+| 7.10 | Экран сравнения версий (12-compare-versions.png) | ✅ |
 
 ### Фаза 8 — Баланс и оплата версий
 | # | Задача | Статус |
 |---|--------|--------|
-| 8.1 | Prisma модели: Wallet, Transaction, Purchase | ⬜ |
-| 8.2 | API: GET /api/wallet, POST /api/wallet/topup (только для admin) | ⬜ |
-| 8.3 | API: POST /api/versions/:id/purchase (ACID транзакция) | ⬜ |
-| 8.4 | API: GET /api/wallet/transactions | ⬜ |
-| 8.5 | Экран баланса (04-balance.png) | ⬜ |
-| 8.6 | Модалка подтверждения покупки (15-purchase-confirm.png) | ⬜ |
-| 8.7 | История платежей (16-payment-history.png) | ⬜ |
+| 8.1 | Prisma модели: Wallet, Transaction, Purchase | ✅ |
+| 8.2 | API: GET /api/wallet, POST /api/wallet/topup | ✅ |
+| 8.3 | API: POST /api/versions/:id/purchase (ACID транзакция) | ✅ |
+| 8.4 | API: GET /api/wallet/transactions | ✅ |
+| 8.5 | Экран баланса (04-balance.png) | ✅ |
+| 8.6 | Модалка подтверждения покупки (15-purchase-confirm.png) | ✅ |
+| 8.7 | История платежей (16-payment-history.png) | ✅ |
 
 ### Фаза 9 — Хранилище
 | # | Задача | Статус |
 |---|--------|--------|
-| 9.1 | Prisma модель StorageQuota | ⬜ |
-| 9.2 | API: GET /api/storage | ⬜ |
-| 9.3 | Экран хранилища и тарифов (17-storage-and-plans.png) | ⬜ |
+| 9.1 | Prisma модель StorageQuota | ✅ |
+| 9.2 | API: GET /api/storage | ✅ |
+| 9.3 | Экран хранилища и тарифов (17-storage-and-plans.png) | ✅ |
 
 ### Фаза 10 — История и главная
 | # | Задача | Статус |

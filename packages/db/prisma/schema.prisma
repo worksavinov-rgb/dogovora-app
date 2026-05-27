@@ -184,6 +184,7 @@ model Version {
   status     VersionStatus @default(DRAFT)
   filePath   String?       // путь в S3
   fileSize   Int?          // байты
+  content    String?       // текст документа (пока без S3)
   aiSettings Json          // { protectionLevel, targetSize, customInstruction }
   createdAt  DateTime      @default(now())
 

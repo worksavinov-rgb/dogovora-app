@@ -1,4 +1,6 @@
 allowBuilds:
+  esbuild: set this to true or false
+  msgpackr-extract: false
   sharp: set this to true or false
   unrs-resolver: set this to true or false
 ignoredBuiltDependencies:
