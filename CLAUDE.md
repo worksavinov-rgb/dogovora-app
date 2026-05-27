@@ -184,12 +184,12 @@ Wallet → Transactions (история операций)
 ### Фаза 2 — Авторизация
 | # | Задача | Статус |
 |---|--------|--------|
-| 2.1 | Prisma модель User + OAuthAccount (для будущего OAuth) | ⬜ |
-| 2.2 | API: POST /auth/register, POST /auth/login, POST /auth/refresh | ⬜ |
-| 2.3 | JWT access token (15 мин) + refresh token в httpOnly cookie | ⬜ |
-| 2.4 | Экран входа/регистрации (01-auth.png) | ⬜ |
-| 2.5 | Защита маршрутов через Next.js middleware | ⬜ |
-| 2.6 | Zustand authStore (user, token) | ⬜ |
+| 2.1 | Prisma модель User + OAuthAccount (для будущего OAuth) | ✅ |
+| 2.2 | API: POST /auth/register, POST /auth/login, POST /auth/refresh | ✅ |
+| 2.3 | JWT access token (15 мин) + refresh token в httpOnly cookie | ✅ |
+| 2.4 | Экран входа/регистрации (01-auth.png) | ✅ |
+| 2.5 | Защита маршрутов через Next.js middleware | ✅ |
+| 2.6 | Zustand authStore (user, token) | ✅ |
 
 ### Фаза 3 — AppLayout и навигация
 | # | Задача | Статус |
