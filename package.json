@@ -3,14 +3,17 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "pnpm --parallel --filter './apps/*' dev",
-    "build": "pnpm --filter './packages/*' build && pnpm --filter './apps/*' build",
-    "lint": "pnpm --recursive lint",
-    "typecheck": "pnpm --recursive typecheck",
+    "dev": "corepack pnpm --filter web dev",
+    "worker": "corepack pnpm --filter web worker",
+    "build": "corepack pnpm --filter web build",
+    "lint": "corepack pnpm --recursive lint",
+    "typecheck": "corepack pnpm --recursive typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "db:generate": "pnpm --filter @dogovora/db generate",
-    "db:migrate": "pnpm --filter @dogovora/db migrate:dev",
-    "db:studio": "pnpm --filter @dogovora/db studio"
+    "db:generate": "corepack pnpm --filter web exec prisma generate",
+    "db:migrate": "corepack pnpm --filter web exec prisma migrate deploy",
+    "db:migrate:dev": "corepack pnpm --filter web exec prisma migrate dev",
+    "db:studio": "corepack pnpm --filter web exec prisma studio",
+    "setup:local": "docker compose up -d && corepack pnpm run db:migrate && corepack pnpm run db:generate"
   },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",

@@ -1,17 +1,28 @@
 import { Queue, Worker, Job } from 'bullmq'
-import IORedis from 'ioredis'
 import { prisma } from './db'
-import { mockProvider } from './ai/mock-provider'
+import { getAIProvider } from './ai/provider'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
 
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6380'
+const workerConcurrencyEnv = Number.parseInt(process.env['WORKER_CONCURRENCY'] ?? '', 10)
+const workerConcurrency =
+  Number.isFinite(workerConcurrencyEnv) && workerConcurrencyEnv > 0 ? workerConcurrencyEnv : 1
 
-// BullMQ требует отдельный инстанс ioredis
+// Возвращаем connection options вместо экземпляра Redis, чтобы не ловить
+// конфликты типов между версиями ioredis в зависимостях.
 export function createRedisConnection() {
-  return new IORedis(redisUrl, {
+  const url = new URL(redisUrl)
+  const isTls = url.protocol === 'rediss:'
+
+  return {
+    host: url.hostname,
+    port: Number(url.port || 6379),
+    username: url.username || undefined,
+    password: url.password || undefined,
+    tls: isTls ? {} : undefined,
     maxRetriesPerRequest: null, // обязательно для BullMQ
-  })
+  }
 }
 
 // ─── Типы задач ───────────────────────────────────────────────────────────────
@@ -65,7 +76,8 @@ export function startGenerateWorker() {
       // Стримим генерацию и собираем полный текст
       let fullText = ''
       const settings = { protectionLevel, targetSize, customInstruction }
-      const generator = mockProvider.generate(description, counterpartyName, settings)
+      const aiProvider = getAIProvider()
+      const generator = aiProvider.generate(description, counterpartyName, settings)
 
       for await (const chunk of generator) {
         fullText += chunk
@@ -91,7 +103,7 @@ export function startGenerateWorker() {
     },
     {
       connection: createRedisConnection(),
-      concurrency: 3,
+      concurrency: workerConcurrency,
     },
   )
 

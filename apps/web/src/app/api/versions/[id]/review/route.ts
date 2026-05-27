@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { mockProvider } from '@/lib/ai/mock-provider'
+import { getAIProvider } from '@/lib/ai/provider'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
 
-  // В MVP — mock, в продакшне подключим реального провайдера
-  const result = await mockProvider.review('', settings)
+  const aiProvider = getAIProvider()
+  const result = await aiProvider.review(version.content ?? '', settings)
   return NextResponse.json(result)
 }

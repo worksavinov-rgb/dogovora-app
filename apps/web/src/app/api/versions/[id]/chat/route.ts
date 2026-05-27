@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { mockProvider } from '@/lib/ai/mock-provider'
+import { getAIProvider } from '@/lib/ai/provider'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     targetSize: aiSettings?.targetSize ?? 8000,
     customInstruction: aiSettings?.customInstruction ?? '',
   }
+  const aiProvider = getAIProvider()
 
   // SSE-стриминг ответа ИИ
   const encoder = new TextEncoder()
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const generator = mockProvider.chat(messages, settings, '')
+        const generator = aiProvider.chat(messages, settings, version.content ?? '')
         for await (const chunk of generator) {
           fullResponse += chunk
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk })}\n\n`))
