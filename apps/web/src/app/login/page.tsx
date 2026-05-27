@@ -71,14 +71,14 @@ export default function LoginPage() {
 
           {/* Центральный контент */}
           <div className="flex-1 flex flex-col justify-center max-w-[400px] mt-[48px]">
-            <h1 className="text-[40px] leading-[1.1] mb-[40px] font-normal font-[var(--font-display)]">
+            <h1 style={{ fontSize: 40, lineHeight: 1.1, marginBottom: 40, fontWeight: 400 }}>
               Договоры, которые{' '}
               <em className="not-italic text-[var(--accent)]">пишут</em>{' '}
               и{' '}
               <em className="not-italic text-[var(--accent)]">проверяют</em>{' '}
               сами себя.
             </h1>
-            <p className="text-[15px] text-[var(--ink-3)] leading-[1.6] mb-[56px]">
+            <p style={{ fontSize: 15, color: 'var(--ink-3)', lineHeight: 1.6, marginBottom: 56 }}>
               Создавайте, проверяйте и сравнивайте договоры, приложения и допсоглашения
               с помощью ИИ. Версии, контрагенты и реквизиты — в одном тихом месте.
             </p>
