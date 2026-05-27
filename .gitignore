@@ -1,0 +1,25 @@
+# Макет (дизайн-хэндоф) — не нужен в репо, только для справки локально
+макет/
+Макет сайта.zip
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+
+# Env файлы
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
