@@ -159,12 +159,12 @@ Wallet → Transactions (история операций)
 ### Фаза 0 — Инфраструктура
 | # | Задача | Статус |
 |---|--------|--------|
-| 0.1 | Создать монорепо (pnpm workspaces) со структурой apps/ и packages/ | ⬜ |
-| 0.2 | Настроить TypeScript strict + ESLint + Prettier | ⬜ |
-| 0.3 | docker-compose с PostgreSQL и Redis | ⬜ |
-| 0.4 | Создать .env.example с переменными DATABASE_URL, REDIS_URL, S3_*, AI_*, JWT_SECRET | ⬜ |
-| 0.5 | Инициализировать Prisma в packages/db/ | ⬜ |
-| 0.6 | Базовый CI (GitHub Actions: lint + typecheck) | ⬜ |
+| 0.1 | Создать монорепо (pnpm workspaces) со структурой apps/ и packages/ | ✅ |
+| 0.2 | Настроить TypeScript strict + ESLint + Prettier | ✅ |
+| 0.3 | docker-compose с PostgreSQL и Redis | ✅ |
+| 0.4 | Создать .env.example с переменными DATABASE_URL, REDIS_URL, S3_*, AI_*, JWT_SECRET | ✅ |
+| 0.5 | Инициализировать Prisma в packages/db/ | ✅ |
+| 0.6 | Базовый CI (GitHub Actions: lint + typecheck) | ✅ |
 
 ### Фаза 1 — Дизайн-система
 | # | Задача | Статус |
