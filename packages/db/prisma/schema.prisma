@@ -50,6 +50,11 @@ model Profile {
   kpp            String?
   ogrn           String?
   legalAddress   String?
+  // Подписант от имени этого профиля
+  signatorName   String?
+  signatorPosition String?
+  signatorBasis  String?
+  // Файлы факсимиле и печати (пути в S3)
   signatureFilePath String?
   stampFilePath  String?
   createdAt      DateTime    @default(now())
