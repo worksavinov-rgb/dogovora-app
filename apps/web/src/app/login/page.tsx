@@ -71,29 +71,29 @@ export default function LoginPage() {
 
           {/* Центральный контент */}
           <div className="flex-1 flex flex-col justify-center max-w-[400px] mt-[48px]">
-            <h1 className="text-[40px] leading-[1.1] mb-[16px] font-normal font-[var(--font-display)]">
+            <h1 className="text-[40px] leading-[1.1] mb-[24px] font-normal font-[var(--font-display)]">
               Договоры, которые{' '}
               <em className="not-italic text-[var(--accent)]">пишут</em>{' '}
               и{' '}
               <em className="not-italic text-[var(--accent)]">проверяют</em>{' '}
               сами себя.
             </h1>
-            <p className="text-[15px] text-[var(--ink-3)] leading-[1.6] mb-[32px]">
+            <p className="text-[15px] text-[var(--ink-3)] leading-[1.6] mb-[40px]">
               Создавайте, проверяйте и сравнивайте договоры, приложения и допсоглашения
               с помощью ИИ. Версии, контрагенты и реквизиты — в одном тихом месте.
             </p>
 
             {/* Hallmarks */}
-            <div className="flex gap-[24px] text-[13px] text-[var(--ink-3)]">
-              <div className="flex items-center gap-[8px]">
+            <div className="flex items-center gap-[24px] text-[13px] text-[var(--ink-3)] flex-nowrap">
+              <div className="flex items-center gap-[8px] whitespace-nowrap">
                 <ShieldIcon />
                 152-ФЗ
               </div>
-              <div className="flex items-center gap-[8px]">
+              <div className="flex items-center gap-[8px] whitespace-nowrap">
                 <LockIcon />
                 Шифрование
               </div>
-              <div className="flex items-center gap-[8px]">
+              <div className="flex items-center gap-[8px] whitespace-nowrap">
                 <HistoryIcon />
                 История версий
               </div>
