@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge, StatusBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
+import { DocumentRowSkeleton } from '@/components/ui/skeleton'
 
 interface Counterparty { id: string; name: string; inn: string | null }
 interface Version { id: string; number: number; status: string; fileSize: number | null; createdAt: string }
@@ -118,21 +119,22 @@ export default function DocumentsPage() {
       {/* Таблица */}
       <Card pad={false}>
         {/* Шапка */}
-        <div className="grid grid-cols-[1fr_100px_180px_72px_130px_80px_60px_36px] gap-[8px] px-[16px] py-[10px] border-b border-[var(--line)] bg-[var(--surface-inset)] rounded-t-[var(--radius-lg)]">
+        <div className="hidden md:grid grid-cols-[1fr_100px_180px_72px_130px_80px_60px_36px] gap-[8px] px-[16px] py-[10px] border-b border-[var(--line)] bg-[var(--surface-inset)] rounded-t-[var(--radius-lg)]">
           {['Название','Тип','Контрагент','Верс.','Статус','Обновлён','Размер',''].map((h) => (
             <p key={h} className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.07em]">{h}</p>
           ))}
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-[60px]">
-            <div className="w-[20px] h-[20px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
-          </div>
+          Array.from({ length: 5 }).map((_, i) => <DocumentRowSkeleton key={i} />)
         ) : docs.length === 0 ? (
-          <div className="py-[60px] text-center">
-            <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">Документов пока нет</p>
-            <p className="text-[13px] text-[var(--ink-4)] mb-[20px]">Создайте первый договор или загрузите существующий</p>
-            <Button variant="secondary" onClick={() => router.push('/documents/new')}>Создать документ</Button>
+          <div className="py-[64px] flex flex-col items-center gap-[12px]">
+            <div className="w-[48px] h-[48px] rounded-full bg-[var(--surface-inset)] flex items-center justify-center">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <p className="text-[16px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-serif)' }}>Документов пока нет</p>
+            <p className="text-[13px] text-[var(--ink-4)]">Создайте первый договор или загрузите существующий</p>
+            <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать документ</Button>
           </div>
         ) : (
           docs.map((doc, i) => {
@@ -141,36 +143,44 @@ export default function DocumentsPage() {
               <div
                 key={doc.id}
                 onClick={() => router.push(`/documents/${doc.id}`)}
-                className={['grid grid-cols-[1fr_100px_180px_72px_130px_80px_60px_36px] gap-[8px] px-[16px] py-[12px] items-center cursor-pointer hover:bg-[var(--surface-2)] transition-colors', i < docs.length-1 ? 'border-b border-[var(--line)]' : ''].join(' ')}
+                className={[
+                  'cursor-pointer hover:bg-[var(--surface-2)] transition-colors items-center',
+                  'flex gap-[12px] px-[16px] py-[12px]',
+                  'md:grid md:grid-cols-[1fr_100px_180px_72px_130px_80px_60px_36px] md:gap-[8px]',
+                  i < docs.length-1 ? 'border-b border-[var(--line)]' : ''
+                ].join(' ')}
               >
                 {/* Название */}
-                <div className="flex items-center gap-[8px] min-w-0">
+                <div className="flex items-center gap-[8px] min-w-0 flex-1">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
-                  <p className="text-[13px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
+                    <p className="text-[11px] text-[var(--ink-4)] truncate md:hidden">{doc.counterparty.name}</p>
+                  </div>
                 </div>
-                {/* Тип */}
-                <p className="text-[12px] text-[var(--ink-3)]">{TYPE_LABELS[doc.type] ?? doc.type}</p>
-                {/* Контрагент */}
-                <div className="flex items-center gap-[6px] min-w-0">
+                {/* Тип — только десктоп */}
+                <p className="hidden md:block text-[12px] text-[var(--ink-3)]">{TYPE_LABELS[doc.type] ?? doc.type}</p>
+                {/* Контрагент — только десктоп */}
+                <div className="hidden md:flex items-center gap-[6px] min-w-0">
                   <Avatar name={doc.counterparty.name} size={20} />
                   <p className="text-[12px] text-[var(--ink-3)] truncate">{doc.counterparty.name}</p>
                 </div>
-                {/* Версия */}
-                <p className="text-[12px] text-[var(--ink-4)]" style={{ fontFamily:'var(--font-mono)' }}>
+                {/* Версия — только десктоп */}
+                <p className="hidden md:block text-[12px] text-[var(--ink-4)]" style={{ fontFamily:'var(--font-mono)' }}>
                   {lastVer ? `v.${lastVer.number}` : '—'}
                 </p>
                 {/* Статус */}
-                <div>
+                <div className="shrink-0">
                   {lastVer && <StatusBadge status={STATUS_MAP[lastVer.status] ?? 'draft'} />}
                 </div>
                 {/* Обновлён */}
-                <p className="text-[12px] text-[var(--ink-3)]">{relDate(doc.updatedAt)}</p>
-                {/* Размер */}
-                <p className="text-[12px] text-[var(--ink-4)]">{formatSize(lastVer?.fileSize ?? null)}</p>
+                <p className="hidden md:block text-[12px] text-[var(--ink-3)]">{relDate(doc.updatedAt)}</p>
+                {/* Размер — только десктоп */}
+                <p className="hidden md:block text-[12px] text-[var(--ink-4)]">{formatSize(lastVer?.fileSize ?? null)}</p>
                 {/* Меню */}
-                <button onClick={(e) => e.stopPropagation()} className="w-[28px] h-[28px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+                <button onClick={(e) => e.stopPropagation()} className="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
                   </svg>

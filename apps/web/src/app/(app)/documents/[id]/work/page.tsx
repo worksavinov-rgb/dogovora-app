@@ -325,12 +325,33 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const protectionLevel = version.aiSettings?.protectionLevel ?? 70
   const docTitle = version.document?.title ?? 'Документ'
   const charCount = docContent?.length ?? 0
+  const [mobileTab, setMobileTab] = useState<'doc' | 'chat'>('doc')
 
   return (
-    <div className="flex" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+    <div className="flex flex-col md:flex-row" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+
+      {/* Мобильный переключатель Документ ↔ Чат */}
+      <div className="md:hidden shrink-0 flex" style={{ borderBottom: '1px solid var(--line)' }}>
+        {([
+          { key: 'doc', label: 'Документ' },
+          { key: 'chat', label: 'ИИ-чат' },
+        ] as const).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setMobileTab(tab.key)}
+            className="flex-1 h-[40px] text-[13px] font-medium transition-colors cursor-pointer"
+            style={{
+              background: mobileTab === tab.key ? 'var(--ink)' : 'var(--bg)',
+              color: mobileTab === tab.key ? 'var(--bg)' : 'var(--ink-3)',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {/* ── Левая колонка — документ ─────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0" style={{ borderRight: '1px solid var(--line)' }}>
+      <div className={['flex-1 flex flex-col min-w-0', mobileTab === 'chat' ? 'hidden md:flex' : 'flex'].join(' ')} style={{ borderRight: '1px solid var(--line)' }}>
 
         {/* Toolbar */}
         <div className="shrink-0 flex items-center gap-[12px] px-[24px]"
@@ -418,7 +439,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* ── Правая колонка — ИИ-чат (420px фиксированная) ───────────── */}
-      <div className="shrink-0 flex flex-col" style={{ width: 420, background: 'var(--bg)' }}>
+      <div className={['shrink-0 flex flex-col', mobileTab === 'doc' ? 'hidden md:flex' : 'flex'].join(' ')} style={{ width: '100%', maxWidth: 420, background: 'var(--bg)' }}>
 
         {/* Хедер чата */}
         <div className="shrink-0 flex items-center justify-between px-[20px]"

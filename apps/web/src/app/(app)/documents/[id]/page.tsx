@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
+import { useToast } from '@/components/ui/toast'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -182,17 +183,12 @@ function VersionRow({
 export default function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const { toast: showToast } = useToast()
   const [doc, setDoc] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
   const [balance, setBalance] = useState<number | null>(null)
   const [buyingVer, setBuyingVer] = useState<Version | null>(null)
   const [purchasing, setPurchasing] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-
-  function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(null), 4000)
-  }
 
   async function loadDoc() {
     const res = await fetch(`/api/documents/${id}`)
@@ -215,16 +211,16 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
       const data = await res.json()
 
       if (res.status === 402) {
-        showToast('Недостаточно средств — пополните баланс')
+        showToast('Недостаточно средств — пополните баланс', 'error')
         setBuyingVer(null)
         return
       }
       if (!res.ok) {
-        showToast('Ошибка при покупке. Попробуйте ещё раз.')
+        showToast('Ошибка при покупке. Попробуйте ещё раз.', 'error')
         return
       }
 
-      showToast(data.alreadyPurchased ? 'Уже куплено ранее' : 'Версия успешно куплена!')
+      showToast(data.alreadyPurchased ? 'Уже куплено ранее' : 'Версия успешно куплена!', 'success')
       setBuyingVer(null)
       // Обновляем баланс и документ
       const [walletRes] = await Promise.all([
@@ -239,8 +235,18 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-[120px]">
-        <div className="w-[24px] h-[24px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
+      <div className="max-w-[1080px]">
+        <div className="mb-[20px]">
+          <div className="flex items-center gap-[10px] mb-[8px]">
+            <div className="h-[14px] w-[60px] rounded bg-[var(--surface-inset)] animate-pulse" />
+          </div>
+          <div className="h-[32px] w-[55%] rounded bg-[var(--surface-inset)] animate-pulse mb-[8px]" />
+          <div className="h-[14px] w-[30%] rounded bg-[var(--surface-inset)] animate-pulse" />
+        </div>
+        <div className="grid grid-cols-[1fr_300px] gap-[16px]">
+          <div className="h-[400px] rounded-[var(--radius-lg)] bg-[var(--surface-inset)] animate-pulse" />
+          <div className="h-[400px] rounded-[var(--radius-lg)] bg-[var(--surface-inset)] animate-pulse" />
+        </div>
       </div>
     )
   }
@@ -261,14 +267,6 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
           onClose={() => setBuyingVer(null)}
           loading={purchasing}
         />
-      )}
-
-      {toast && (
-        <div className="fixed bottom-[24px] right-[24px] z-40 flex items-center gap-[10px] rounded-[var(--radius-lg)] shadow-lg"
-          style={{ background: 'var(--ink)', color: 'var(--bg)', padding: '12px 16px' }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          <span className="text-[13px] font-medium">{toast}</span>
-        </div>
       )}
 
       <div className="max-w-[1080px]">

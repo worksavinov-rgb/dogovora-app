@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -240,8 +241,33 @@ export default function HistoryPage() {
 
       {/* Контент */}
       {loading ? (
-        <div className="flex items-center justify-center py-[80px]">
-          <div className="w-[24px] h-[24px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
+        <div className="flex flex-col gap-[24px]">
+          {Array.from({ length: 2 }).map((_, g) => (
+            <div key={g}>
+              <div className="flex items-center gap-[12px] mb-[12px]">
+                <Skeleton className="h-[10px] w-[120px]" />
+                <div className="flex-1 h-px bg-[var(--line)]" />
+              </div>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-start gap-[16px] mb-[8px]">
+                  <div className="shrink-0 w-[40px] flex flex-col items-center gap-[6px]">
+                    <Skeleton className="h-[10px] w-[32px]" />
+                    <div className="w-[8px] h-[8px] rounded-full bg-[var(--line)]" />
+                  </div>
+                  <div className="flex-1 rounded-[var(--radius-md)] px-[16px] py-[12px]" style={{ border: '1px solid var(--line)' }}>
+                    <div className="flex items-center gap-[12px]">
+                      <Skeleton className="w-[28px] h-[28px] shrink-0" />
+                      <div className="flex-1 flex flex-col gap-[6px]">
+                        <Skeleton className="h-[13px] w-[50%]" />
+                        <Skeleton className="h-[10px] w-[20%]" />
+                      </div>
+                      <Skeleton className="h-[20px] w-[72px] rounded-full" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       ) : versions.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-[80px] gap-[12px]">

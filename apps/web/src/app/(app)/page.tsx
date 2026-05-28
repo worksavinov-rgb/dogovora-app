@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ export default function HomePage() {
   const [storage, setStorage] = useState<StorageData | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [userName, setUserName] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     // Загружаем всё параллельно
@@ -106,6 +108,7 @@ export default function HomePage() {
       setDocs(docsData.items ?? [])
       setWallet(walletData)
       setStorage(storageData)
+      setLoading(false)
       if (meData?.email) {
         // Берём имя из email до @
         setUserName(meData.email.split('@')[0])
@@ -146,7 +149,7 @@ export default function HomePage() {
       </div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-4 gap-[12px] mb-[24px]">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-[12px] mb-[24px]">
         <QuickAction icon="+" label="Создать договор" sub="С нуля или из шаблона"
           onClick={() => router.push('/documents/new')} />
         <QuickAction icon="◎" label="Проверить документ" sub="Загрузить и оценить риски"
@@ -158,7 +161,7 @@ export default function HomePage() {
       </div>
 
       {/* Две колонки */}
-      <div className="grid grid-cols-[1fr_280px] gap-[16px]">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-[16px]">
 
         {/* Недавние документы */}
         <Card pad={false}>
@@ -172,12 +175,27 @@ export default function HomePage() {
             </button>
           </div>
 
-          {docs.length === 0 ? (
-            <div className="py-[48px] text-center">
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-[12px] px-[20px] py-[12px]" style={{ borderBottom: '1px solid var(--line)' }}>
+                <Skeleton className="w-[28px] h-[28px] shrink-0" />
+                <div className="flex-1 flex flex-col gap-[6px]">
+                  <Skeleton className="h-[12px] w-[55%]" />
+                  <Skeleton className="h-[10px] w-[30%]" />
+                </div>
+                <Skeleton className="h-[20px] w-[64px] rounded-full" />
+                <Skeleton className="h-[10px] w-[24px]" />
+              </div>
+            ))
+          ) : docs.length === 0 ? (
+            <div className="py-[48px] flex flex-col items-center gap-[10px]">
+              <div className="w-[40px] h-[40px] rounded-full bg-[var(--surface-inset)] flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              </div>
               <p className="text-[14px] text-[var(--ink-3)]" style={{ fontFamily: 'var(--font-serif)' }}>
                 Документов пока нет
               </p>
-              <p className="text-[12px] text-[var(--ink-4)] mt-[4px] mb-[16px]">
+              <p className="text-[12px] text-[var(--ink-4)]">
                 Создайте первый договор
               </p>
               <button

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
+import { CounterpartyRowSkeleton } from '@/components/ui/skeleton'
 
 interface Counterparty {
   id: string
@@ -107,18 +108,19 @@ export default function CounterpartiesPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center justify-center py-[60px]">
-            <div className="w-[20px] h-[20px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
-          </div>
+          Array.from({ length: 4 }).map((_, i) => <CounterpartyRowSkeleton key={i} />)
         ) : items.length === 0 ? (
-          <div className="px-[20px] py-[60px] text-center">
-            <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">
+          <div className="px-[20px] py-[64px] flex flex-col items-center gap-[12px]">
+            <div className="w-[48px] h-[48px] rounded-full bg-[var(--surface-inset)] flex items-center justify-center">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <p className="text-[16px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-serif)' }}>
               {q ? 'Ничего не найдено' : 'Контрагентов пока нет'}
             </p>
-            <p className="text-[13px] text-[var(--ink-4)] mb-[20px]">
-              {q ? 'Попробуйте изменить запрос' : 'Добавьте первого контрагента'}
+            <p className="text-[13px] text-[var(--ink-4)]">
+              {q ? 'Попробуйте изменить запрос' : 'Добавьте первого контрагента чтобы начать'}
             </p>
-            {!q && <Button variant="secondary" onClick={() => router.push('/counterparties/new')}>Добавить контрагента</Button>}
+            {!q && <Button variant="primary" onClick={() => router.push('/counterparties/new')}>+ Добавить контрагента</Button>}
           </div>
         ) : (
           <div>

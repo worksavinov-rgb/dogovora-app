@@ -33,8 +33,11 @@ function IconSettings() {
 function IconPlus() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 }
-function IconSparkle() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+function IconMenu() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+}
+function IconClose() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 }
 
 /* ─── Навигация ───────────────────────────────────────────────────────────── */
@@ -71,13 +74,14 @@ const navGroups = [
   },
 ]
 
-function NavLink({ href, label, icon }: NavItem) {
+function NavLink({ href, label, icon, onClick }: NavItem & { onClick?: () => void }) {
   const pathname = usePathname()
   const isActive = pathname === href || (href !== '/' && pathname.startsWith(href))
 
   return (
     <Link
       href={href}
+      onClick={onClick}
       className={[
         'flex items-center gap-[10px] h-[34px] px-[10px] rounded-[var(--radius-md)]',
         'text-[13px] font-medium transition-colors duration-[120ms] no-underline',
@@ -93,22 +97,23 @@ function NavLink({ href, label, icon }: NavItem) {
   )
 }
 
-/* ─── Sidebar ─────────────────────────────────────────────────────────────── */
+/* ─── SidebarContent ──────────────────────────────────────────────────────── */
 
-function Sidebar() {
+function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   return (
-    <aside className="w-[232px] shrink-0 flex flex-col bg-[var(--bg-soft)] border-r border-[var(--line)] h-screen sticky top-0">
+    <>
       {/* Логотип */}
-      <div className="h-[56px] flex items-center px-[20px] border-b border-[var(--line)]">
+      <div className="h-[56px] flex items-center px-[20px] border-b border-[var(--line)] shrink-0">
         <span className="font-[var(--font-display)] text-[18px] font-semibold text-[var(--ink)] tracking-[-0.02em]">
           Договора
         </span>
       </div>
 
       {/* Кнопка «Новый документ» */}
-      <div className="px-[12px] pt-[16px] pb-[8px]">
+      <div className="px-[12px] pt-[16px] pb-[8px] shrink-0">
         <Link
           href="/documents/new"
+          onClick={onNavClick}
           className={[
             'flex items-center justify-center gap-[8px] w-full h-[36px] rounded-[var(--radius-md)]',
             'bg-[var(--ink)] text-white text-[14px] font-medium',
@@ -129,7 +134,7 @@ function Sidebar() {
             </p>
             <div className="flex flex-col gap-[2px]">
               {group.items.map((item) => (
-                <NavLink key={item.href} {...item} />
+                <NavLink key={item.href} {...item} onClick={onNavClick} />
               ))}
             </div>
           </div>
@@ -137,7 +142,7 @@ function Sidebar() {
       </nav>
 
       {/* Профиль внизу */}
-      <div className="border-t border-[var(--line)] px-[12px] py-[12px]">
+      <div className="border-t border-[var(--line)] px-[12px] py-[12px] shrink-0">
         <div className="flex items-center gap-[10px] px-[10px] py-[6px] rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] cursor-pointer transition-colors duration-[120ms]">
           <div
             className="w-[28px] h-[28px] rounded-full bg-[oklch(0.88_0.04_260)] flex items-center justify-center text-[11px] font-semibold text-[var(--accent-ink)] border border-[var(--line)] shrink-0"
@@ -150,7 +155,7 @@ function Sidebar() {
           </div>
         </div>
       </div>
-    </aside>
+    </>
   )
 }
 
@@ -160,26 +165,38 @@ interface TopbarProps {
   breadcrumbs?: { label: string; href?: string }[]
   actions?: React.ReactNode
   balance?: number
+  onMenuClick?: () => void
 }
 
-function Topbar({ breadcrumbs = [], actions, balance }: TopbarProps) {
+function Topbar({ breadcrumbs = [], actions, balance, onMenuClick }: TopbarProps) {
   return (
     <header className="h-[56px] shrink-0 flex items-center justify-between px-[24px] border-b border-[var(--line)] bg-[var(--bg)] sticky top-0 z-10">
-      {/* Breadcrumb */}
-      <nav className="flex items-center gap-[6px] text-[13px]">
-        {breadcrumbs.map((crumb, i) => (
-          <React.Fragment key={i}>
-            {i > 0 && <span className="text-[var(--ink-5)]">/</span>}
-            {crumb.href ? (
-              <Link href={crumb.href} className="text-[var(--ink-3)] hover:text-[var(--ink-2)] no-underline transition-colors">
-                {crumb.label}
-              </Link>
-            ) : (
-              <span className="text-[var(--ink)] font-medium">{crumb.label}</span>
-            )}
-          </React.Fragment>
-        ))}
-      </nav>
+      <div className="flex items-center gap-[12px]">
+        {/* Гамбургер для мобильных */}
+        {onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="md:hidden flex items-center justify-center w-[32px] h-[32px] rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer text-[var(--ink-3)]"
+          >
+            <IconMenu />
+          </button>
+        )}
+        {/* Breadcrumb */}
+        <nav className="flex items-center gap-[6px] text-[13px]">
+          {breadcrumbs.map((crumb, i) => (
+            <React.Fragment key={i}>
+              {i > 0 && <span className="text-[var(--ink-5)]">/</span>}
+              {crumb.href ? (
+                <Link href={crumb.href} className="text-[var(--ink-3)] hover:text-[var(--ink-2)] no-underline transition-colors">
+                  {crumb.label}
+                </Link>
+              ) : (
+                <span className="text-[var(--ink)] font-medium">{crumb.label}</span>
+              )}
+            </React.Fragment>
+          ))}
+        </nav>
+      </div>
 
       {/* Правая часть */}
       <div className="flex items-center gap-[12px]">
@@ -208,12 +225,50 @@ interface AppLayoutProps {
 }
 
 export function AppLayout({ children, breadcrumbs, actions, balance = 0 }: AppLayoutProps) {
+  const [drawerOpen, setDrawerOpen] = React.useState(false)
+
   return (
     <div className="flex h-screen bg-[var(--bg)] overflow-hidden">
-      <Sidebar />
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex w-[232px] shrink-0 flex-col bg-[var(--bg-soft)] border-r border-[var(--line)] h-screen sticky top-0">
+        <SidebarContent />
+      </aside>
+
+      {/* Mobile drawer overlay */}
+      {drawerOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-40 bg-black/40"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {/* Mobile drawer panel */}
+      <aside
+        className={[
+          'md:hidden fixed left-0 top-0 bottom-0 w-[280px] z-50 flex flex-col',
+          'bg-[var(--bg-soft)] border-r border-[var(--line)] transition-transform duration-300',
+          drawerOpen ? 'translate-x-0' : '-translate-x-full',
+        ].join(' ')}
+      >
+        {/* Закрыть */}
+        <button
+          onClick={() => setDrawerOpen(false)}
+          className="absolute top-[12px] right-[12px] w-[32px] h-[32px] flex items-center justify-center rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer text-[var(--ink-3)]"
+        >
+          <IconClose />
+        </button>
+        <SidebarContent onNavClick={() => setDrawerOpen(false)} />
+      </aside>
+
+      {/* Основной контент */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Topbar breadcrumbs={breadcrumbs} actions={actions} balance={balance} />
-        <main className="flex-1 overflow-y-auto p-[24px]">
+        <Topbar
+          breadcrumbs={breadcrumbs}
+          actions={actions}
+          balance={balance}
+          onMenuClick={() => setDrawerOpen(true)}
+        />
+        <main className="flex-1 overflow-y-auto p-[16px] md:p-[24px]">
           {children}
         </main>
       </div>
