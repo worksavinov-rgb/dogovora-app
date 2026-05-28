@@ -1,10 +1,8 @@
 import type { AIProvider, AIMessage, AISettings, ReviewResult } from './types'
 
 // ─── Заглушка для разработки ─────────────────────────────────────────────────
-// Реальные провайдеры (Claude, OpenAI) подключаются в Фазе 7.2
 
-async function* streamText(text: string, delayMs = 18): AsyncGenerator<string> {
-  // Стримим по словам с небольшой задержкой — имитирует real streaming
+async function* streamText(text: string, delayMs = 12): AsyncGenerator<string> {
   const words = text.split(' ')
   for (const word of words) {
     yield word + ' '
@@ -12,24 +10,97 @@ async function* streamText(text: string, delayMs = 18): AsyncGenerator<string> {
   }
 }
 
-const MOCK_CHAT_RESPONSES = [
-  'Принял правки. Обновил п. 3.4 — срок оплаты теперь 10 банковских дней вместо 5. Конфиденциальность в п. 7.5 сохранена по просьбе клиента, но уровень защищённости снизился с 65% до 57%. Рекомендую оставить NDA в усечённой форме — только на ключевые данные проекта.',
-  'Добавил пункт о неустойке в раздел 5. Формулировка: «За просрочку оплаты Заказчик уплачивает пеню в размере 0,1% от суммы задолженности за каждый день просрочки». Хотите усилить — могу поднять до 0,5%.',
-  'Сократил документ на ~20%. Убрал дублирующиеся формулировки в разделах 2 и 6, укоротил преамбулу. Объём теперь 6 800 знаков вместо 8 400. Смысл и юридическая сила сохранены.',
-  'Проверил пункт 4 — передача исключительных прав. Сейчас формулировка размытая: «исключительные права передаются по подписании акта». Уточнил: «передаются после полной оплаты всех этапов». Это защищает вас от ситуации когда клиент пользуется кодом до финального расчёта.',
+const EDIT_SCENARIOS: Array<{
+  instruction: RegExp
+  explanation: string
+  apply: (doc: string) => string
+}> = [
+  {
+    instruction: /неустойк|пен[юя]/i,
+    explanation: 'Добавил пункт о неустойке в раздел «Ответственность сторон». Формулировка: за просрочку оплаты — 0,1% от суммы за каждый день просрочки.',
+    apply: (doc) => {
+      if (doc.includes('0,1%')) return doc
+      const target = doc.match(/5\.\s*ОТВЕТСТВЕННОСТЬ|ОТВЕТСТВЕННОСТЬ СТОРОН/i)
+      if (target) {
+        return doc.replace(
+          target[0],
+          `${target[0]}\n\n5.1. За просрочку оплаты Заказчик уплачивает пеню в размере 0,1% от суммы задолженности за каждый день просрочки.`,
+        )
+      }
+      return doc + '\n\n5. ОТВЕТСТВЕННОСТЬ СТОРОН\n\n5.1. За просрочку оплаты Заказчик уплачивает пеню в размере 0,1% от суммы задолженности за каждый день просрочки.'
+    },
+  },
+  {
+    instruction: /конфиденциальн/i,
+    explanation: 'Усилил раздел о конфиденциальности: добавил срок 5 лет, расширил перечень конфиденциальных сведений, добавил ответственность за разглашение.',
+    apply: (doc) => {
+      const confRe = /конфиденциальн[а-я]+[^.]*\./gi
+      let updated = doc
+      const matches = [...doc.matchAll(confRe)]
+      if (matches.length > 0) {
+        updated = doc.replace(
+          matches[0][0],
+          'Стороны обязуются сохранять конфиденциальность всей полученной информации в течение 5 (пяти) лет с момента подписания договора. За разглашение конфиденциальной информации виновная сторона уплачивает штраф в размере 100 000 рублей.',
+        )
+      } else {
+        updated = doc + '\n\n7. КОНФИДЕНЦИАЛЬНОСТЬ\n\n7.1. Стороны обязуются сохранять конфиденциальность всей полученной информации в течение 5 лет. За разглашение — штраф 100 000 рублей.'
+      }
+      return updated
+    },
+  },
+  {
+    instruction: /срок|оплат/i,
+    explanation: 'Уточнил сроки оплаты: 10 банковских дней с момента подписания акта. Добавил условие об авансовом платеже 30% в течение 3 рабочих дней.',
+    apply: (doc) => {
+      return doc.replace(
+        /оплата производится[^.]+\./i,
+        'Оплата производится в течение 10 (десяти) банковских дней с момента подписания акта. Аванс 30% — в течение 3 рабочих дней с момента заключения договора.',
+      )
+    },
+  },
+  {
+    instruction: /форс.?мажор/i,
+    explanation: 'Конкретизировал перечень форс-мажорных обстоятельств, добавил обязанность уведомить контрагента в течение 3 дней, ограничил срок действия форс-мажора 6 месяцами.',
+    apply: (doc) => {
+      if (doc.toLowerCase().includes('форс')) {
+        return doc.replace(
+          /форс.{0,200}обстоятельств[^.]*\./is,
+          'Стороны освобождаются от ответственности при наступлении форс-мажорных обстоятельств: стихийных бедствий, войны, эпидемий, решений органов власти. Сторона, для которой наступил форс-мажор, обязана уведомить контрагента в течение 3 (трёх) рабочих дней. Если форс-мажор длится более 6 месяцев, любая из сторон вправе расторгнуть договор.',
+        )
+      }
+      return doc + '\n\n9. ФОРС-МАЖОР\n\n9.1. Стороны освобождаются от ответственности при наступлении форс-мажорных обстоятельств: стихийных бедствий, войны, эпидемий. Уведомление — не позднее 3 рабочих дней. Срок форс-мажора — не более 6 месяцев.'
+    },
+  },
+  {
+    instruction: /.*/,
+    explanation: 'Внёс запрошенные правки в документ. Проверьте изменения в тексте договора слева.',
+    apply: (doc) => {
+      // Добавляем небольшое универсальное изменение
+      return doc + '\n\n[Изменение внесено по запросу: добавлены уточняющие формулировки в соответствии с инструкцией.]'
+    },
+  },
 ]
 
-let responseIndex = 0
-
 export const mockProvider: AIProvider = {
-  async *chat(messages: AIMessage[], settings: AISettings, documentText: string) {
-    const response = MOCK_CHAT_RESPONSES[responseIndex % MOCK_CHAT_RESPONSES.length]
-    responseIndex++
-    yield* streamText(response)
+  async *chat(messages: AIMessage[], _settings: AISettings, _documentText: string) {
+    // Только если вызывается для ответа без редактирования документа
+    const last = messages[messages.length - 1]
+    const text = last?.role === 'user' ? last.content : ''
+    const scenario = EDIT_SCENARIOS.find((s) => s.instruction.test(text)) ?? EDIT_SCENARIOS[EDIT_SCENARIOS.length - 1]
+    yield* streamText(scenario.explanation)
   },
 
-  async review(documentText: string, settings: AISettings): Promise<ReviewResult> {
-    // Имитируем задержку API
+  async *editDocument(documentText: string, instruction: string, _settings: AISettings) {
+    await new Promise((r) => setTimeout(r, 400))
+
+    const scenario = EDIT_SCENARIOS.find((s) => s.instruction.test(instruction)) ?? EDIT_SCENARIOS[EDIT_SCENARIOS.length - 1]
+    const updated = scenario.apply(documentText || 'Документ пуст. Начинаем с чистого листа.')
+
+    // Стримим обновлённый документ
+    yield* streamText(updated, 4)
+  },
+
+  async review(_documentText: string, _settings: AISettings): Promise<ReviewResult> {
     await new Promise((r) => setTimeout(r, 800))
 
     return {
@@ -51,7 +122,7 @@ export const mockProvider: AIProvider = {
     }
   },
 
-  async *generate(description: string, counterpartyName: string, settings: AISettings) {
+  async *generate(description: string, counterpartyName: string, _settings: AISettings) {
     const template = `ДОГОВОР № ___
 на разработку программного обеспечения
 

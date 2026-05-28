@@ -29,12 +29,33 @@ export interface ReviewResult {
   summary: string
 }
 
+/**
+ * Результат редактирования документа через ИИ.
+ * updatedDocument — полный новый текст документа (применены изменения).
+ * explanation — краткое пояснение что изменил (для чат-сообщения).
+ */
+export interface EditResult {
+  updatedDocument: string
+  explanation: string
+}
+
 export interface AIProvider {
-  /** Стриминг ответа в чате */
+  /** Стриминг ответа в чате (только текстовый ответ, без изменения документа) */
   chat(
     messages: AIMessage[],
     settings: AISettings,
     documentText: string,
+  ): AsyncGenerator<string>
+
+  /**
+   * Редактирует документ по инструкции.
+   * Стримит обновлённый текст документа.
+   * После завершения возвращает краткое объяснение через done-событие.
+   */
+  editDocument(
+    documentText: string,
+    instruction: string,
+    settings: AISettings,
   ): AsyncGenerator<string>
 
   /** Проверка документа на риски */

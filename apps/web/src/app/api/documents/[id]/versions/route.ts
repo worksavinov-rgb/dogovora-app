@@ -14,6 +14,8 @@ const versionSchema = z.object({
     description: z.string().optional(),
   }),
   status: z.enum(['DRAFT', 'IN_PROGRESS', 'REVIEW', 'APPROVED', 'PAID']).optional(),
+  // Текст документа — передаётся при сохранении отредактированного через ИИ документа
+  content: z.string().optional(),
 })
 
 // POST /api/documents/:id/versions  — APPEND-ONLY, никогда не обновляет существующую
@@ -47,6 +49,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       number: nextNumber,
       status: data.status ?? 'DRAFT',
       aiSettings: data.aiSettings,
+      // Если передан готовый текст (из ИИ-чата), сразу сохраняем в content
+      ...(data.content ? {
+        content: data.content,
+        fileSize: Buffer.byteLength(data.content, 'utf8'),
+      } : {}),
     },
     include: { purchase: true },
   })

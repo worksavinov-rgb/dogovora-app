@@ -221,6 +221,36 @@ export const gigachatProvider: AIProvider = {
     yield* streamText(payload)
   },
 
+  async *editDocument(documentText: string, instruction: string, settings: AISettings) {
+    const systemPrompt = [
+      'Ты юридический помощник. Твоя задача — применить изменения к тексту договора.',
+      'ВАЖНО: В ответе верни ТОЛЬКО полный обновлённый текст договора. Без пояснений, без markdown, без преамбулы.',
+      'Сохрани структуру и все разделы оригинала, применив только запрошенные изменения.',
+      `Уровень защиты интересов пользователя: ${settings.protectionLevel}/90.`,
+      settings.customInstruction ? `Дополнительная инструкция: ${settings.customInstruction}` : '',
+    ].filter(Boolean).join('\n')
+
+    const userMessage = [
+      `Инструкция по редактированию: ${instruction}`,
+      '',
+      'Текущий текст договора:',
+      documentText || '(документ пуст — создай новый договор согласно инструкции)',
+    ].join('\n')
+
+    const payload = {
+      model: GIGACHAT_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      max_tokens: 4000,
+      repetition_penalty: 1,
+      temperature: 0.3,
+    }
+
+    yield* streamText(payload)
+  },
+
   async review(documentText: string, settings: AISettings): Promise<ReviewResult> {
     const prompt = [
       'Проверь договор на юридические риски и верни только JSON.',

@@ -8,6 +8,12 @@ type Params = { params: Promise<{ id: string }> }
 
 const msgSchema = z.object({
   content: z.string().min(1).max(4000),
+  /**
+   * mode:
+   *  'edit'  — ИИ редактирует документ, возвращает обновлённый текст + пояснение
+   *  'chat'  — обычный вопрос/ответ без изменения документа
+   */
+  mode: z.enum(['edit', 'chat']).default('edit'),
 })
 
 // GET /api/versions/:id/chat — история сообщений
@@ -26,6 +32,12 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 // POST /api/versions/:id/chat — отправить сообщение + получить SSE-стриминг ответа
+//
+// SSE-события:
+//   data: {"type":"doc","chunk":"..."}   — кусок обновлённого документа
+//   data: {"type":"chat","chunk":"..."}  — кусок объяснения для чат-пузыря
+//   data: [DONE]                         — конец потока
+//
 export async function POST(req: NextRequest, { params }: Params) {
   const userId = getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -51,17 +63,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     data: { versionId: id, role: 'USER', content: data.content },
   })
 
-  // Загружаем историю для контекста
-  const history = await prisma.chatMessage.findMany({
-    where: { versionId: id },
-    orderBy: { createdAt: 'asc' },
-  })
-
-  const messages = history.map((m) => ({
-    role: (m.role === 'USER' ? 'user' : 'assistant') as 'user' | 'assistant',
-    content: m.content,
-  }))
-
   const aiSettings = version.aiSettings as { protectionLevel?: number; targetSize?: number; customInstruction?: string }
   const settings = {
     protectionLevel: aiSettings?.protectionLevel ?? 70,
@@ -69,21 +70,93 @@ export async function POST(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
   const aiProvider = getAIProvider()
-
-  // SSE-стриминг ответа ИИ
+  const documentText = version.content ?? ''
   const encoder = new TextEncoder()
-  let fullResponse = ''
 
+  // ─── Режим EDIT: ИИ возвращает обновлённый документ ─────────────────────────
+  if (data.mode === 'edit') {
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (payload: Record<string, unknown>) =>
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+
+        try {
+          // 1. Стримим обновлённый документ
+          let updatedDoc = ''
+          const docGen = aiProvider.editDocument(documentText, data.content, settings)
+          for await (const chunk of docGen) {
+            updatedDoc += chunk
+            send({ type: 'doc', chunk })
+          }
+
+          // 2. Генерируем краткое объяснение для чата
+          let explanation = ''
+          const history = await prisma.chatMessage.findMany({
+            where: { versionId: id },
+            orderBy: { createdAt: 'asc' },
+          })
+          const messages = history.map((m) => ({
+            role: (m.role === 'USER' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: m.content,
+          }))
+          // Добавляем системный контекст для объяснения
+          messages.push({
+            role: 'user',
+            content: `Я применил твои правки к документу. Напиши краткое пояснение (2-4 предложения) что именно изменилось. Без полного текста договора.`,
+          })
+
+          const chatGen = aiProvider.chat(messages, settings, updatedDoc)
+          for await (const chunk of chatGen) {
+            explanation += chunk
+            send({ type: 'chat', chunk })
+          }
+
+          // 3. Сохраняем объяснение в историю чата
+          await prisma.chatMessage.create({
+            data: { versionId: id, role: 'AI', content: explanation.trim() },
+          })
+
+          send({ type: 'done', updatedDocLength: updatedDoc.length })
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        } catch (err) {
+          console.error('[chat/edit]', err)
+          controller.error(err)
+        }
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    })
+  }
+
+  // ─── Режим CHAT: обычный вопрос без изменения документа ─────────────────────
+  const history = await prisma.chatMessage.findMany({
+    where: { versionId: id },
+    orderBy: { createdAt: 'asc' },
+  })
+  const messages = history.map((m) => ({
+    role: (m.role === 'USER' ? 'user' : 'assistant') as 'user' | 'assistant',
+    content: m.content,
+  }))
+
+  let fullResponse = ''
   const stream = new ReadableStream({
     async start(controller) {
+      const send = (payload: Record<string, unknown>) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       try {
-        const generator = aiProvider.chat(messages, settings, version.content ?? '')
+        const generator = aiProvider.chat(messages, settings, documentText)
         for await (const chunk of generator) {
           fullResponse += chunk
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk })}\n\n`))
+          send({ type: 'chat', chunk })
         }
 
-        // Сохраняем полный ответ ИИ в БД
         await prisma.chatMessage.create({
           data: { versionId: id, role: 'AI', content: fullResponse.trim() },
         })

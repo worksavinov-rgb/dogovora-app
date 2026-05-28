@@ -121,8 +121,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
-  const [streamingContent, setStreamingContent] = useState('')
+  const [streamingContent, setStreamingContent] = useState('') // чат-пузырь
+  const [streamingDoc, setStreamingDoc] = useState<string | null>(null) // обновление документа
   const [saving, setSaving] = useState(false)
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false) // есть несохранённые ИИ-правки
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -222,7 +224,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
 
-  // Отправка сообщения в чат
+  // Отправка сообщения в чат (режим edit — ИИ меняет документ)
   async function sendMessage() {
     if (!input.trim() || streaming || !version) return
 
@@ -230,6 +232,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     setInput('')
     setStreaming(true)
     setStreamingContent('')
+    setStreamingDoc(null)
 
     const tempUserMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
@@ -243,36 +246,67 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       const response = await fetch(`/api/versions/${version.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: userText }),
+        body: JSON.stringify({ content: userText, mode: 'edit' }),
       })
 
       if (!response.ok || !response.body) throw new Error('Failed')
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      let aiText = ''
+      let aiChatText = ''
+      let aiDocText = ''
+      let docPhase = false // сначала стримим doc, потом chat
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         const text = decoder.decode(value)
+
         for (const line of text.split('\n')) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') break
-            try {
-              const parsed = JSON.parse(data)
-              if (parsed.chunk) { aiText += parsed.chunk; setStreamingContent(aiText) }
-            } catch {}
-          }
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6)
+          if (data === '[DONE]') break
+
+          try {
+            const parsed = JSON.parse(data)
+
+            if (parsed.type === 'doc' && parsed.chunk) {
+              // Документ начал обновляться
+              if (!docPhase) {
+                docPhase = true
+                setStreamingDoc('') // триггер для показа документа
+              }
+              aiDocText += parsed.chunk
+              setStreamingDoc(aiDocText)
+            }
+
+            if (parsed.type === 'chat' && parsed.chunk) {
+              aiChatText += parsed.chunk
+              setStreamingContent(aiChatText)
+            }
+          } catch { /* ignore parse errors */ }
         }
       }
 
+      // Применяем обновлённый документ
+      if (aiDocText.trim()) {
+        setDocContent(aiDocText.trim())
+        setHasUnsavedEdits(true)
+        // Обновляем мобильный таб чтобы пользователь видел документ
+      }
+
+      // Финализируем чат-сообщение
       setMessages((prev) => [
         ...prev,
-        { id: `ai-${Date.now()}`, role: 'AI', content: aiText.trim(), createdAt: new Date().toISOString() },
+        {
+          id: `ai-${Date.now()}`,
+          role: 'AI',
+          content: aiChatText.trim() || 'Документ обновлён.',
+          createdAt: new Date().toISOString(),
+        },
       ])
       setStreamingContent('')
+      setStreamingDoc(null)
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -302,9 +336,14 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             description: 'Сохранено из рабочего экрана',
           },
           status: 'IN_PROGRESS',
+          // Передаём текущий (отредактированный) текст документа
+          content: docContent ?? undefined,
         }),
       })
-      if (res.ok) router.push(`/documents/${id}`)
+      if (res.ok) {
+        setHasUnsavedEdits(false)
+        router.push(`/documents/${id}`)
+      }
     } finally {
       setSaving(false)
     }
@@ -398,20 +437,40 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         {generating ? (
           <GeneratingScreen progress={genProgress} docTitle={docTitle} />
         ) : (
-          <div className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-soft)', padding: '32px 40px' }}>
+          <div className="flex-1 overflow-y-auto relative" style={{ background: 'var(--bg-soft)', padding: '32px 40px' }}>
+            {/* Индикатор обновления документа ИИ */}
+            {streamingDoc !== null && (
+              <div
+                className="absolute top-[16px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-[8px] px-[14px] py-[7px] rounded-full shadow-md"
+                style={{ background: 'var(--ink)', color: 'var(--bg)' }}
+              >
+                <div className="w-[10px] h-[10px] rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                <span className="text-[12px] font-medium">ИИ обновляет документ…</span>
+              </div>
+            )}
+
             <div className="mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm"
               style={{ maxWidth: 720, padding: '48px 56px', minHeight: 600 }}>
-              {docContent ? (
-                <pre className="whitespace-pre-wrap text-[14px] leading-[1.75] text-[var(--ink)]"
-                  style={{ fontFamily: 'var(--font-serif)', letterSpacing: '0.01em' }}>
-                  {docContent}
+
+              {/* Показываем streamingDoc во время обновления, иначе docContent */}
+              {(streamingDoc !== null ? streamingDoc : docContent) ? (
+                <pre
+                  className="whitespace-pre-wrap text-[14px] leading-[1.75]"
+                  style={{
+                    fontFamily: 'var(--font-serif)',
+                    letterSpacing: '0.01em',
+                    color: streamingDoc !== null ? 'var(--ink-3)' : 'var(--ink)',
+                    transition: 'color 0.3s',
+                  }}
+                >
+                  {streamingDoc !== null ? streamingDoc : docContent}
                 </pre>
               ) : (
                 <div className="flex flex-col items-center justify-center h-[400px] gap-[12px]">
                   <p className="text-[14px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-serif)' }}>
                     Документ пуст
                   </p>
-                  <p className="text-[12px] text-[var(--ink-4)]">Попросите ИИ сгенерировать текст</p>
+                  <p className="text-[12px] text-[var(--ink-4)]">Попросите ИИ создать или отредактировать договор</p>
                 </div>
               )}
             </div>
@@ -421,8 +480,21 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         {/* Bottom action bar */}
         <div className="shrink-0 flex items-center gap-[8px] px-[24px]"
           style={{ height: 56, borderTop: '1px solid var(--line)', background: 'var(--bg)' }}>
-          <button onClick={saveAsNewVersion} disabled={saving || generating}
-            className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40">
+          {hasUnsavedEdits && (
+            <span className="text-[11px] text-[var(--ink-4)] flex items-center gap-[5px]">
+              <span className="w-[6px] h-[6px] rounded-full bg-[oklch(0.65_0.1_60)]" />
+              Есть несохранённые правки
+            </span>
+          )}
+          <button
+            onClick={saveAsNewVersion}
+            disabled={saving || generating}
+            className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] font-medium hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
+            style={{
+              background: hasUnsavedEdits ? 'oklch(0.42 0.06 260)' : 'var(--ink)',
+              color: 'var(--bg)',
+            }}
+          >
             {saving ? 'Сохраняю…' : `Сохранить как v.${version.number + 1}`}
           </button>
           <button className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">

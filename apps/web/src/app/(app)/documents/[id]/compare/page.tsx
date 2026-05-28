@@ -8,88 +8,226 @@ interface Version {
   number: number
   status: string
   createdAt: string
+  content: string | null
   aiSettings: { description?: string }
 }
 
-// ─── Простое diff-сравнение по строкам ────────────────────────────────────────
+// ─── Алгоритм LCS для пословного diff ────────────────────────────────────────
 
-type DiffLine = { type: 'same' | 'added' | 'removed'; text: string }
+type WordToken = { text: string; type: 'same' | 'added' | 'removed' }
 
-function diffTexts(a: string, b: string): DiffLine[] {
-  const linesA = a.split('\n')
-  const linesB = b.split('\n')
-  const result: DiffLine[] = []
+/**
+ * Вычисляет пословный diff между двумя строками.
+ * Возвращает массив токенов с пометками same/added/removed.
+ */
+function wordDiff(oldText: string, newText: string): WordToken[] {
+  // Разбиваем с сохранением разделителей (пробелы, переносы, знаки препинания)
+  const tokenize = (s: string) => s.split(/(\s+|(?<=[а-яА-Яa-zA-Z\d])(?=[^а-яА-Яa-zA-Z\d])|(?<=[^а-яА-Яa-zA-Z\d])(?=[а-яА-Яa-zA-Z\d]))/).filter(Boolean)
 
-  const maxLen = Math.max(linesA.length, linesB.length)
-  for (let i = 0; i < maxLen; i++) {
-    const la = linesA[i]
-    const lb = linesB[i]
-    if (la === lb) {
-      result.push({ type: 'same', text: la ?? '' })
-    } else {
-      if (la !== undefined) result.push({ type: 'removed', text: la })
-      if (lb !== undefined) result.push({ type: 'added', text: lb })
+  const oldWords = tokenize(oldText)
+  const newWords = tokenize(newText)
+
+  // LCS через динамическое программирование
+  const m = oldWords.length
+  const n = newWords.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldWords[i - 1] === newWords[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
     }
   }
+
+  // Восстанавливаем путь
+  const result: WordToken[] = []
+  let i = m, j = n
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldWords[i - 1] === newWords[j - 1]) {
+      result.unshift({ text: oldWords[i - 1]!, type: 'same' })
+      i--; j--
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      result.unshift({ text: newWords[j - 1]!, type: 'added' })
+      j--
+    } else {
+      result.unshift({ text: oldWords[i - 1]!, type: 'removed' })
+      i--
+    }
+  }
+
   return result
 }
 
-// Mock-тексты двух версий
-const VERSION_1 = `ДОГОВОР № ___
-на разработку программного обеспечения
+/**
+ * Разбивает текст по строкам и применяет пословный diff к каждой паре строк.
+ * Возвращает строки с токенами.
+ */
+type DiffLine = {
+  lineType: 'same' | 'changed' | 'added' | 'removed'
+  tokens: WordToken[]
+}
 
-г. Москва                                           «__» ________ 2025 г.
+function diffDocuments(textA: string, textB: string): DiffLine[] {
+  const linesA = textA.split('\n')
+  const linesB = textB.split('\n')
+  const result: DiffLine[] = []
 
-ООО «Контрагент», именуемый в дальнейшем «Заказчик», с одной стороны, и Исполнитель, с другой стороны, заключили настоящий договор.
+  // LCS на уровне строк
+  const m = linesA.length
+  const n = linesB.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
 
-1. ПРЕДМЕТ ДОГОВОРА
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (linesA[i - 1] === linesB[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1])
+      }
+    }
+  }
 
-1.1. Исполнитель обязуется разработать для Заказчика программный продукт.
+  // Восстанавливаем путь
+  let i = m, j = n
+  const ops: Array<{ type: 'same' | 'changed' | 'added' | 'removed'; a?: string; b?: string }> = []
 
-2. СТОИМОСТЬ И ПОРЯДОК РАСЧЁТОВ
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && linesA[i - 1] === linesB[j - 1]) {
+      ops.unshift({ type: 'same', a: linesA[i - 1], b: linesB[j - 1] })
+      i--; j--
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      // Смотрим можно ли смерджить с предыдущим removed → changed
+      const last = ops[0]
+      if (last?.type === 'removed' && last.a !== undefined) {
+        ops[0] = { type: 'changed', a: last.a, b: linesB[j - 1] }
+      } else {
+        ops.unshift({ type: 'added', b: linesB[j - 1] })
+      }
+      j--
+    } else {
+      ops.unshift({ type: 'removed', a: linesA[i - 1] })
+      i--
+    }
+  }
 
-2.1. Стоимость работ определяется на основании Технического задания.
+  for (const op of ops) {
+    if (op.type === 'same') {
+      result.push({ lineType: 'same', tokens: [{ text: op.a ?? '', type: 'same' }] })
+    } else if (op.type === 'added') {
+      result.push({ lineType: 'added', tokens: [{ text: op.b ?? '', type: 'added' }] })
+    } else if (op.type === 'removed') {
+      result.push({ lineType: 'removed', tokens: [{ text: op.a ?? '', type: 'removed' }] })
+    } else if (op.type === 'changed') {
+      // Пословный diff изменённой строки
+      const tokens = wordDiff(op.a ?? '', op.b ?? '')
+      result.push({ lineType: 'changed', tokens })
+    }
+  }
 
-2.2. Оплата производится поэтапно: 30% — предоплата, 70% — после сдачи.
-
-3. ОТВЕТСТВЕННОСТЬ СТОРОН
-
-3.1. За просрочку оплаты Заказчик уплачивает пеню в размере 0,05% за каждый день.`
-
-const VERSION_2 = `ДОГОВОР № ___
-на разработку программного обеспечения
-
-г. Москва                                           «__» ________ 2025 г.
-
-ООО «Контрагент», именуемый в дальнейшем «Заказчик», с одной стороны, и Исполнитель, с другой стороны, заключили настоящий договор о нижеследующем:
-
-1. ПРЕДМЕТ ДОГОВОРА
-
-1.1. Исполнитель обязуется разработать для Заказчика программный продукт в соответствии с Техническим заданием.
-
-2. СТОИМОСТЬ И ПОРЯДОК РАСЧЁТОВ
-
-2.1. Стоимость работ определяется на основании Технического задания.
-
-2.2. Оплата производится поэтапно: 30% — предоплата, 40% — после завершения вёрстки, 30% — после сдачи и приёмки.
-
-3. ОТВЕТСТВЕННОСТЬ СТОРОН
-
-3.1. За просрочку оплаты Заказчик уплачивает пеню в размере 0,1% за каждый день просрочки.`
+  return result
+}
 
 function relDate(iso: string): string {
   const d = new Date(iso)
-  return d.toLocaleDateString('ru', { day: 'numeric', month: 'short' })
+  return d.toLocaleDateString('ru', { day: 'numeric', month: 'short', year: 'numeric' })
 }
+
+// ─── Рендер одного токена ─────────────────────────────────────────────────────
+
+function Token({ token }: { token: WordToken }) {
+  if (token.type === 'same') {
+    return <span>{token.text}</span>
+  }
+  if (token.type === 'added') {
+    return (
+      <span
+        style={{
+          background: 'oklch(0.93 0.05 145)',
+          color: 'oklch(0.35 0.12 145)',
+          borderRadius: 2,
+          padding: '0 1px',
+        }}
+      >
+        {token.text}
+      </span>
+    )
+  }
+  // removed
+  return (
+    <span
+      style={{
+        background: 'oklch(0.93 0.05 20)',
+        color: 'oklch(0.45 0.15 20)',
+        textDecoration: 'line-through',
+        textDecorationColor: 'oklch(0.55 0.15 20)',
+        borderRadius: 2,
+        padding: '0 1px',
+        opacity: 0.8,
+      }}
+    >
+      {token.text}
+    </span>
+  )
+}
+
+// ─── Рендер строки diff ───────────────────────────────────────────────────────
+
+function DiffLineRow({ line, index }: { line: DiffLine; index: number }) {
+  const bgColor =
+    line.lineType === 'added' ? 'oklch(0.97 0.02 145)' :
+    line.lineType === 'removed' ? 'oklch(0.97 0.02 20)' :
+    line.lineType === 'changed' ? 'oklch(0.97 0.01 60)' : 'transparent'
+
+  const marker =
+    line.lineType === 'added' ? { char: '+', color: 'oklch(0.45 0.1 145)' } :
+    line.lineType === 'removed' ? { char: '−', color: 'oklch(0.45 0.12 20)' } :
+    line.lineType === 'changed' ? { char: '~', color: 'oklch(0.55 0.08 60)' } :
+    null
+
+  const isEmpty = line.tokens.every((t) => t.text.trim() === '')
+
+  return (
+    <div
+      className="flex items-start gap-[12px] -mx-[8px] px-[8px] py-[1px] rounded-[3px]"
+      style={{ background: bgColor, minHeight: 24 }}
+    >
+      {/* Маркер */}
+      <span
+        className="shrink-0 w-[10px] text-[11px] font-bold mt-[1px] select-none"
+        style={{ fontFamily: 'var(--font-mono)', color: marker?.color ?? 'transparent' }}
+      >
+        {marker?.char ?? ' '}
+      </span>
+
+      {/* Текст */}
+      <p
+        className="flex-1 text-[13px] leading-[1.75] flex-wrap"
+        style={{ fontFamily: 'var(--font-serif)' }}
+      >
+        {isEmpty ? ' ' : line.tokens.map((tok, i) => <Token key={i} token={tok} />)}
+      </p>
+    </div>
+  )
+}
+
+// ─── Главная страница ─────────────────────────────────────────────────────────
 
 export default function ComparePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+
   const [versions, setVersions] = useState<Version[]>([])
   const [leftId, setLeftId] = useState<string>('')
   const [rightId, setRightId] = useState<string>('')
   const [loading, setLoading] = useState(true)
+  const [loadingContent, setLoadingContent] = useState(false)
+  const [leftContent, setLeftContent] = useState<string>('')
+  const [rightContent, setRightContent] = useState<string>('')
 
+  // Загружаем список версий
   useEffect(() => {
     fetch(`/api/documents/${id}`)
       .then((r) => r.ok ? r.json() : Promise.reject())
@@ -97,8 +235,8 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
         const vers: Version[] = doc.versions
         setVersions(vers)
         if (vers.length >= 2) {
-          setRightId(vers[0].id)
-          setLeftId(vers[1].id)
+          setLeftId(vers[vers.length - 1].id)  // самая старая
+          setRightId(vers[0].id)               // самая новая
         } else if (vers.length === 1) {
           setLeftId(vers[0].id)
           setRightId(vers[0].id)
@@ -108,9 +246,31 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
       .finally(() => setLoading(false))
   }, [id])
 
-  const diff = diffTexts(VERSION_1, VERSION_2)
-  const addedCount = diff.filter((l) => l.type === 'added').length
-  const removedCount = diff.filter((l) => l.type === 'removed').length
+  // Загружаем контент когда меняются выбранные версии
+  useEffect(() => {
+    if (!leftId || !rightId) return
+    setLoadingContent(true)
+
+    Promise.all([
+      fetch(`/api/versions/${leftId}`).then((r) => r.ok ? r.json() : null),
+      fetch(`/api/versions/${rightId}`).then((r) => r.ok ? r.json() : null),
+    ]).then(([left, right]) => {
+      setLeftContent(left?.content ?? '')
+      setRightContent(right?.content ?? '')
+    }).finally(() => setLoadingContent(false))
+  }, [leftId, rightId])
+
+  const diff = leftContent || rightContent ? diffDocuments(leftContent, rightContent) : []
+
+  // Статистика изменений
+  const addedLines = diff.filter((l) => l.lineType === 'added').length
+  const removedLines = diff.filter((l) => l.lineType === 'removed').length
+  const changedLines = diff.filter((l) => l.lineType === 'changed').length
+  const sameLines = diff.filter((l) => l.lineType === 'same').length
+
+  // Посчитаем токены
+  const addedWords = diff.flatMap((l) => l.tokens).filter((t) => t.type === 'added').length
+  const removedWords = diff.flatMap((l) => l.tokens).filter((t) => t.type === 'removed').length
 
   if (loading) {
     return (
@@ -128,7 +288,7 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
 
       {/* Toolbar */}
       <div
-        className="shrink-0 flex items-center gap-[12px] px-[24px]"
+        className="shrink-0 flex items-center gap-[12px] px-[24px] flex-wrap"
         style={{ height: 52, borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}
       >
         <button
@@ -169,16 +329,16 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
           </select>
         </div>
 
-        {/* Счётчики изменений */}
-        <div className="flex items-center gap-[8px]">
-          {addedCount > 0 && (
-            <span className="text-[11px] font-medium px-[8px] py-[2px] rounded-full" style={{ background: 'oklch(0.95 0.02 145)', color: 'oklch(0.45 0.1 145)' }}>
-              +{addedCount}
+        {/* Счётчики */}
+        <div className="flex items-center gap-[6px]">
+          {addedWords > 0 && (
+            <span className="text-[11px] font-medium px-[8px] py-[2px] rounded-full" style={{ background: 'oklch(0.95 0.02 145)', color: 'oklch(0.40 0.1 145)' }}>
+              +{addedWords} сл.
             </span>
           )}
-          {removedCount > 0 && (
-            <span className="text-[11px] font-medium px-[8px] py-[2px] rounded-full" style={{ background: 'oklch(0.96 0.025 20)', color: 'var(--danger)' }}>
-              −{removedCount}
+          {removedWords > 0 && (
+            <span className="text-[11px] font-medium px-[8px] py-[2px] rounded-full" style={{ background: 'oklch(0.96 0.025 20)', color: 'oklch(0.45 0.15 20)' }}>
+              −{removedWords} сл.
             </span>
           )}
         </div>
@@ -186,8 +346,9 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
 
       {/* Основная область */}
       <div className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-soft)', padding: '24px 40px' }}>
+
         {/* Заголовки версий */}
-        <div className="flex gap-[20px] max-w-[1100px] mx-auto mb-[12px]">
+        <div className="max-w-[860px] mx-auto mb-[12px] flex gap-[12px]">
           <div className="flex-1">
             <p className="text-[12px] font-medium text-[var(--ink-3)]">
               v.{leftVer?.number} — {leftVer ? relDate(leftVer.createdAt) : ''}
@@ -196,6 +357,7 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
               <p className="text-[11px] text-[var(--ink-4)]">{leftVer.aiSettings.description}</p>
             )}
           </div>
+          <div className="text-[12px] text-[var(--ink-4)]">→</div>
           <div className="flex-1">
             <p className="text-[12px] font-medium text-[var(--ink-3)]">
               v.{rightVer?.number} — {rightVer ? relDate(rightVer.createdAt) : ''}
@@ -206,76 +368,76 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
-        {/* Diff-вид: side by side */}
+        {/* Нет версий */}
         {versions.length < 2 ? (
-          <div
-            className="max-w-[1100px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm"
-            style={{ padding: '40px 48px' }}
-          >
-            <div className="text-center">
-              <p className="text-[14px] text-[var(--ink-3)]" style={{ fontFamily: 'var(--font-serif)' }}>
-                Для сравнения нужны минимум две версии документа
-              </p>
-              <p className="text-[12px] text-[var(--ink-4)] mt-[8px]">
-                Создайте новую версию через ИИ-чат
-              </p>
-              <button
-                onClick={() => router.push(`/documents/${id}/work`)}
-                className="mt-[16px] h-[36px] px-[16px] rounded-[var(--radius-md)] bg-[var(--ink)] text-[var(--bg)] text-[13px] font-medium hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                ✦ Открыть ИИ-чат
-              </button>
+          <div className="max-w-[860px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm p-[48px] text-center">
+            <div className="w-[48px] h-[48px] rounded-full bg-[var(--surface-inset)] flex items-center justify-center mx-auto mb-[16px]">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             </div>
+            <p className="text-[15px] text-[var(--ink-2)] mb-[8px]" style={{ fontFamily: 'var(--font-serif)' }}>
+              Для сравнения нужны минимум две версии
+            </p>
+            <p className="text-[12px] text-[var(--ink-4)] mb-[16px]">
+              Откройте рабочий экран, попросите ИИ внести правки, затем сохраните как новую версию
+            </p>
+            <button
+              onClick={() => router.push(`/documents/${id}/work`)}
+              className="h-[36px] px-[16px] rounded-[var(--radius-md)] bg-[var(--ink)] text-[var(--bg)] text-[13px] font-medium hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              ✦ Открыть рабочий экран
+            </button>
           </div>
+
+        ) : loadingContent ? (
+          <div className="max-w-[860px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm p-[48px] flex items-center justify-center gap-[12px]">
+            <div className="w-[20px] h-[20px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
+            <p className="text-[13px] text-[var(--ink-3)]">Загружаю версии…</p>
+          </div>
+
+        ) : (!leftContent && !rightContent) ? (
+          <div className="max-w-[860px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm p-[48px] text-center">
+            <p className="text-[14px] text-[var(--ink-3)]" style={{ fontFamily: 'var(--font-serif)' }}>
+              Контент версий пока не сгенерирован
+            </p>
+            <p className="text-[12px] text-[var(--ink-4)] mt-[8px]">
+              Откройте рабочий экран и запустите генерацию
+            </p>
+          </div>
+
         ) : (
-          <div
-            className="max-w-[1100px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm overflow-hidden"
-          >
-            {/* Unified diff */}
-            <div style={{ padding: '32px 40px' }}>
+          <div className="max-w-[860px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm overflow-hidden">
+            {/* Легенда */}
+            <div className="flex items-center gap-[16px] px-[32px] py-[12px]" style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface-inset)' }}>
+              <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Обозначения:</p>
+              <span className="flex items-center gap-[5px] text-[11px]">
+                <span className="inline-block w-[10px] h-[10px] rounded-sm" style={{ background: 'oklch(0.93 0.05 145)' }} />
+                <span style={{ color: 'oklch(0.35 0.12 145)' }}>добавлено</span>
+              </span>
+              <span className="flex items-center gap-[5px] text-[11px]">
+                <span className="inline-block w-[10px] h-[10px] rounded-sm" style={{ background: 'oklch(0.93 0.05 20)' }} />
+                <span style={{ color: 'oklch(0.45 0.15 20)' }}>удалено</span>
+              </span>
+              <span className="flex items-center gap-[5px] text-[11px]">
+                <span style={{ color: 'var(--ink-4)' }}>~ строка изменена</span>
+              </span>
+            </div>
+
+            {/* Diff */}
+            <div style={{ padding: '28px 40px' }}>
               {diff.map((line, i) => (
-                <div
-                  key={i}
-                  className={[
-                    'flex items-start gap-[12px] px-[8px] py-[1px] rounded-[3px] -mx-[8px]',
-                    line.type === 'added' ? 'bg-[oklch(0.95_0.025_145)]' :
-                    line.type === 'removed' ? 'bg-[oklch(0.96_0.025_20)]' : '',
-                  ].join(' ')}
-                >
-                  <span
-                    className="shrink-0 w-[12px] text-[12px] font-medium"
-                    style={{
-                      fontFamily: 'var(--font-mono)',
-                      color: line.type === 'added' ? 'oklch(0.45 0.1 145)' :
-                             line.type === 'removed' ? 'var(--danger)' : 'transparent',
-                    }}
-                  >
-                    {line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' '}
-                  </span>
-                  <p
-                    className="flex-1 text-[13px] leading-[1.75]"
-                    style={{
-                      fontFamily: 'var(--font-serif)',
-                      color: line.type === 'added' ? 'oklch(0.35 0.1 145)' :
-                             line.type === 'removed' ? 'oklch(0.45 0.1 20)' : 'var(--ink)',
-                      textDecoration: line.type === 'removed' ? 'line-through' : 'none',
-                      opacity: line.type === 'removed' ? 0.7 : 1,
-                    }}
-                  >
-                    {line.text || ' '}
-                  </p>
-                </div>
+                <DiffLineRow key={i} line={line} index={i} />
               ))}
             </div>
 
-            {/* Итоговая таблица изменений */}
+            {/* Итоговая таблица */}
             <div style={{ padding: '16px 40px 24px', borderTop: '1px solid var(--line)' }}>
-              <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[12px]">Изменения</p>
-              <div className="grid grid-cols-3 gap-[12px]">
+              <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[12px]">Итог сравнения</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-[10px]">
                 {[
-                  { label: 'Добавлено строк', value: addedCount, color: 'oklch(0.45 0.1 145)' },
-                  { label: 'Удалено строк', value: removedCount, color: 'var(--danger)' },
-                  { label: 'Без изменений', value: diff.filter((l) => l.type === 'same').length, color: 'var(--ink-4)' },
+                  { label: 'Добавлено слов', value: addedWords, color: 'oklch(0.40 0.1 145)' },
+                  { label: 'Удалено слов', value: removedWords, color: 'oklch(0.45 0.15 20)' },
+                  { label: 'Изменено строк', value: changedLines, color: 'oklch(0.50 0.08 60)' },
+                  { label: 'Без изменений', value: sameLines, color: 'var(--ink-4)' },
                 ].map((row) => (
                   <div key={row.label} className="rounded-[var(--radius-md)] bg-[var(--surface-inset)] px-[12px] py-[10px]">
                     <p className="text-[20px] font-medium" style={{ fontFamily: 'var(--font-mono)', color: row.color }}>{row.value}</p>
