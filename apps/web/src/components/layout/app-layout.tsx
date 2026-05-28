@@ -143,17 +143,34 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
 
       {/* Профиль внизу */}
       <div className="border-t border-[var(--line)] px-[12px] py-[12px] shrink-0">
-        <div className="flex items-center gap-[10px] px-[10px] py-[6px] rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] cursor-pointer transition-colors duration-[120ms]">
+        <Link
+          href="/requisites"
+          onClick={onNavClick}
+          className="flex items-center gap-[10px] px-[10px] py-[6px] rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] cursor-pointer transition-colors duration-[120ms] no-underline"
+        >
           <div
-            className="w-[28px] h-[28px] rounded-full bg-[oklch(0.88_0.04_260)] flex items-center justify-center text-[11px] font-semibold text-[var(--accent-ink)] border border-[var(--line)] shrink-0"
+            className="w-[28px] h-[28px] rounded-full bg-[oklch(0.88_0.04_260)] flex items-center justify-center text-[11px] font-semibold border border-[var(--line)] shrink-0"
+            style={{ color: 'var(--accent)' }}
           >
             П
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-[13px] font-medium text-[var(--ink)] truncate">Мой профиль</p>
-            <p className="text-[11px] text-[var(--ink-4)] truncate">Настройки аккаунта</p>
+            <p className="text-[11px] text-[var(--ink-4)] truncate">Реквизиты и настройки</p>
           </div>
-        </div>
+        </Link>
+        <button
+          onClick={async () => {
+            await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+            window.location.href = '/auth'
+          }}
+          className="flex items-center gap-[8px] w-full px-[10px] py-[5px] rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] cursor-pointer transition-colors duration-[120ms] mt-[2px]"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span className="text-[12px] text-[var(--ink-4)]">Выйти</span>
+        </button>
       </div>
     </>
   )
