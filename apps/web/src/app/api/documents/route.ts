@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type') // CONTRACT | APPENDIX | AMENDMENT
   const status = searchParams.get('status') // DRAFT | IN_PROGRESS | REVIEW | APPROVED | PAID
   const counterpartyId = searchParams.get('counterpartyId')
+  const limit = searchParams.get('limit') ? Math.min(Number(searchParams.get('limit')), 100) : undefined
 
   const documents = await prisma.document.findMany({
     where: {
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
       _count: { select: { versions: true } },
     },
     orderBy: { updatedAt: 'desc' },
+    ...(limit ? { take: limit } : {}),
   })
 
   // Фильтр по статусу последней версии
@@ -53,6 +55,10 @@ export async function GET(req: NextRequest) {
     ? documents.filter((d) => d.versions[0]?.status === status)
     : documents
 
+  // Поддерживаем оба формата: массив (старый) и { items } (новый)
+  if (searchParams.get('limit')) {
+    return NextResponse.json({ items: filtered })
+  }
   return NextResponse.json(filtered)
 }
 
