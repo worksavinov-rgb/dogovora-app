@@ -8,6 +8,7 @@ type Params = { params: Promise<{ id: string }> }
 
 const msgSchema = z.object({
   content: z.string().min(1).max(4000),
+  currentDocument: z.string().optional(),
   /**
    * mode:
    *  'edit'  — ИИ редактирует документ, возвращает обновлённый текст + пояснение
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
   const aiProvider = getAIProvider()
-  const documentText = version.content ?? ''
+  const documentText = data.currentDocument?.trim() || version.content || ''
   const encoder = new TextEncoder()
 
   // ─── Режим EDIT: ИИ возвращает обновлённый документ ─────────────────────────
@@ -89,21 +90,19 @@ export async function POST(req: NextRequest, { params }: Params) {
             send({ type: 'doc', chunk })
           }
 
-          // 2. Генерируем краткое объяснение для чата
+          // 2. Генерируем краткое объяснение только по ТЕКУЩЕЙ правке
           let explanation = ''
-          const history = await prisma.chatMessage.findMany({
-            where: { versionId: id },
-            orderBy: { createdAt: 'asc' },
-          })
-          const messages = history.map((m) => ({
-            role: (m.role === 'USER' ? 'user' : 'assistant') as 'user' | 'assistant',
-            content: m.content,
-          }))
-          // Добавляем системный контекст для объяснения
-          messages.push({
-            role: 'user',
-            content: `Я применил твои правки к документу. Напиши краткое пояснение (2-4 предложения) что именно изменилось. Без полного текста договора.`,
-          })
+          const messages = [{
+            role: 'user' as const,
+            content: [
+              `Инструкция пользователя: ${data.content}`,
+              '',
+              'Я уже применил эту инструкцию к документу.',
+              'Напиши краткое пояснение (2-4 предложения), что именно изменилось по ЭТОЙ инструкции.',
+              'Не упоминай старые правки из истории, если они не относятся к текущей инструкции.',
+              'Не цитируй полный текст договора.',
+            ].join('\n'),
+          }]
 
           const chatGen = aiProvider.chat(messages, settings, updatedDoc)
           for await (const chunk of chatGen) {

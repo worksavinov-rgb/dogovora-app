@@ -117,6 +117,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState(0)
   const [docView, setDocView] = useState<'clean' | 'changes' | 'diff'>('clean')
+  const [mobileTab, setMobileTab] = useState<'doc' | 'chat'>('doc')
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -131,7 +132,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Polling статуса задачи генерации
-  const pollJob = useCallback(async (jobId: string, versionId: string) => {
+  const pollJob = useCallback(async function runPoll(jobId: string, versionId: string) {
     try {
       const res = await fetch(`/api/jobs/${jobId}`)
       if (!res.ok) return
@@ -157,10 +158,14 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         setDocContent('Ошибка генерации. Попробуйте создать документ заново.')
       } else {
         // Продолжаем polling через 1.5с
-        pollTimerRef.current = setTimeout(() => pollJob(jobId, versionId), 1500)
+        pollTimerRef.current = setTimeout(() => {
+          void runPoll(jobId, versionId)
+        }, 1500)
       }
     } catch {
-      pollTimerRef.current = setTimeout(() => pollJob(jobId, versionId), 2000)
+      pollTimerRef.current = setTimeout(() => {
+        void runPoll(jobId, versionId)
+      }, 2000)
     }
   }, [id])
 
@@ -217,7 +222,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
     }
-  }, [id])
+  }, [id, pollJob, router])
 
   // Автоскролл чата
   useEffect(() => {
@@ -246,35 +251,60 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       const response = await fetch(`/api/versions/${version.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: userText, mode: 'edit' }),
+        body: JSON.stringify({
+          content: userText,
+          mode: 'edit',
+          currentDocument: streamingDoc ?? docContent ?? '',
+        }),
       })
 
-      if (!response.ok || !response.body) throw new Error('Failed')
+      if (!response.ok || !response.body) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `err-${Date.now()}`, role: 'WARNING', content: 'Ошибка соединения. Попробуйте ещё раз.', createdAt: new Date().toISOString() },
+        ])
+        return
+      }
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let aiChatText = ''
       let aiDocText = ''
       let docPhase = false // сначала стримим doc, потом chat
+      let sseBuffer = ''
+      let doneSignal = false
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const text = decoder.decode(value)
+        sseBuffer += decoder.decode(value, { stream: true })
 
-        for (const line of text.split('\n')) {
-          if (!line.startsWith('data: ')) continue
-          const data = line.slice(6)
-          if (data === '[DONE]') break
+        let delimiterIndex = sseBuffer.indexOf('\n\n')
+        while (delimiterIndex !== -1) {
+          const eventChunk = sseBuffer.slice(0, delimiterIndex)
+          sseBuffer = sseBuffer.slice(delimiterIndex + 2)
+          delimiterIndex = sseBuffer.indexOf('\n\n')
+
+          const dataLines = eventChunk
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim())
+
+          if (dataLines.length === 0) continue
+          const data = dataLines.join('\n')
+
+          if (data === '[DONE]') {
+            doneSignal = true
+            break
+          }
 
           try {
-            const parsed = JSON.parse(data)
+            const parsed = JSON.parse(data) as { type?: string; chunk?: string }
 
             if (parsed.type === 'doc' && parsed.chunk) {
-              // Документ начал обновляться
               if (!docPhase) {
                 docPhase = true
-                setStreamingDoc('') // триггер для показа документа
+                setStreamingDoc('')
               }
               aiDocText += parsed.chunk
               setStreamingDoc(aiDocText)
@@ -284,8 +314,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               aiChatText += parsed.chunk
               setStreamingContent(aiChatText)
             }
-          } catch { /* ignore parse errors */ }
+          } catch {
+            // Ignore partial/malformed event payloads
+          }
         }
+
+        if (doneSignal) break
       }
 
       // Применяем обновлённый документ
@@ -364,7 +398,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const protectionLevel = version.aiSettings?.protectionLevel ?? 70
   const docTitle = version.document?.title ?? 'Документ'
   const charCount = docContent?.length ?? 0
-  const [mobileTab, setMobileTab] = useState<'doc' | 'chat'>('doc')
 
   return (
     <div className="flex flex-col md:flex-row" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
