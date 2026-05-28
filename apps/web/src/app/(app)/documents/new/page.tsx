@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field, Textarea } from '@/components/ui/input'
@@ -21,6 +21,8 @@ interface Step1Data {
   number: string
   base: DocBase
   description: string
+  uploadedFile?: File | null
+  uploadedText?: string
 }
 
 interface Step2Data {
@@ -58,6 +60,22 @@ function Step1({ data, onChange, counterparties }: {
 }) {
   const set = <K extends keyof Step1Data>(k: K, v: Step1Data[K]) => onChange({ ...data, [k]: v })
   const charCount = data.description.length
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = useState(false)
+
+  const handleFile = (file: File) => {
+    if (!data.title) {
+      const name = file.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ')
+      onChange({ ...data, uploadedFile: file, uploadedText: '', title: name })
+    } else {
+      onChange({ ...data, uploadedFile: file, uploadedText: '' })
+    }
+    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
+      const reader = new FileReader()
+      reader.onload = (e) => onChange({ ...data, uploadedFile: file, uploadedText: e.target?.result as string })
+      reader.readAsText(file, 'utf-8')
+    }
+  }
 
   return (
     <div className="flex flex-col gap-[16px]">
@@ -140,6 +158,36 @@ function Step1({ data, onChange, counterparties }: {
               maxChars={4000}
             />
           </Field>
+        )}
+
+        {data.base === 'upload' && (
+          <>
+            <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.rtf,.txt" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
+            {data.uploadedFile ? (
+              <div className="flex items-center gap-[10px] p-[12px] rounded-[var(--radius-md)] border border-[var(--ok)] bg-[oklch(0.97_0.02_150)]">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-[var(--ink)] truncate">{data.uploadedFile.name}</p>
+                  <p className="text-[11px] text-[var(--ink-4)]">{(data.uploadedFile.size / 1024).toFixed(0)} КБ</p>
+                </div>
+                <button onClick={() => onChange({ ...data, uploadedFile: null, uploadedText: '' })}
+                  className="text-[var(--ink-4)] hover:text-[var(--danger)] transition-colors cursor-pointer text-[20px] leading-none">×</button>
+              </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f) }}
+                className={['flex flex-col items-center justify-center gap-[8px] p-[32px] rounded-[var(--radius-md)] border-2 border-dashed cursor-pointer transition-colors', dragOver ? 'border-[var(--accent)] bg-[oklch(0.97_0.02_260)]' : 'border-[var(--line-2)] hover:border-[var(--line-strong)] bg-[var(--surface-inset)]'].join(' ')}
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <p className="text-[13px] font-medium text-[var(--ink)]">Нажмите или перетащите файл</p>
+                <p className="text-[12px] text-[var(--ink-4)]">PDF, DOCX, RTF, TXT — до 10 МБ</p>
+              </div>
+            )}
+          </>
         )}
       </Card>
     </div>
@@ -252,13 +300,15 @@ function Step2({ data, onChange }: { data: Step2Data; onChange: (d: Step2Data) =
 
 export default function NewDocumentPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const preselectedCounterpartyId = searchParams.get('counterpartyId') ?? ''
   const [step, setStep] = useState(1)
   const [counterparties, setCounterparties] = useState<Counterparty[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [step1, setStep1] = useState<Step1Data>({
-    type: 'CONTRACT', counterpartyId: '', title: '', number: '', base: 'scratch', description: '',
+    type: 'CONTRACT', counterpartyId: preselectedCounterpartyId, title: '', number: '', base: 'scratch', description: '', uploadedFile: null, uploadedText: '',
   })
   const [step2, setStep2] = useState<Step2Data>({
     protectionLevel: 65, targetSize: 8400, customInstruction: '',

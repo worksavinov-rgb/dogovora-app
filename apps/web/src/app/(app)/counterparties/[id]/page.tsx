@@ -55,7 +55,7 @@ function DocumentsTab({ cp }: { cp: Counterparty }) {
         <div className="py-[60px] text-center">
           <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">Документов пока нет</p>
           <p className="text-[13px] text-[var(--ink-4)] mb-[20px]">Создайте первый договор с этим контрагентом</p>
-          <Button variant="secondary">Создать документ</Button>
+          <Button variant="secondary" onClick={() => router.push(`/documents/new?counterpartyId=${cp.id}`)}>Создать документ</Button>
         </div>
       </Card>
     )

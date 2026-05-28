@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
@@ -24,6 +24,102 @@ function guessOrgForm(cp: Counterparty): string {
   return ''
 }
 
+function CounterpartyMenu({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => void }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const handle = (action: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpen(false)
+    action()
+  }
+
+  const archive = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpen(false)
+    await fetch(`/api/counterparties/${cp.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isArchived: !cp.isArchived }),
+    })
+    onRefresh()
+  }
+
+  const del = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm(`Удалить контрагента «${cp.name}»? Это действие нельзя отменить.`)) return
+    setOpen(false)
+    await fetch(`/api/counterparties/${cp.id}`, { method: 'DELETE' })
+    onRefresh()
+  }
+
+  return (
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
+        className={['w-[32px] h-[32px] flex items-center justify-center rounded-[var(--radius-sm)] transition-colors cursor-pointer', open ? 'bg-[var(--surface-2)] text-[var(--ink)]' : 'text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)]'].join(' ')}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-[36px] z-50 w-[200px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] shadow-lg py-[4px]">
+          <button
+            onClick={handle(() => router.push(`/counterparties/${cp.id}`))}
+            className="w-full flex items-center gap-[8px] px-[12px] py-[8px] text-[13px] text-[var(--ink-2)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer text-left"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            Открыть карточку
+          </button>
+          <button
+            onClick={handle(() => router.push(`/documents/new?counterpartyId=${cp.id}`))}
+            className="w-full flex items-center gap-[8px] px-[12px] py-[8px] text-[13px] text-[var(--ink-2)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer text-left"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            Создать документ
+          </button>
+          {cp.inn && (
+            <button
+              onClick={handle(() => navigator.clipboard.writeText(cp.inn!))}
+              className="w-full flex items-center gap-[8px] px-[12px] py-[8px] text-[13px] text-[var(--ink-2)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer text-left"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Скопировать ИНН
+            </button>
+          )}
+          <div className="border-t border-[var(--line)] my-[4px]" />
+          <button
+            onClick={archive}
+            className="w-full flex items-center gap-[8px] px-[12px] py-[8px] text-[13px] text-[var(--ink-2)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer text-left"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+            {cp.isArchived ? 'Разархивировать' : 'В архив'}
+          </button>
+          <button
+            onClick={del}
+            className="w-full flex items-center gap-[8px] px-[12px] py-[8px] text-[13px] text-[var(--danger)] hover:bg-[oklch(0.97_0.02_25)] transition-colors cursor-pointer text-left"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Удалить
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function relativeDate(iso: string): string {
   const d = new Date(iso)
   const now = new Date()
@@ -39,13 +135,15 @@ export default function CounterpartiesPage() {
   const [items, setItems] = useState<Counterparty[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
-  const [tab, setTab] = useState<'all' | 'active' | 'archive'>('all')
+  const [tab, setTab] = useState<'all' | 'archive'>('all')
 
   const load = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (q) params.set('q', q)
-    if (tab !== 'all') params.set('status', tab)
+    // 'all' и 'active' — оба показывают не-архивных; 'archive' — только архивных
+    if (tab === 'archive') params.set('status', 'archive')
+    else params.set('status', 'active')
     const res = await fetch(`/api/counterparties?${params}`)
     if (res.ok) setItems(await res.json())
     setLoading(false)
@@ -87,7 +185,7 @@ export default function CounterpartiesPage() {
           />
         </div>
         <div className="flex gap-0">
-          {([['all', 'Все'], ['active', 'Активные'], ['archive', 'Архив']] as const).map(([key, label]) => (
+          {([['all', 'Все'], ['archive', 'Архив']] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setTab(key)}
@@ -115,12 +213,12 @@ export default function CounterpartiesPage() {
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             </div>
             <p className="text-[16px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-serif)' }}>
-              {q ? 'Ничего не найдено' : 'Контрагентов пока нет'}
+              {q ? 'Ничего не найдено' : tab === 'archive' ? 'Архив пуст' : 'Контрагентов пока нет'}
             </p>
             <p className="text-[13px] text-[var(--ink-4)]">
-              {q ? 'Попробуйте изменить запрос' : 'Добавьте первого контрагента чтобы начать'}
-            </p>
-            {!q && <Button variant="primary" onClick={() => router.push('/counterparties/new')}>+ Добавить контрагента</Button>}
+              {q ? 'Попробуйте изменить запрос' : tab === 'archive' ? 'Контрагенты, которых вы отправите в архив, появятся здесь' : 'Добавьте первого контрагента чтобы начать'}
+</p>
+            {!q && tab !== 'archive' && <Button variant="primary" onClick={() => router.push('/counterparties/new')}>+ Добавить контрагента</Button>}
           </div>
         ) : (
           <div>
@@ -141,14 +239,7 @@ export default function CounterpartiesPage() {
                 <p className="text-[13px] font-medium text-[var(--ink)]">{cp._count.documents}</p>
                 <p className="text-[13px] text-[var(--ink-2)]">{cp.versionCount}</p>
                 <p className="text-[13px] text-[var(--ink-3)]">{relativeDate(cp.updatedAt)}</p>
-                <button
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-[32px] h-[32px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
-                  </svg>
-                </button>
+                <CounterpartyMenu cp={cp} onRefresh={load} />
               </div>
             ))}
           </div>

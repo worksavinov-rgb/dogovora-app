@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, ReviewResult } from './types'
 
+// GigaChat использует самоподписанный сертификат Сбера
+// Устанавливаем переменную окружения до первого запроса
+if (typeof process !== 'undefined') {
+  process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
+}
+
 const GIGACHAT_AUTH_URL = process.env['GIGACHAT_AUTH_URL'] ?? 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth'
 const GIGACHAT_BASE_URL = (process.env['GIGACHAT_BASE_URL'] ?? 'https://gigachat.devices.sberbank.ru/api/v1').replace(/\/+$/, '')
 const GIGACHAT_SCOPE = process.env['GIGACHAT_SCOPE'] ?? 'GIGACHAT_API_PERS'
