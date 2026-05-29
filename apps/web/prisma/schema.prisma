@@ -16,12 +16,13 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  profiles      Profile[]
-  oauthAccounts OAuthAccount[]
-  wallet        Wallet?
-  storageQuota  StorageQuota?
-  counterparties Counterparty[]
-  documents     Document[]
+  profiles           Profile[]
+  oauthAccounts      OAuthAccount[]
+  wallet             Wallet?
+  storageQuota       StorageQuota?
+  counterparties     Counterparty[]
+  documents          Document[]
+  documentTemplates  DocumentTemplate[]
 
   @@map("users")
 }
@@ -70,6 +71,9 @@ enum ProfileType {
   INDIVIDUAL        // Физлицо
   SOLE_PROPRIETOR   // ИП
   COMPANY           // ООО / АО
+  ANO               // АНО (Автономная Некоммерческая Организация)
+  PAO               // ПАО (Публичное Акционерное Общество)
+  ZAO               // ЗАО (Закрытое Акционерное Общество)
 }
 
 // ─── Контрагенты ─────────────────────────────────────────────────────────────
@@ -185,8 +189,12 @@ model Version {
   filePath   String?       // путь в S3
   fileSize   Int?          // байты
   content    String?       // текст документа (до подключения S3)
-  aiSettings Json          // { protectionLevel, targetSize, customInstruction }
-  createdAt  DateTime      @default(now())
+  formattedContent String?  // отформатированный DOCX/JSON контент
+  formattingApplied Boolean? @default(false) // флаг: применено ли форматирование
+  parentDocumentId String?   // для приложений/допсоглащений: ссылка на родительский договор
+  documentNumber Int?        // номер приложения/допсоглащения (1, 2, 3...)
+  aiSettings Json            // { protectionLevel, targetSize, customInstruction }
+  createdAt  DateTime        @default(now())
 
   document     Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
   chatMessages ChatMessage[]
@@ -272,6 +280,21 @@ model Transaction {
 enum TransactionType {
   CREDIT  // Пополнение
   DEBIT   // Списание
+}
+
+// ─── Шаблоны документов ───────────────────────────────────────────────────────
+
+model DocumentTemplate {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  content   String   // DOCX или plain text шаблон
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("document_templates")
 }
 
 // ─── Хранилище ────────────────────────────────────────────────────────────────

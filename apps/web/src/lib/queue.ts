@@ -1,6 +1,7 @@
 import { Queue, Worker, Job } from 'bullmq'
 import { prisma } from './db'
 import { getAIProvider } from './ai/provider'
+import { DocumentFormatter } from '@shared/formatting/document-formatter'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
 
@@ -89,17 +90,47 @@ export function startGenerateWorker() {
       }
 
       // Сохраняем текст в БД (поле content в Version)
-      await prisma.version.update({
-        where: { id: versionId },
-        data: {
-          status: 'DRAFT',
-          content: fullText.trim(),
-          fileSize: Buffer.byteLength(fullText, 'utf8'),
-        },
-      })
+      const trimmedText = fullText.trim()
+      const fileSize = Buffer.byteLength(trimmedText, 'utf8')
+
+      await job.updateProgress(92)
+
+      // Применяем форматирование
+      try {
+        const formattedBuffer = await DocumentFormatter.formatDocument(trimmedText, {
+          contractNumber: '01/2026', // TODO: получить реальный номер из версии/документа
+          contractDate: new Date().toLocaleDateString('ru-RU'),
+          city: 'Москва', // TODO: получить из профиля пользователя
+        })
+
+        const formattedBase64 = formattedBuffer.toString('base64')
+
+        await prisma.version.update({
+          where: { id: versionId },
+          data: {
+            status: 'DRAFT',
+            content: trimmedText,
+            fileSize: fileSize,
+            formattedContent: formattedBase64,
+            formattingApplied: true,
+          },
+        })
+      } catch (formatError) {
+        console.warn(`[worker] Failed to format document ${versionId}:`, formatError)
+        // Сохраняем без форматирования, чтобы не блокировать генерацию
+        await prisma.version.update({
+          where: { id: versionId },
+          data: {
+            status: 'DRAFT',
+            content: trimmedText,
+            fileSize: fileSize,
+            formattingApplied: false,
+          },
+        })
+      }
 
       await job.updateProgress(100)
-      return { versionId, chars: fullText.length }
+      return { versionId, chars: trimmedText.length }
     },
     {
       connection: createRedisConnection(),

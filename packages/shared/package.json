@@ -11,6 +11,8 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
+    "docx": "^9.7.1",
+    "mammoth": "^1.12.0",
     "zod": "^3.23.0"
   }
 }
