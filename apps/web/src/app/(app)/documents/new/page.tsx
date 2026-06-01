@@ -508,9 +508,9 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                               const existingCount = parentDocs.filter(() => true).indexOf(doc) // placeholder, real count fetched below
                               fetch(`/api/documents?type=${data.type}&parentDocumentId=${doc.id}`)
                                 .then((r) => r.ok ? r.json() : [])
-                                .then((existing: unknown[]) => {
-                                  const nextNum = String(existing.length + 1)
-                                  onChange({ ...data, parentDocumentId: doc.id, number: nextNum })
+                                .then((existing: Array<{ documentNumber?: number | null }>) => {
+                                  const maxNum = existing.reduce((m, d) => Math.max(m, d.documentNumber ?? 0), 0)
+                                  onChange({ ...data, parentDocumentId: doc.id, number: String(maxNum + 1) })
                                 })
                                 .catch(() => { onChange({ ...data, parentDocumentId: doc.id }) })
                               setParentDocsOpen(false)

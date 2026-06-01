@@ -110,13 +110,15 @@ export async function POST(req: NextRequest) {
     if (!parentDoc) return NextResponse.json({ error: 'Родительский договор не найден' }, { status: 404 })
   }
 
-  // Автонумерация: если тип APPENDIX/AMENDMENT и привязан родительский документ
+  // Автонумерация: MAX(documentNumber) + 1, чтобы после удалений не было дублей
   let documentNumber = data.documentNumber
   if (data.parentDocumentId && !documentNumber) {
-    const existingCount = await prisma.document.count({
+    const maxDoc = await prisma.document.findFirst({
       where: { parentDocumentId: data.parentDocumentId, type: data.type },
+      orderBy: { documentNumber: 'desc' },
+      select: { documentNumber: true },
     })
-    documentNumber = existingCount + 1
+    documentNumber = (maxDoc?.documentNumber ?? 0) + 1
   }
 
   // Создаём документ + первую версию (DRAFT) атомарно
