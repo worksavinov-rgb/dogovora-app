@@ -211,10 +211,14 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const canReview = !['REVIEW', 'APPROVED', 'PAID', 'SIGNED'].includes(ver.status)
-  const canApprove = ver.status === 'REVIEW'
+  const ALL_STATUSES = [
+    { key: 'DRAFT',       label: 'Черновик',         color: 'var(--ink-3)' },
+    { key: 'IN_PROGRESS', label: 'В работе',          color: 'oklch(0.5 0.1 220)' },
+    { key: 'REVIEW',      label: 'На проверке',       color: 'oklch(0.55 0.12 60)' },
+    { key: 'APPROVED',    label: 'Утверждено',        color: 'oklch(0.45 0.1 145)' },
+    { key: 'SIGNED',      label: 'Подписано',         color: 'oklch(0.32 0.08 155)' },
+  ]
   const canBuy = ver.status === 'APPROVED' && !ver.purchase
-  const canSign = ver.status === 'PAID'
 
   async function handleDownload() {
     if (!ver.purchase) return
@@ -243,10 +247,11 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
 
       {open && (
         <div
-          className="absolute right-0 top-[32px] z-50 rounded-[var(--radius-md)] py-[4px] min-w-[190px]"
+          className="absolute right-0 top-[32px] z-50 rounded-[var(--radius-md)] py-[4px] min-w-[200px]"
           style={{ background: 'white', border: '1px solid var(--line)', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Открыть / Скачать */}
           <button
             className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
             onClick={() => { router.push(`/documents/${doc.id}/work?version=${ver.id}`); setOpen(false) }}
@@ -262,41 +267,33 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
               Скачать DOCX
             </button>
           )}
-          {(canReview || canApprove || canBuy) && <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />}
-          {canReview && (
+
+          {/* Все статусы */}
+          <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+          <p className="px-[14px] py-[4px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Сменить статус</p>
+          {ALL_STATUSES.filter((s) => s.key !== ver.status).map((s) => (
             <button
-              className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-              onClick={() => { onStatusChange(ver.id, 'REVIEW'); setOpen(false) }}
+              key={s.key}
+              className="w-full text-left px-[14px] py-[7px] text-[13px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+              style={{ color: s.color }}
+              onClick={() => {
+                if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
+                else { onStatusChange(ver.id, s.key); setOpen(false) }
+              }}
             >
-              Отправить на проверку
+              → {s.label}
             </button>
-          )}
-          {canApprove && (
-            <button
-              className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-              style={{ color: 'oklch(0.45 0.1 145)' }}
-              onClick={() => { onStatusChange(ver.id, 'APPROVED'); setOpen(false) }}
-            >
-              ✓ Утвердить
-            </button>
-          )}
+          ))}
+
+          {/* Купить */}
           {canBuy && (
-            <button
-              className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
-              onClick={() => { onBuy(ver); setOpen(false) }}
-            >
-              Купить · {calcVersionPrice(doc.type, ver.content?.length ?? 0)} ₽
-            </button>
-          )}
-          {canSign && (
             <>
               <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
               <button
-                className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-                style={{ color: 'oklch(0.32 0.08 155)' }}
-                onClick={() => { onSign(ver); setOpen(false) }}
+                className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
+                onClick={() => { onBuy(ver); setOpen(false) }}
               >
-                ✎ Подписать эту версию
+                Купить · {calcVersionPrice(doc.type, ver.content?.length ?? 0)} ₽
               </button>
             </>
           )}
@@ -457,6 +454,12 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
     void loadDoc()
   }
 
+  async function handleDeleteDocument() {
+    if (!confirm(`Удалить документ «${doc?.title}»?\n\nБудут удалены все версии. Это действие нельзя отменить.`)) return
+    await fetch(`/api/documents/${id}`, { method: 'DELETE' })
+    router.push('/documents')
+  }
+
   if (loading) {
     return (
       <div className="max-w-[1080px]">
@@ -589,6 +592,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   { icon: '✦', label: 'Открыть в ИИ-чате', primary: true, onClick: () => router.push(`/documents/${id}/work`) },
                   { icon: '⇄', label: 'Сравнить', primary: false, onClick: () => router.push(`/documents/${id}/compare`) },
                   { icon: '◎', label: 'Проверить риски', primary: false, onClick: () => router.push(`/documents/${id}/check`) },
+                  { icon: '🗑', label: 'Удалить документ', primary: false, danger: true, onClick: handleDeleteDocument },
                   ...(currentVersion?.purchase ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
@@ -607,7 +611,11 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                 ].map((action) => (
                   <button key={action.label} onClick={action.onClick}
                     className={['w-full text-left px-[12px] py-[9px] rounded-[var(--radius-md)] text-[13px] font-medium transition-colors cursor-pointer flex items-center gap-[8px]',
-                      action.primary ? 'bg-[var(--ink)] text-[var(--bg)] hover:opacity-90' : 'bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)]',
+                      action.primary
+                        ? 'bg-[var(--ink)] text-[var(--bg)] hover:opacity-90'
+                        : (action as { danger?: boolean }).danger
+                          ? 'bg-[oklch(0.97_0.015_20)] text-[var(--danger)] hover:bg-[oklch(0.94_0.02_20)]'
+                          : 'bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)]',
                     ].join(' ')}>
                     <span className="text-[14px]">{action.icon}</span>
                     {action.label}

@@ -83,25 +83,32 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
   const router = useRouter()
   const [result, setResult] = useState<ReviewResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [selectedIssue, setSelectedIssue] = useState<string | null>(null)
   const [versionId, setVersionId] = useState<string | null>(null)
+  const [docContent, setDocContent] = useState<string>('')
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const vid = searchParams.get('version')
     setVersionId(vid)
 
-    // Загружаем документ чтобы получить versionId
+    let resolvedVerId: string | null = null
+
     fetch(`/api/documents/${id}`)
-      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('Документ не найден')))
       .then((doc) => {
         const ver = vid ? doc.versions.find((v: { id: string }) => v.id === vid) : doc.versions[0]
-        if (!ver) throw new Error('no version')
+        if (!ver) throw new Error('Нет версий для проверки')
+        if (!ver.content) throw new Error('Документ пустой — сначала сгенерируйте его через ИИ-чат')
+        resolvedVerId = ver.id
+        setVersionId(ver.id)
+        setDocContent(ver.content)
         return fetch(`/api/versions/${ver.id}/review`)
       })
-      .then((r) => r.ok ? r.json() : Promise.reject())
+      .then((r) => r.ok ? r.json() : r.json().then((e: { error?: string }) => Promise.reject(new Error(e.error ?? 'Ошибка проверки'))))
       .then(setResult)
-      .catch(() => router.push(`/documents/${id}`))
+      .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [id])
 
@@ -110,6 +117,24 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
       <div className="flex flex-col items-center justify-center gap-[16px]" style={{ height: 'calc(100vh - 56px)' }}>
         <div className="w-[32px] h-[32px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
         <p className="text-[13px] text-[var(--ink-4)]">Анализирую документ…</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-[16px]" style={{ height: 'calc(100vh - 56px)' }}>
+        <div className="w-[48px] h-[48px] rounded-full bg-[oklch(0.97_0.015_20)] flex items-center justify-center">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <p className="text-[15px] font-medium text-[var(--ink)]">Не удалось проверить документ</p>
+        <p className="text-[13px] text-[var(--ink-4)] text-center max-w-[360px]">{error}</p>
+        <button
+          onClick={() => router.push(`/documents/${id}`)}
+          className="mt-[8px] h-[38px] px-[20px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
+        >
+          ← Вернуться к документу
+        </button>
       </div>
     )
   }
@@ -148,7 +173,7 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
             style={{ maxWidth: 720, padding: '48px 56px', minHeight: 600 }}
           >
             {/* Отображаем параграфы с highlights для рисков */}
-            {MOCK_DOC.split('\n').map((line, i) => {
+            {(docContent || MOCK_DOC).split('\n').map((line, i) => {
               const issue = result.issues.find((iss) =>
                 line.toLowerCase().includes(iss.clause.replace('п. ', '').toLowerCase()) ||
                 (iss.clause === 'разд. 4' && line.includes('ИСКЛЮЧИТЕЛЬНЫХ')) ||

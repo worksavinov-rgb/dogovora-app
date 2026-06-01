@@ -292,11 +292,12 @@ function SignDocumentModal({ doc, versionId, onClose, onSigned }: {
 
 // ─── Меню трёх точек для строки документа ────────────────────────────────────
 
-function RowMenu({ doc, onStatusChange, onEdit, onSign }: {
+function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
   doc: Document
   onStatusChange: (docId: string, versionId: string, newStatus: string) => void
   onEdit: (doc: Document) => void
   onSign: (doc: Document, versionId: string) => void
+  onDelete: (doc: Document) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -381,6 +382,14 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign }: {
               </button>
             </>
           )}
+          <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+          <button
+            className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => { onDelete(doc); setOpen(false) }}
+          >
+            Удалить документ
+          </button>
         </div>
       )}
     </div>
@@ -464,6 +473,12 @@ export default function DocumentsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     })
+    load()
+  }
+
+  async function handleDelete(doc: Document) {
+    if (!confirm(`Удалить «${doc.title}»?\n\nБудут удалены все версии. Это нельзя отменить.`)) return
+    await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' })
     load()
   }
 
@@ -677,6 +692,7 @@ export default function DocumentsPage() {
                   onStatusChange={handleStatusChange}
                   onEdit={setEditingDoc}
                   onSign={(d, vId) => setSigningDoc({ doc: d, versionId: vId })}
+                  onDelete={handleDelete}
                 />
               </div>
             )

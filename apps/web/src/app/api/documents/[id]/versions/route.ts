@@ -43,6 +43,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   })
   const nextNumber = (lastVersion?.number ?? 0) + 1
 
+  // Все предыдущие версии → DRAFT (кроме SIGNED — они юридически зафиксированы)
+  await prisma.version.updateMany({
+    where: { documentId: id, status: { not: 'SIGNED' } },
+    data: { status: 'DRAFT' },
+  })
+
   const version = await prisma.version.create({
     data: {
       documentId: id,
