@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-export type BadgeVariant = 'draft' | 'progress' | 'review' | 'approved' | 'paid' | 'danger' | 'default'
+export type BadgeVariant = 'draft' | 'progress' | 'review' | 'approved' | 'paid' | 'signed' | 'danger' | 'default'
 
 interface BadgeProps {
   variant?: BadgeVariant
@@ -15,6 +15,7 @@ const variantStyles: Record<BadgeVariant, string> = {
   review:    'text-[oklch(0.45_0.10_75)] bg-[var(--warn-soft)] border-[oklch(0.85_0.06_75)]',
   approved:  'text-[var(--ok)] bg-[var(--ok-soft)] border-[oklch(0.85_0.04_155)]',
   paid:      'text-[var(--accent-ink)] bg-[var(--accent-soft)] border-[oklch(0.85_0.03_260)]',
+  signed:    'text-[oklch(0.32_0.08_155)] bg-[oklch(0.94_0.04_155)] border-[oklch(0.80_0.06_155)]',
   danger:    'text-[var(--danger)] bg-[var(--danger-soft)] border-[oklch(0.85_0.05_25)]',
 }
 
@@ -25,6 +26,7 @@ const variantLabels: Record<BadgeVariant, string> = {
   review:   'На проверке',
   approved: 'Утверждено',
   paid:     'Оплачено',
+  signed:   'Подписан',
   danger:   'Требует внимания',
 }
 

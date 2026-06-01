@@ -30,7 +30,7 @@ interface Stats {
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
 const TYPE_LABELS: Record<string, string> = {
-  CONTRACT: 'Договор', APPENDIX: 'Приложение', AMENDMENT: 'ДС',
+  CONTRACT: 'Дог', APPENDIX: 'Прил', AMENDMENT: 'ДС',
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string; bg: string }> = {
@@ -53,9 +53,9 @@ function formatDayLabel(iso: string) {
   const d = new Date(iso)
   const now = new Date()
   const diff = Math.floor((now.getTime() - d.getTime()) / 86400000)
-  const dateStr = d.toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()
-  if (diff === 0) return `СЕГОДНЯ · ${dateStr}`
-  if (diff === 1) return `ВЧЕРА · ${dateStr}`
+  const dateStr = d.toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })
+  if (diff === 0) return `Сегодня, ${dateStr}`
+  if (diff === 1) return `Вчера, ${dateStr}`
   return dateStr
 }
 
@@ -63,7 +63,6 @@ function getDayKey(iso: string) {
   return new Date(iso).toLocaleDateString('ru')
 }
 
-// Группировка по дням
 function groupByDay(versions: VersionEntry[]): [string, VersionEntry[]][] {
   const map = new Map<string, VersionEntry[]>()
   for (const v of versions) {
@@ -74,105 +73,115 @@ function groupByDay(versions: VersionEntry[]): [string, VersionEntry[]][] {
   return Array.from(map.entries())
 }
 
-// ─── Строка версии (таймлайн) ─────────────────────────────────────────────────
+// grid: время | тип | название | версия | контрагент | статус | сумма
+const GRID = 'grid grid-cols-[56px_44px_1fr_52px_220px_120px_80px]'
 
-function VersionRow({ v }: { v: VersionEntry }) {
-  const router = useRouter()
-  const status = STATUS_MAP[v.status] ?? STATUS_MAP.DRAFT
+// ─── Шапка таблицы ────────────────────────────────────────────────────────────
 
+function TableHeader() {
   return (
-    <div
-      className="flex items-start gap-[16px] cursor-pointer group"
-      onClick={() => router.push(`/documents/${v.document.id}/work?version=${v.id}`)}
-    >
-      {/* Время + точка таймлайна */}
-      <div className="shrink-0 flex flex-col items-center gap-[6px] w-[40px]">
-        <p className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>
-          {formatTime(v.createdAt)}
+    <div className={`${GRID} gap-[8px] px-[16px] py-[9px] border-b border-[var(--line)] bg-[var(--surface-inset)] rounded-t-[var(--radius-lg)]`}>
+      {[
+        'Время', 'Тип', 'Название', 'Версия', 'Контрагент', 'Статус', 'Сумма',
+      ].map((col) => (
+        <p key={col} className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.07em] truncate">
+          {col}
         </p>
-        <div
-          className="w-[8px] h-[8px] rounded-full border-2 border-[var(--bg)]"
-          style={{ background: v.purchase ? 'oklch(0.45 0.1 145)' : 'var(--line)', boxShadow: '0 0 0 1px var(--line)' }}
-        />
-      </div>
-
-      {/* Карточка версии */}
-      <div
-        className="flex-1 flex items-center gap-[12px] rounded-[var(--radius-md)] px-[16px] py-[12px] mb-[8px] transition-colors group-hover:bg-[var(--surface-inset)]"
-        style={{ border: '1px solid var(--line)', background: 'var(--bg)' }}
-      >
-        {/* Тип документа */}
-        <div
-          className="shrink-0 w-[28px] h-[28px] rounded-[var(--radius-sm)] flex items-center justify-center text-[9px] font-bold"
-          style={{ background: 'var(--surface-inset)', color: 'var(--ink-4)' }}
-        >
-          {TYPE_LABELS[v.document.type]}
-        </div>
-
-        {/* Основное */}
-        <div className="flex-1 min-w-0">
-          <p className="text-[13px] font-medium text-[var(--ink)] truncate">
-            {v.document.title}
-          </p>
-          <div className="flex items-center gap-[6px] mt-[2px]">
-            <span className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>
-              v.{v.number}
-            </span>
-            {v.description && (
-              <>
-                <span className="text-[var(--line)]">·</span>
-                <span className="text-[11px] text-[var(--ink-4)] truncate">{v.description}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Контрагент */}
-        <p className="shrink-0 text-[11px] text-[var(--ink-4)] hidden sm:block max-w-[120px] truncate">
-          {v.document.counterparty.name}
-        </p>
-
-        {/* Статус */}
-        <span
-          className="shrink-0 inline-flex items-center px-[8px] h-[20px] rounded-full text-[10px] font-medium"
-          style={{ background: status.bg, color: status.color }}
-        >
-          {status.label}
-        </span>
-
-        {/* Цена если куплено */}
-        {v.purchase ? (
-          <span className="shrink-0 text-[12px] font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'oklch(0.45 0.1 145)' }}>
-            {formatMoney(v.purchase.amount)} ₽
-          </span>
-        ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--line)" strokeWidth="2"
-            strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-            <polyline points="9 18 15 12 9 6"/>
-          </svg>
-        )}
-      </div>
+      ))}
     </div>
   )
 }
 
-// ─── Главная страница ─────────────────────────────────────────────────────────
+// ─── Строка версии ────────────────────────────────────────────────────────────
+
+function VersionRow({ v, isLast }: { v: VersionEntry; isLast: boolean }) {
+  const router = useRouter()
+  const status = STATUS_MAP[v.status] ?? STATUS_MAP.DRAFT!
+
+  return (
+    <div
+      className={[
+        GRID,
+        'gap-[8px] px-[16px] py-[11px] items-center cursor-pointer hover:bg-[var(--surface-2)] transition-colors',
+        !isLast ? 'border-b border-[var(--line)]' : '',
+      ].join(' ')}
+      onClick={() => router.push(`/documents/${v.document.id}/work?version=${v.id}`)}
+    >
+      {/* Время */}
+      <span className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>
+        {formatTime(v.createdAt)}
+      </span>
+
+      {/* Тип */}
+      <div
+        className="w-[32px] h-[22px] rounded-[var(--radius-sm)] flex items-center justify-center text-[9px] font-bold"
+        style={{ background: 'var(--surface-inset)', color: 'var(--ink-4)' }}
+      >
+        {TYPE_LABELS[v.document.type]}
+      </div>
+
+      {/* Название */}
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-[var(--ink)] truncate">{v.document.title}</p>
+        {v.description && (
+          <p className="text-[11px] text-[var(--ink-4)] truncate mt-[1px]">{v.description}</p>
+        )}
+      </div>
+
+      {/* Версия */}
+      <span className="text-[12px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>
+        v.{v.number}
+      </span>
+
+      {/* Контрагент */}
+      <p className="text-[12px] text-[var(--ink-3)] truncate">{v.document.counterparty.name}</p>
+
+      {/* Статус */}
+      <span
+        className="inline-flex items-center px-[8px] h-[22px] rounded-full text-[11px] font-medium w-fit"
+        style={{ background: status.bg, color: status.color }}
+      >
+        {status.label}
+      </span>
+
+      {/* Сумма */}
+      {v.purchase ? (
+        <span className="text-[12px] font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'oklch(0.45 0.1 145)' }}>
+          {formatMoney(v.purchase.amount)} ₽
+        </span>
+      ) : (
+        <span className="text-[12px] text-[var(--ink-5)]">—</span>
+      )}
+    </div>
+  )
+}
+
+// ─── Константы фильтров ───────────────────────────────────────────────────────
 
 const TYPE_FILTERS = [
-  { key: '', label: 'Все' },
+  { key: '', label: 'Все типы' },
   { key: 'CONTRACT', label: 'Договоры' },
   { key: 'APPENDIX', label: 'Приложения' },
-  { key: 'AMENDMENT', label: 'ДС' },
+  { key: 'AMENDMENT', label: 'Доп. соглашения' },
 ]
+
+const DATE_FILTERS: { key: 'week' | 'month' | 'all'; label: string; days: number | null }[] = [
+  { key: 'week',  label: 'Последние 7 дней',  days: 7 },
+  { key: 'month', label: 'Последние 30 дней', days: 30 },
+  { key: 'all',   label: 'Всё время',         days: null },
+]
+
+// ─── Главная страница ─────────────────────────────────────────────────────────
 
 export default function HistoryPage() {
   const [versions, setVersions] = useState<VersionEntry[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [typeFilter, setTypeFilter] = useState('')
-  const [viewMode, setViewMode] = useState<'timeline' | 'docs'>('timeline')
+  const [dateFilter, setDateFilter] = useState<'week' | 'month' | 'all'>('all')
 
   useEffect(() => {
+    setLoading(true)
     const params = new URLSearchParams()
     if (typeFilter) params.set('type', typeFilter)
 
@@ -185,32 +194,42 @@ export default function HistoryPage() {
       .finally(() => setLoading(false))
   }, [typeFilter])
 
-  const grouped = groupByDay(versions)
+  // Клиентская фильтрация по дате
+  const filteredVersions = (() => {
+    const df = DATE_FILTERS.find((f) => f.key === dateFilter)
+    if (!df || df.days === null) return versions
+    const cutoff = Date.now() - df.days * 86400000
+    return versions.filter((v) => new Date(v.createdAt).getTime() >= cutoff)
+  })()
+
+  const grouped = groupByDay(filteredVersions)
 
   return (
-    <div className="max-w-[860px]">
+    <div className="max-w-[1280px]">
       {/* Заголовок */}
-      <div className="mb-[20px]">
+      <div className="mb-[24px]">
         {stats && (
-          <p className="text-[12px] text-[var(--ink-4)] mb-[4px] uppercase tracking-[0.06em]">
-            {stats.totalVersions} версий · {stats.paidAmount > 0 ? `${formatMoney(stats.paidAmount)} ₽ оплачено` : ''}
+          <p className="text-[12px] text-[var(--ink-4)] mb-[4px]">
+            {stats.totalVersions} {stats.totalVersions === 1 ? 'версия' : 'версий'}
+            {stats.paidAmount > 0 && <> · <span style={{ color: 'oklch(0.45 0.1 145)' }}>{formatMoney(stats.paidAmount)} ₽ оплачено</span></>}
           </p>
         )}
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>
           История версий
         </h2>
         <p className="text-[13px] text-[var(--ink-3)] mt-[4px]">
-          Все версии всех документов в хронологическом порядке. Купленные версии скачиваются повторно бесплатно.
+          Все версии ваших документов. Купленные версии можно скачать повторно бесплатно.
         </p>
       </div>
 
-      {/* Фильтры + переключатель вида */}
-      <div className="flex items-center justify-between mb-[20px]">
+      {/* Фильтры */}
+      <div className="flex flex-wrap items-center gap-[8px] mb-[20px]">
+        {/* Тип документа */}
         <div className="flex gap-[4px]">
           {TYPE_FILTERS.map((f) => (
             <button
               key={f.key}
-              onClick={() => { setTypeFilter(f.key); setLoading(true) }}
+              onClick={() => setTypeFilter(f.key)}
               className="px-[12px] h-[30px] rounded-full text-[12px] font-medium transition-colors cursor-pointer"
               style={{
                 background: typeFilter === f.key ? 'var(--ink)' : 'var(--surface-inset)',
@@ -222,18 +241,21 @@ export default function HistoryPage() {
           ))}
         </div>
 
-        <div className="flex rounded-[var(--radius-md)] overflow-hidden" style={{ border: '1px solid var(--line)' }}>
-          {([
-            { key: 'timeline', label: 'Хронология' },
-            { key: 'docs',     label: 'По документам' },
-          ] as const).map((tab) => (
-            <button key={tab.key} onClick={() => setViewMode(tab.key)}
-              className="px-[10px] h-[28px] text-[11px] font-medium transition-colors cursor-pointer"
+        <div className="w-px h-[20px] bg-[var(--line)] mx-[4px]" />
+
+        {/* Период */}
+        <div className="flex gap-[4px]">
+          {DATE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setDateFilter(f.key)}
+              className="px-[12px] h-[30px] rounded-full text-[12px] font-medium transition-colors cursor-pointer"
               style={{
-                background: viewMode === tab.key ? 'var(--ink)' : 'var(--bg)',
-                color: viewMode === tab.key ? 'var(--bg)' : 'var(--ink-3)',
-              }}>
-              {tab.label}
+                background: dateFilter === f.key ? 'var(--ink)' : 'var(--surface-inset)',
+                color: dateFilter === f.key ? 'var(--bg)' : 'var(--ink-3)',
+              }}
+            >
+              {f.label}
             </button>
           ))}
         </div>
@@ -241,69 +263,55 @@ export default function HistoryPage() {
 
       {/* Контент */}
       {loading ? (
-        <div className="flex flex-col gap-[24px]">
-          {Array.from({ length: 2 }).map((_, g) => (
-            <div key={g}>
-              <div className="flex items-center gap-[12px] mb-[12px]">
-                <Skeleton className="h-[10px] w-[120px]" />
-                <div className="flex-1 h-px bg-[var(--line)]" />
-              </div>
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex items-start gap-[16px] mb-[8px]">
-                  <div className="shrink-0 w-[40px] flex flex-col items-center gap-[6px]">
-                    <Skeleton className="h-[10px] w-[32px]" />
-                    <div className="w-[8px] h-[8px] rounded-full bg-[var(--line)]" />
-                  </div>
-                  <div className="flex-1 rounded-[var(--radius-md)] px-[16px] py-[12px]" style={{ border: '1px solid var(--line)' }}>
-                    <div className="flex items-center gap-[12px]">
-                      <Skeleton className="w-[28px] h-[28px] shrink-0" />
-                      <div className="flex-1 flex flex-col gap-[6px]">
-                        <Skeleton className="h-[13px] w-[50%]" />
-                        <Skeleton className="h-[10px] w-[20%]" />
-                      </div>
-                      <Skeleton className="h-[20px] w-[72px] rounded-full" />
-                    </div>
-                  </div>
-                </div>
-              ))}
+        <div className="rounded-[var(--radius-lg)] overflow-hidden" style={{ background: 'white', border: '1px solid var(--line)' }}>
+          <TableHeader />
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className={`${GRID} gap-[8px] px-[16px] py-[11px] items-center border-b border-[var(--line)] last:border-0`}>
+              <Skeleton className="h-[10px] w-[36px]" />
+              <Skeleton className="h-[22px] w-[32px] rounded-[var(--radius-sm)]" />
+              <div className="flex flex-col gap-[5px]"><Skeleton className="h-[13px] w-[55%]" /><Skeleton className="h-[10px] w-[30%]" /></div>
+              <Skeleton className="h-[10px] w-[32px]" />
+              <Skeleton className="h-[12px] w-[70%]" />
+              <Skeleton className="h-[22px] w-[80px] rounded-full" />
+              <Skeleton className="h-[12px] w-[40px]" />
             </div>
           ))}
         </div>
-      ) : versions.length === 0 ? (
+      ) : filteredVersions.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-[80px] gap-[12px]">
           <div className="w-[48px] h-[48px] rounded-full bg-[var(--surface-inset)] flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5"
+              strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
           </div>
           <p className="text-[15px] text-[var(--ink-3)]" style={{ fontFamily: 'var(--font-serif)' }}>
-            Версий пока нет
+            {dateFilter !== 'all' ? 'За этот период версий нет' : 'Версий пока нет'}
           </p>
-          <p className="text-[12px] text-[var(--ink-4)]">Создайте первый документ чтобы начать</p>
+          <p className="text-[12px] text-[var(--ink-4)]">
+            {dateFilter !== 'all' ? 'Попробуйте расширить период' : 'Создайте первый документ чтобы начать'}
+          </p>
         </div>
       ) : (
-        <div>
-          {grouped.map(([dayKey, dayVersions]) => (
-            <div key={dayKey} className="mb-[24px]">
-              {/* Eyebrow-заголовок дня */}
-              <div className="flex items-center gap-[12px] mb-[12px]">
-                <p className="text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] whitespace-nowrap">
+        <div
+          className="rounded-[var(--radius-lg)] overflow-hidden"
+          style={{ background: 'white', border: '1px solid var(--line)' }}
+        >
+          <TableHeader />
+          {grouped.map(([dayKey, dayVersions], gi) => (
+            <div key={dayKey}>
+              {/* Разделитель дня */}
+              <div
+                className={['flex items-center gap-[12px] px-[16px] py-[8px]', gi > 0 ? 'border-t border-[var(--line)]' : ''].join(' ')}
+                style={{ background: 'var(--surface-inset)' }}
+              >
+                <p className="text-[11px] font-medium text-[var(--ink-3)]">
                   {formatDayLabel(dayVersions[0].createdAt)}
                 </p>
-                <div className="flex-1 h-px bg-[var(--line)]" />
               </div>
-
-              {/* Строки версий */}
-              <div className="pl-[0px]">
-                {/* Вертикальная линия таймлайна */}
-                <div className="relative">
-                  <div
-                    className="absolute left-[44px] top-[20px] bottom-[20px] w-px"
-                    style={{ background: 'var(--line)' }}
-                  />
-                  {dayVersions.map((v) => (
-                    <VersionRow key={v.id} v={v} />
-                  ))}
-                </div>
-              </div>
+              {dayVersions.map((v, i) => (
+                <VersionRow key={v.id} v={v} isLast={gi === grouped.length - 1 && i === dayVersions.length - 1} />
+              ))}
             </div>
           ))}
         </div>

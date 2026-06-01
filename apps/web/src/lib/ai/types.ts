@@ -1,6 +1,42 @@
 // ─── Интерфейс ИИ-провайдера ─────────────────────────────────────────────────
 // Одна реализация под Claude, другая под OpenAI — выбор через env AI_PROVIDER
 
+/** Данные профиля пользователя (Исполнитель/одна из сторон) для подстановки в договор */
+export interface UserProfileData {
+  type: string          // SOLE_PROPRIETOR | COMPANY | INDIVIDUAL | ANO | PAO | ZAO
+  name: string          // Полное наименование
+  inn?: string | null
+  kpp?: string | null
+  ogrn?: string | null
+  legalAddress?: string | null
+  signatorName?: string | null
+  signatorPosition?: string | null
+  signatorBasis?: string | null
+  bankName?: string | null
+  checkingAccount?: string | null
+  bik?: string | null
+  correspondentAccount?: string | null
+  email?: string | null
+}
+
+/** Данные контрагента для подстановки в шапку и реквизиты договора */
+export interface CounterpartyData {
+  name: string
+  inn?: string | null
+  kpp?: string | null
+  ogrn?: string | null
+  legalAddress?: string | null
+  email?: string | null
+  phone?: string | null
+  bankName?: string | null
+  checkingAccount?: string | null
+  bik?: string | null
+  correspondentAccount?: string | null
+  signatorName?: string | null
+  signatorPosition?: string | null
+  signatorBasis?: string | null   // "Устав" | "Доверенность №..." | ОГРНИП №...
+}
+
 export interface AISettings {
   protectionLevel: number  // 20-90
   targetSize: number       // знаков
@@ -66,5 +102,9 @@ export interface AIProvider {
     description: string,
     counterpartyName: string,
     settings: AISettings,
+    userProfile?: UserProfileData,
+    counterpartyData?: CounterpartyData,
+    parentDocContent?: string,   // полный текст родительского договора (для APPENDIX/AMENDMENT)
+    referenceContent?: string,   // образец документа (шаблон/загруженный файл) для структуры
   ): AsyncGenerator<string>
 }

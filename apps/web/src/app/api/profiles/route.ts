@@ -6,7 +6,7 @@ import { verifyToken, getTokenFromCookie } from '@/lib/auth'
 // ─── Схема валидации ─────────────────────────────────────────────────────────
 
 const profileSchema = z.object({
-  type: z.enum(['INDIVIDUAL', 'SOLE_PROPRIETOR', 'COMPANY']),
+  type: z.enum(['INDIVIDUAL', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']),
   name: z.string().min(1, 'Укажите наименование'),
   inn: z.string().optional(),
   kpp: z.string().optional(),

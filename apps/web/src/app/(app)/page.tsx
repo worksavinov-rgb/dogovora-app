@@ -70,9 +70,9 @@ function QuickAction({ icon, label, sub, onClick }: {
     <button
       onClick={onClick}
       className="w-full text-left rounded-[var(--radius-lg)] p-[16px] transition-all cursor-pointer group"
-      style={{ background: 'var(--bg)', border: '1px solid var(--line)' }}
-      onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--ink-4)')}
-      onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--line)')}
+      style={{ background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--ink-3)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--line-2)'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)' }}
     >
       <div
         className="w-[32px] h-[32px] rounded-[var(--radius-md)] flex items-center justify-center mb-[12px] text-[16px]"
@@ -95,6 +95,7 @@ export default function HomePage() {
   const [storage, setStorage] = useState<StorageData | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [userName, setUserName] = useState<string | null>(null)
+  const [myProfileName, setMyProfileName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -104,15 +105,17 @@ export default function HomePage() {
       fetch('/api/wallet').then((r) => r.ok ? r.json() : null),
       fetch('/api/storage').then((r) => r.ok ? r.json() : null),
       fetch('/api/auth/me').then((r) => r.ok ? r.json() : null),
-    ]).then(([docsData, walletData, storageData, meData]) => {
+      fetch('/api/profiles').then((r) => r.ok ? r.json() : []),
+    ]).then(([docsData, walletData, storageData, meData, profilesData]) => {
       setDocs(docsData.items ?? [])
       setWallet(walletData)
       setStorage(storageData)
       setLoading(false)
       if (meData?.email) {
-        // Берём имя из email до @
         setUserName(meData.email.split('@')[0])
       }
+      const firstProfile = Array.isArray(profilesData) ? profilesData[0] : null
+      if (firstProfile?.name) setMyProfileName(firstProfile.name)
 
       // Считаем версии ждущие оплаты (APPROVED без Purchase)
       const approved = (docsData.items ?? []).reduce((count: number, doc: RecentDoc) => {
@@ -148,20 +151,20 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-[12px] mb-[24px]">
-        <QuickAction icon="+" label="Создать договор" sub="С нуля или из шаблона"
-          onClick={() => router.push('/documents/new')} />
-        <QuickAction icon="◎" label="Проверить документ" sub="Загрузить и оценить риски"
-          onClick={() => router.push('/documents/new')} />
-        <QuickAction icon="⇄" label="Сравнить версии" sub="Найти отличия двух файлов"
-          onClick={() => router.push('/documents')} />
-        <QuickAction icon="⬡" label="Пополнить баланс" sub={wallet ? `${wallet.balance.toLocaleString('ru')} ₽ — хватит на ${Math.floor(wallet.balance / 540)} версий` : 'Управление средствами'}
-          onClick={() => router.push('/balance')} />
-      </div>
-
-      {/* Две колонки */}
+      {/* Единая сетка: карточки и контент выровнены по одной оси */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-[16px]">
+
+        {/* Левая колонка */}
+        <div className="flex flex-col gap-[12px]">
+          {/* 3 quick actions */}
+          <div className="grid grid-cols-3 gap-[12px]">
+            <QuickAction icon="+" label="Создать договор" sub="Новый документ с ИИ"
+              onClick={() => router.push('/documents/new')} />
+            <QuickAction icon="↑" label="Загрузить документ" sub="DOCX, DOC или TXT"
+              onClick={() => router.push('/documents/new?tab=upload')} />
+            <QuickAction icon="☰" label="Все документы" sub={docs.length > 0 ? `${docs.length} в архиве` : 'Архив договоров'}
+              onClick={() => router.push('/documents')} />
+          </div>
 
         {/* Недавние документы */}
         <Card pad={false}>
@@ -223,10 +226,14 @@ export default function HomePage() {
                     {TYPE_ICONS[doc.type] ?? '⊡'}
                   </div>
 
-                  {/* Название + контрагент */}
+                  {/* Название + стороны */}
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
-                    <p className="text-[11px] text-[var(--ink-4)] truncate">{doc.counterparty.name}</p>
+                    <p className="text-[11px] text-[var(--ink-4)] truncate">
+                      {myProfileName
+                        ? <>{myProfileName} <span className="text-[var(--ink-4)] mx-[3px]">↔</span> {doc.counterparty.name}</>
+                        : doc.counterparty.name}
+                    </p>
                   </div>
 
                   {/* Статус */}
@@ -250,26 +257,29 @@ export default function HomePage() {
             })
           )}
         </Card>
+        </div>{/* /Левая колонка */}
 
         {/* Правая колонка */}
         <div className="flex flex-col gap-[12px]">
 
           {/* Баланс */}
           <Card>
-            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[8px]">Баланс</p>
-            <p className="leading-none mb-[4px]" style={{ fontFamily: 'var(--font-serif)', fontSize: 32, fontWeight: 400 }}>
-              {wallet ? wallet.balance.toLocaleString('ru') : '…'}
-              <span className="text-[var(--ink-3)] ml-[4px]" style={{ fontSize: 18 }}>₽</span>
-            </p>
-            <p className="text-[11px] text-[var(--ink-4)] mb-[12px]">
-              ≈ {wallet ? Math.floor(wallet.balance / 540) : 0} версий по средней цене
-            </p>
-            <button
-              onClick={() => router.push('/balance')}
-              className="w-full h-[34px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
-            >
-              + Пополнить
-            </button>
+            <div className="flex flex-col" style={{ gap: 14 }}>
+              <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em]">Баланс</p>
+              <p className="leading-none" style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 400 }}>
+                {wallet ? wallet.balance.toLocaleString('ru') : '…'}
+                <span className="text-[var(--ink-3)] ml-[6px]" style={{ fontSize: 20 }}>₽</span>
+              </p>
+              <p className="text-[12px] text-[var(--ink-4)]">
+                ≈ {wallet ? Math.floor(wallet.balance / 55) : 0} договоров по средней цене
+              </p>
+              <button
+                onClick={() => router.push('/balance')}
+                className="w-full h-[38px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
+              >
+                Пополнить баланс
+              </button>
+            </div>
           </Card>
 
           {/* Версии ждут оплаты */}

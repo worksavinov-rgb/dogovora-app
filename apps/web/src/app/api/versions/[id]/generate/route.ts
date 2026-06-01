@@ -14,30 +14,126 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const version = await prisma.version.findFirst({
     where: { id, document: { userId } },
-    include: { document: { include: { counterparty: true } } },
+    include: {
+      document: {
+        include: {
+          counterparty: {
+            include: {
+              bankDetails: { take: 1 },
+              signatories: { where: { isDefault: true }, take: 1 },
+            },
+          },
+          parentDocument: { select: { id: true, title: true, number: true } },
+        },
+      },
+    },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  // Если уже есть контент — не перегенерируем (защита от дублей)
-  if (version.content) {
-    return NextResponse.json({ jobId: null, status: 'already_generated' })
-  }
 
   const aiSettings = version.aiSettings as {
     protectionLevel?: number
     targetSize?: number
     customInstruction?: string
     description?: string
+    profileId?: string
+    referenceContent?: string  // образец структуры для Приложений/ДС
+  }
+
+  // Если уже есть контент И нет referenceContent (значит это не шаблон-для-генерации) — не перегенерируем
+  if (version.content && !aiSettings?.referenceContent) {
+    return NextResponse.json({ jobId: null, status: 'already_generated' })
+  }
+
+  const doc = version.document
+
+  // Берём профиль по выбранному profileId (или первый если не выбрано)
+  const profiles = await prisma.profile.findMany({
+    where: {
+      userId,
+      ...(aiSettings?.profileId ? { id: aiSettings.profileId } : {}),
+    },
+    include: { bankDetails: true },
+    orderBy: { createdAt: 'asc' },
+    take: 1,
+  })
+  const profile = profiles[0]
+  const userProfile = profile ? {
+    type: profile.type,
+    name: profile.name,
+    inn: profile.inn,
+    kpp: profile.kpp,
+    ogrn: profile.ogrn,
+    legalAddress: profile.legalAddress,
+    signatorName: profile.signatorName,
+    signatorPosition: profile.signatorPosition,
+    signatorBasis: profile.signatorBasis,
+    bankName: profile.bankDetails[0]?.bankName ?? null,
+    checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
+    bik: profile.bankDetails[0]?.bik ?? null,
+    correspondentAccount: profile.bankDetails[0]?.correspondentAccount ?? null,
+    email: null,
+  } : undefined
+
+  // Полные данные контрагента для формирования шапки и реквизитов
+  const cp = doc.counterparty
+  const cpSignatory = cp.signatories[0]
+  const counterpartyData = {
+    name: cp.name,
+    inn: cp.inn,
+    kpp: cp.kpp,
+    ogrn: cp.ogrn,
+    legalAddress: cp.legalAddress,
+    email: cp.email,
+    phone: cp.phone,
+    bankName: cp.bankDetails[0]?.bankName ?? null,
+    checkingAccount: cp.bankDetails[0]?.checkingAccount ?? null,
+    bik: cp.bankDetails[0]?.bik ?? null,
+    correspondentAccount: cp.bankDetails[0]?.correspondentAccount ?? null,
+    signatorName: cpSignatory?.fullName ?? null,
+    signatorPosition: cpSignatory?.position ?? null,
+    signatorBasis: cpSignatory
+      ? (cpSignatory.basisType === 'CHARTER'
+          ? 'Устава'
+          : cpSignatory.poaNumber
+            ? `Доверенности № ${cpSignatory.poaNumber}`
+            : 'Доверенности')
+      : null,
+  }
+
+  // Для APPENDIX/AMENDMENT — находим финальную версию родительского договора
+  // Приоритет: SIGNED → PAID → APPROVED → последняя по номеру
+  let parentDocContent: string | undefined
+  if (doc.parentDocument && (doc.type === 'APPENDIX' || doc.type === 'AMENDMENT')) {
+    const parentVersions = await prisma.version.findMany({
+      where: { documentId: doc.parentDocument.id },
+      orderBy: { number: 'desc' },
+      select: { status: true, content: true },
+    })
+    const priority = ['SIGNED', 'PAID', 'APPROVED']
+    const best = priority.reduce<{ status: string; content: string | null } | null>((found, status) => {
+      return found ?? (parentVersions.find((v) => v.status === status) ?? null)
+    }, null) ?? parentVersions[0] ?? null
+    parentDocContent = best?.content ?? undefined
   }
 
   const queue = getGenerateQueue()
   const job = await queue.add('generate', {
     versionId: id,
     description: aiSettings?.description ?? '',
-    counterpartyName: version.document.counterparty.name,
+    counterpartyName: doc.counterparty.name,
     protectionLevel: aiSettings?.protectionLevel ?? 70,
     targetSize: aiSettings?.targetSize ?? 8000,
     customInstruction: aiSettings?.customInstruction ?? '',
+    docType: doc.type,
+    docNumber: doc.number ?? undefined,
+    signingDate: doc.signingDate ? doc.signingDate.toISOString() : undefined,
+    documentNumber: doc.documentNumber ?? undefined,
+    referenceContent: aiSettings?.referenceContent ?? undefined,
+    parentDocTitle: doc.parentDocument?.title ?? undefined,
+    parentDocNumber: doc.parentDocument?.number ?? undefined,
+    parentDocContent,
+    userProfile,
+    counterpartyData,
   })
 
   return NextResponse.json({ jobId: job.id }, { status: 202 })

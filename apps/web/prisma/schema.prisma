@@ -63,6 +63,7 @@ model Profile {
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   bankDetails BankDetail[]
+  documents   Document[]
 
   @@map("profiles")
 }
@@ -164,18 +165,27 @@ enum DocumentScope {
 // ─── Документы и версии ───────────────────────────────────────────────────────
 
 model Document {
-  id             String       @id @default(cuid())
-  userId         String
-  counterpartyId String
-  title          String
-  number         String?
-  type           DocumentType
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  userId           String
+  counterpartyId   String
+  title            String
+  number           String?
+  type             DocumentType
+  // Иерархия: для APPENDIX и AMENDMENT — ссылка на родительский CONTRACT
+  parentDocumentId String?
+  documentNumber   Int?         // порядковый номер приложения/ДС (1, 2, 3...)
+  profileId        String?      // профиль пользователя (моя компания) выбранный при создании
+  signingDate      DateTime?    // плановая дата подписания (задаётся при создании)
+  signedAt         DateTime?    // дата фактического подписания (устанавливается при переводе в SIGNED)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  versions     Version[]
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  counterparty   Counterparty @relation(fields: [counterpartyId], references: [id])
+  profile        Profile?     @relation(fields: [profileId], references: [id])
+  versions       Version[]
+  parentDocument Document?    @relation("DocumentHierarchy", fields: [parentDocumentId], references: [id])
+  childDocuments Document[]   @relation("DocumentHierarchy")
 
   @@map("documents")
 }
@@ -241,6 +251,7 @@ enum VersionStatus {
   REVIEW       // На проверке
   APPROVED     // Утверждено
   PAID         // Оплачено
+  SIGNED       // Подписан
 }
 
 enum ChatRole {

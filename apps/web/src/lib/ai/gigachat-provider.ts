@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { AIMessage, AIProvider, AISettings, ReviewResult } from './types'
+import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
 
 // GigaChat использует самоподписанный сертификат Сбера
 // Устанавливаем переменную окружения до первого запроса
@@ -214,6 +214,114 @@ function normalizeReview(raw: unknown): ReviewResult {
   }
 }
 
+// ─── Вспомогательные функции: форматирование данных для промпта ─────────────
+
+const TYPE_RU: Record<string, string> = {
+  SOLE_PROPRIETOR: 'ИП',
+  COMPANY: 'ООО',
+  INDIVIDUAL: 'Физлицо',
+  ANO: 'АНО',
+  PAO: 'ПАО',
+  ZAO: 'ЗАО',
+}
+
+function partyFullName(name: string, type: string): string {
+  const t = TYPE_RU[type] ?? type
+  // Если имя уже содержит организационно-правовую форму — не дублируем
+  if (name.startsWith('ИП ') || name.startsWith('ООО') || name.startsWith('АО') || name.startsWith('ПАО') || name.startsWith('ЗАО') || name.startsWith('АНО')) {
+    return name
+  }
+  if (type === 'SOLE_PROPRIETOR') return `Индивидуальный предприниматель ${name}`
+  if (type === 'COMPANY') return `Общество с ограниченной ответственностью «${name}»`
+  return `${t} ${name}`
+}
+
+function buildBasisPhrase(type: string, ogrn: string | null | undefined, signatorBasis: string | null | undefined): string {
+  if (signatorBasis) return signatorBasis
+  if (type === 'SOLE_PROPRIETOR' && ogrn) return `ОГРНИП ${ogrn}`
+  return 'Устава'
+}
+
+function buildContractHeader(
+  userProfile: UserProfileData,
+  counterparty: CounterpartyData,
+  role1: string,   // «Заказчик» / «Исполнитель» и т.д.
+  role2: string,
+): string {
+  const p1FullName = partyFullName(userProfile.name, userProfile.type)
+  const p1Basis = buildBasisPhrase(userProfile.type, userProfile.ogrn, userProfile.signatorBasis)
+
+  const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
+  const p2FullName = partyFullName(counterparty.name, p2Type)
+  const p2Basis = buildBasisPhrase(p2Type, counterparty.ogrn, counterparty.signatorBasis)
+
+  const lines: string[] = []
+
+  // Шапка стороны 1
+  if (userProfile.type === 'SOLE_PROPRIETOR') {
+    lines.push(`${p1FullName}, именуемый в дальнейшем «${role1}», действующий на основании ${p1Basis}, с одной стороны, и`)
+  } else {
+    const signatorPhrase = userProfile.signatorName
+      ? `в лице ${userProfile.signatorPosition ?? 'директора'} ${userProfile.signatorName}, действующего на основании ${p1Basis},`
+      : ''
+    lines.push(`${p1FullName} ${signatorPhrase} именуемое в дальнейшем «${role1}», с одной стороны, и`)
+  }
+
+  // Шапка стороны 2
+  if (p2Type === 'SOLE_PROPRIETOR') {
+    const signLine = counterparty.signatorName ? counterparty.signatorName : counterparty.name
+    lines.push(`Индивидуальный предприниматель ${signLine}, именуемый в дальнейшем «${role2}», действующий на основании ${p2Basis}, с другой стороны,`)
+  } else {
+    const signPhrase = counterparty.signatorName
+      ? `в лице ${counterparty.signatorPosition ?? 'директора'} ${counterparty.signatorName}, действующего на основании ${p2Basis},`
+      : ''
+    lines.push(`${p2FullName} ${signPhrase} именуемое в дальнейшем «${role2}», с другой стороны,`)
+  }
+
+  lines.push('совместно именуемые «Стороны», заключили настоящий договор (далее — «Договор») о нижеследующем:')
+  return lines.join('\n')
+}
+
+function buildRequisitesBlock(userProfile: UserProfileData, counterparty: CounterpartyData, role1: string, role2: string): string {
+  const p1Lines: string[] = []
+  const p2Lines: string[] = []
+
+  // Сторона 1 (пользователь)
+  p1Lines.push(`${role1}: ${partyFullName(userProfile.name, userProfile.type)}`)
+  if (userProfile.legalAddress) p1Lines.push(`Адрес: ${userProfile.legalAddress}`)
+  if (userProfile.inn) p1Lines.push(`ИНН: ${userProfile.inn}`)
+  if (userProfile.kpp) p1Lines.push(`КПП: ${userProfile.kpp}`)
+  if (userProfile.ogrn) p1Lines.push(`ОГРН: ${userProfile.ogrn}`)
+  if (userProfile.checkingAccount) p1Lines.push(`Р/счет: ${userProfile.checkingAccount}`)
+  if (userProfile.correspondentAccount) p1Lines.push(`К/счет: ${userProfile.correspondentAccount}`)
+  if (userProfile.bankName) p1Lines.push(`Банк: ${userProfile.bankName}`)
+  if (userProfile.bik) p1Lines.push(`БИК: ${userProfile.bik}`)
+  if (userProfile.email) p1Lines.push(`E-mail: ${userProfile.email}`)
+  const p1SignLine = userProfile.signatorName
+    ? `${userProfile.signatorPosition ?? ''} ${userProfile.signatorName}`.trim()
+    : userProfile.name
+  p1Lines.push(`${p1SignLine} _________________`)
+
+  // Сторона 2 (контрагент)
+  const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
+  p2Lines.push(`${role2}: ${partyFullName(counterparty.name, p2Type)}`)
+  if (counterparty.legalAddress) p2Lines.push(`Адрес: ${counterparty.legalAddress}`)
+  if (counterparty.inn) p2Lines.push(`ИНН: ${counterparty.inn}`)
+  if (counterparty.kpp) p2Lines.push(`КПП: ${counterparty.kpp}`)
+  if (counterparty.ogrn) p2Lines.push(`ОГРН: ${counterparty.ogrn}`)
+  if (counterparty.checkingAccount) p2Lines.push(`Р/счет: ${counterparty.checkingAccount}`)
+  if (counterparty.correspondentAccount) p2Lines.push(`К/счет: ${counterparty.correspondentAccount}`)
+  if (counterparty.bankName) p2Lines.push(`Банк: ${counterparty.bankName}`)
+  if (counterparty.bik) p2Lines.push(`БИК: ${counterparty.bik}`)
+  if (counterparty.email) p2Lines.push(`E-mail: ${counterparty.email}`)
+  const p2SignLine = counterparty.signatorName
+    ? `${counterparty.signatorPosition ?? ''} ${counterparty.signatorName}`.trim()
+    : counterparty.name
+  p2Lines.push(`${p2SignLine} _________________`)
+
+  return [p1Lines.join('\n'), '', p2Lines.join('\n')].join('\n')
+}
+
 export const gigachatProvider: AIProvider = {
   async *chat(messages: AIMessage[], settings: AISettings, documentText: string) {
     const payload = {
@@ -290,25 +398,73 @@ export const gigachatProvider: AIProvider = {
     return normalizeReview(parsedJson)
   },
 
-  async *generate(description: string, counterpartyName: string, settings: AISettings) {
+  async *generate(
+    description: string,
+    counterpartyName: string,
+    settings: AISettings,
+    userProfile?: UserProfileData,
+    counterpartyData?: CounterpartyData,
+    parentDocContent?: string,
+    referenceContent?: string,
+  ) {
+    // Определяем роли сторон из описания (грубая эвристика)
+    const isUserExecutor = /исполн|подряд|оказ|услуг/i.test(description)
+    const role1 = isUserExecutor ? 'Исполнитель' : 'Заказчик'
+    const role2 = isUserExecutor ? 'Заказчик' : 'Исполнитель'
+
+    // Строим готовую шапку договора если есть данные обеих сторон
+    let headerBlock = ''
+    let requisitesBlock = ''
+    if (userProfile && counterpartyData) {
+      headerBlock = buildContractHeader(userProfile, counterpartyData, role1, role2)
+      requisitesBlock = buildRequisitesBlock(userProfile, counterpartyData, role1, role2)
+    } else if (counterpartyData) {
+      headerBlock = `Стороны: Пользователь («${role1}») и ${counterpartyData.name} («${role2}»)`
+    }
+
+    // Для русского текста ~1.5 символа на токен + 50% запас сверху
+    const estimatedTokens = Math.ceil((settings.targetSize / 1.5) * 1.5)
+    // GigaChat-2 поддерживает до 8192 токенов на выход
+    const maxTokens = Math.min(Math.max(estimatedTokens, 3000), 8192)
+
+    const isChildDoc = parentDocContent && parentDocContent.trim().length > 0
+    const parentSnippet = isChildDoc ? parentDocContent!.slice(0, 10000) : null
+    const referenceSnippet = referenceContent && referenceContent.trim().length > 0
+      ? referenceContent.trim().slice(0, 6000)
+      : null
+
+    const systemPrompt = [
+      isChildDoc
+        ? 'Ты составляешь юридически корректные приложения и дополнительные соглашения к договорам на русском языке. Ты ОБЯЗАН опираться на условия основного договора и при наличии — на образец документа, которые будут предоставлены ниже.'
+        : 'Ты составляешь юридически корректные проекты договоров на русском языке.',
+      `ОБЯЗАТЕЛЬНОЕ ТРЕБОВАНИЕ К ОБЪЁМУ: текст документа должен быть НЕ МЕНЕЕ ${settings.targetSize} знаков (символов с пробелами).`,
+      'Если содержание исчерпано — добавь детализацию условий, типовые пункты об ответственности, форс-мажоре, порядке разрешения споров, конфиденциальности, заключительных положениях.',
+      'НЕ сокращай, НЕ пиши «см. законодательство» вместо конкретных условий.',
+      'Верни ТОЛЬКО текст документа — без markdown, без пояснений, без комментариев.',
+    ].join('\n')
+
     const userPrompt = [
-      `Сгенерируй проект договора с контрагентом "${counterpartyName}".`,
-      'Верни только текст договора без markdown и пояснений.',
+      parentSnippet ? `ОСНОВНОЙ ДОГОВОР (финальная версия — используй его условия, стороны и терминологию как базу):\n---\n${parentSnippet}\n---\n` : '',
+      referenceSnippet ? `ОБРАЗЕЦ ДОКУМЕНТА (предыдущий аналогичный документ — используй его структуру, разделы и формулировки как шаблон, адаптируй под новое задание):\n---\n${referenceSnippet}\n---\n` : '',
+      headerBlock ? `ШАПКА ДОКУМЕНТА (используй точно эти данные, не придумывай другие):\n${headerBlock}` : `Стороны: Пользователь («${role1}») и "${counterpartyName}" («${role2}»).`,
+      '',
       `Описание задачи: ${description || 'не указано'}.`,
-      `Уровень защиты интересов: ${settings.protectionLevel}/90.`,
-      `Целевой объём: около ${settings.targetSize} знаков.`,
-      settings.customInstruction ? `Дополнительная инструкция: ${settings.customInstruction}` : '',
-      'Язык: русский.',
+      isChildDoc ? 'ЖЁСТКОЕ ТРЕБОВАНИЕ: этот документ является приложением/доп.соглашением к договору выше. Ссылайся на его пункты (например: «в соответствии с п. X основного договора»), используй те же стороны, реквизиты, терминологию. НЕ дублируй весь договор — только дополняй или изменяй конкретные условия.' : '',
+      `Уровень защиты интересов ${role1}: ${settings.protectionLevel}% (чем выше — тем больше пунктов о неустойках, гарантиях, ответственности).`,
+      `МИНИМАЛЬНЫЙ объём: ${settings.targetSize} знаков. Пиши развёрнуто, с детализацией каждого раздела.`,
+      settings.customInstruction ? `\nОБЯЗАТЕЛЬНО выполни следующие инструкции (это жёсткие требования к содержанию):\n${settings.customInstruction}` : '',
+      requisitesBlock ? `\nВ конце документа ОБЯЗАТЕЛЬНО размести раздел «Реквизиты и подписи сторон» в следующем формате:\n${requisitesBlock}` : '',
+      '\nЯзык: только русский.',
     ].filter(Boolean).join('\n')
 
     const payload = {
       model: GIGACHAT_MODEL,
       messages: [
-        { role: 'system', content: 'Ты составляешь юридически корректные проекты договоров на русском языке.' },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 3000,
-      repetition_penalty: 1,
+      max_tokens: maxTokens,
+      repetition_penalty: 1.05,
       temperature: 0.4,
     }
 

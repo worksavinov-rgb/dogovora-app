@@ -2,6 +2,7 @@ import { Queue, Worker, Job } from 'bullmq'
 import { prisma } from './db'
 import { getAIProvider } from './ai/provider'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
+import type { CounterpartyData, UserProfileData } from './ai/types'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
 
@@ -35,6 +36,16 @@ export interface GenerateDocumentJobData {
   protectionLevel: number
   targetSize: number
   customInstruction: string
+  docType?: string            // CONTRACT | APPENDIX | AMENDMENT
+  docNumber?: string          // номер документа (введённый пользователем)
+  signingDate?: string        // плановая дата подписания (ISO string)
+  documentNumber?: number     // порядковый номер приложения/ДС (1, 2, 3...)
+  parentDocTitle?: string     // название родительского договора
+  parentDocNumber?: string    // номер родительского договора
+  parentDocContent?: string   // текст финальной версии родительского договора
+  referenceContent?: string   // образец структуры (шаблон/файл) для Приложений/ДС
+  userProfile?: UserProfileData        // профиль пользователя (одна из сторон)
+  counterpartyData?: CounterpartyData  // полные данные контрагента
 }
 
 // ─── Очередь ─────────────────────────────────────────────────────────────────
@@ -64,7 +75,11 @@ export function startGenerateWorker() {
   const worker = new Worker<GenerateDocumentJobData>(
     QUEUE_NAME,
     async (job: Job<GenerateDocumentJobData>) => {
-      const { versionId, description, counterpartyName, protectionLevel, targetSize, customInstruction } = job.data
+      const {
+        versionId, description, counterpartyName, protectionLevel, targetSize, customInstruction,
+        docType, docNumber, signingDate, documentNumber, parentDocTitle, parentDocNumber, parentDocContent,
+        referenceContent, userProfile, counterpartyData,
+      } = job.data
 
       // Обновляем статус версии → IN_PROGRESS
       await prisma.version.update({
@@ -74,11 +89,36 @@ export function startGenerateWorker() {
 
       await job.updateProgress(10)
 
+      // Форматируем дату подписания для промпта и форматтера
+      const signingDateFormatted = signingDate
+        ? new Date(signingDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+        : null
+
+      // Если это приложение/ДС с привязкой к родительскому договору — добавляем в описание
+      let enrichedDescription = description
+      if (docType === 'APPENDIX' && parentDocTitle) {
+        const numStr = documentNumber ? ` № ${documentNumber}` : ''
+        const parentRef = parentDocNumber ? `"${parentDocTitle}" № ${parentDocNumber}` : `"${parentDocTitle}"`
+        enrichedDescription = `[Тип документа: Приложение${numStr} к договору ${parentRef}]\n${description}`
+      } else if (docType === 'AMENDMENT' && parentDocTitle) {
+        const numStr = documentNumber ? ` № ${documentNumber}` : ''
+        const parentRef = parentDocNumber ? `"${parentDocTitle}" № ${parentDocNumber}` : `"${parentDocTitle}"`
+        enrichedDescription = `[Тип документа: Дополнительное соглашение${numStr} к договору ${parentRef}]\n${description}`
+      }
+
+      // Добавляем номер и дату подписания в промпт чтобы ИИ вставил их в шапку документа
+      const metaLines: string[] = []
+      if (docNumber) metaLines.push(`Номер договора: ${docNumber}`)
+      if (signingDateFormatted) metaLines.push(`Дата подписания: ${signingDateFormatted}`)
+      if (metaLines.length > 0) {
+        enrichedDescription = `[${metaLines.join(', ')}]\n${enrichedDescription}`
+      }
+
       // Стримим генерацию и собираем полный текст
       let fullText = ''
       const settings = { protectionLevel, targetSize, customInstruction }
       const aiProvider = getAIProvider()
-      const generator = aiProvider.generate(description, counterpartyName, settings)
+      const generator = aiProvider.generate(enrichedDescription, counterpartyName, settings, userProfile, counterpartyData, parentDocContent, referenceContent)
 
       for await (const chunk of generator) {
         fullText += chunk
@@ -97,10 +137,26 @@ export function startGenerateWorker() {
 
       // Применяем форматирование
       try {
+        // Извлекаем город из юридического адреса профиля (ищем "г. Город" или "город Город")
+        const cityFromProfile = userProfile?.legalAddress
+          ? (userProfile.legalAddress.match(/(?:г\.|город)\s+([А-Яа-яЁё\-]+)/i)?.[1] ?? null)
+          : null
+        const city = cityFromProfile ?? 'Москва'
+
+        // Номер договора: для дочерних берём из родителя, для основных — из doc.number
+        const contractNumber = parentDocNumber
+          ? `${documentNumber ?? ''} к дог. № ${parentDocNumber}`.trim()
+          : (docNumber ?? '')
+
+        // Дата: плановая дата подписания если указана, иначе сегодня
+        const contractDate = signingDate
+          ? new Date(signingDate).toLocaleDateString('ru-RU')
+          : new Date().toLocaleDateString('ru-RU')
+
         const formattedBuffer = await DocumentFormatter.formatDocument(trimmedText, {
-          contractNumber: '01/2026', // TODO: получить реальный номер из версии/документа
-          contractDate: new Date().toLocaleDateString('ru-RU'),
-          city: 'Москва', // TODO: получить из профиля пользователя
+          contractNumber,
+          contractDate,
+          city,
         })
 
         const formattedBase64 = formattedBuffer.toString('base64')

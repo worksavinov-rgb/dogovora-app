@@ -20,11 +20,38 @@ export async function GET(req: NextRequest, { params }: Params) {
         orderBy: { number: 'desc' },
         include: { purchase: true },
       },
+      parentDocument: { select: { id: true, title: true, number: true } },
+      childDocuments: {
+        select: { id: true, title: true, number: true, type: true, documentNumber: true },
+        orderBy: { documentNumber: 'asc' },
+      },
     },
   })
 
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(doc)
+}
+
+// PATCH /api/documents/:id — обновить название, номер, дату
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const userId = getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await params
+  const doc = await prisma.document.findFirst({ where: { id, userId } })
+  if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const body = await req.json() as { title?: string; number?: string | null; date?: string | null; profileId?: string | null }
+  const updated = await prisma.document.update({
+    where: { id },
+    data: {
+      ...(body.title !== undefined ? { title: body.title } : {}),
+      ...(body.number !== undefined ? { number: body.number || null } : {}),
+      ...(body.date !== undefined ? { createdAt: body.date ? new Date(body.date) : undefined } : {}),
+      ...(body.profileId !== undefined ? { profileId: body.profileId || null } : {}),
+    },
+  })
+  return NextResponse.json(updated)
 }
 
 // DELETE /api/documents/:id

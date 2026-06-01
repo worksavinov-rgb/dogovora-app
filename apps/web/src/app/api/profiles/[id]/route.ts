@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { verifyToken, getTokenFromCookie } from '@/lib/auth'
 
 const profileUpdateSchema = z.object({
+  type: z.enum(['INDIVIDUAL', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']).optional(),
   name: z.string().min(1).optional(),
   inn: z.string().optional().nullable(),
   kpp: z.string().optional().nullable(),

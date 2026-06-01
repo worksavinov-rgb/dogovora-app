@@ -121,3 +121,61 @@ p { margin: 0; }
 button { font-family: inherit; }
 
 ::selection { background: oklch(0.42 0.06 260 / 0.18); }
+
+/* ── DOCX-rendered view (mammoth → HTML) ─────────────────────────── */
+.docx-rendered {
+  font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--ink);
+}
+.docx-rendered h2 {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 28px;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+.docx-rendered h3 {
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 18px;
+  margin-bottom: 5px;
+  color: var(--ink);
+}
+.docx-rendered h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.docx-rendered p {
+  margin-bottom: 6px;
+  line-height: 1.75;
+  color: var(--ink);
+}
+.docx-rendered table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.docx-rendered td,
+.docx-rendered th {
+  border: 1px solid var(--line-2);
+  padding: 8px 12px;
+  vertical-align: top;
+  line-height: 1.6;
+}
+.docx-rendered th {
+  font-weight: 600;
+  background: var(--surface-inset);
+}
+.docx-rendered strong,
+.docx-rendered b { font-weight: 600; }
+.docx-rendered em,
+.docx-rendered i { font-style: italic; }

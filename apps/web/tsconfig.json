@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@shared/*": ["../../packages/shared/src/*"],
+      "@dogovora/shared": ["../../packages/shared/src/index.ts"]
     }
   },
   "include": [

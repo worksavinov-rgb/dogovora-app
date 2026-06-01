@@ -1,4 +1,4 @@
-import type { AIProvider, AIMessage, AISettings, ReviewResult } from './types'
+import type { AIProvider, AIMessage, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
 
 // ─── Заглушка для разработки ─────────────────────────────────────────────────
 
@@ -122,7 +122,7 @@ export const mockProvider: AIProvider = {
     }
   },
 
-  async *generate(description: string, counterpartyName: string, _settings: AISettings) {
+  async *generate(description: string, counterpartyName: string, _settings: AISettings, _userProfile?: UserProfileData, _counterpartyData?: CounterpartyData, _parentDocContent?: string, _referenceContent?: string) {
     const template = `ДОГОВОР № ___
 на разработку программного обеспечения
 

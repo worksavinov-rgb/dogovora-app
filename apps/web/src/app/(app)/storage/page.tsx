@@ -314,14 +314,15 @@ export default function StoragePage() {
               className="rounded-[var(--radius-lg)] relative"
               style={{
                 padding: '20px',
-                background: isCurrent ? 'var(--surface-inset)' : 'var(--bg)',
-                border: `1px solid ${isCurrent ? 'var(--ink)' : 'var(--line)'}`,
+                background: isCurrent ? 'var(--surface-inset)' : plan.recommended ? '#ffffff' : '#ffffff',
+                border: `1px solid ${isCurrent ? 'var(--ink)' : plan.recommended ? 'oklch(0.42 0.06 260)' : 'var(--line-2)'}`,
+                boxShadow: plan.recommended && !isCurrent ? '0 0 0 3px oklch(0.92 0.04 260), 0 4px 16px rgba(0,0,0,0.08)' : isCurrent ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
               }}
             >
               {plan.recommended && !isCurrent && (
                 <span
-                  className="absolute top-[-10px] left-[50%] translate-x-[-50%] px-[10px] h-[20px] flex items-center rounded-full text-[10px] font-medium"
-                  style={{ background: 'var(--accent)', color: 'white' }}
+                  className="absolute top-[-11px] left-[50%] translate-x-[-50%] px-[12px] h-[22px] flex items-center rounded-full text-[10px] font-medium whitespace-nowrap"
+                  style={{ background: 'oklch(0.42 0.06 260)', color: 'white' }}
                 >
                   Популярный
                 </span>
@@ -376,7 +377,7 @@ export default function StoragePage() {
       {/* Add-on блок */}
       <div
         className="mt-[16px] rounded-[var(--radius-lg)] flex items-center justify-between gap-[16px]"
-        style={{ padding: '16px 20px', background: 'var(--surface-inset)', border: '1px solid var(--line)' }}
+        style={{ padding: '16px 20px', background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
       >
         <div>
           <p className="text-[13px] font-medium text-[var(--ink)]">Дополнительное хранилище</p>

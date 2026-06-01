@@ -8,7 +8,7 @@ import { validateInn, validateOgrn, validateBik, validateCheckingAccount, valida
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
-type ProfileType = 'SOLE_PROPRIETOR' | 'COMPANY' | 'INDIVIDUAL'
+type ProfileType = 'SOLE_PROPRIETOR' | 'COMPANY' | 'INDIVIDUAL' | 'ANO' | 'PAO' | 'ZAO'
 
 interface BankDetail {
   id?: string
@@ -36,17 +36,46 @@ interface Profile {
 
 const TYPE_LABELS: Record<ProfileType, string> = {
   SOLE_PROPRIETOR: 'ИП',
-  COMPANY: 'Юрлицо',
+  COMPANY: 'ООО/АО',
   INDIVIDUAL: 'Физлицо',
+  ANO: 'АНО',
+  PAO: 'ПАО',
+  ZAO: 'ЗАО',
 }
 
 const TYPE_COLORS: Record<ProfileType, string> = {
   SOLE_PROPRIETOR: 'bg-[oklch(0.92_0.05_280)] text-[oklch(0.35_0.1_280)]',
   COMPANY: 'bg-[oklch(0.92_0.05_200)] text-[oklch(0.35_0.1_200)]',
   INDIVIDUAL: 'bg-[oklch(0.92_0.04_100)] text-[oklch(0.35_0.08_100)]',
+  ANO: 'bg-[oklch(0.92_0.05_150)] text-[oklch(0.35_0.1_150)]',
+  PAO: 'bg-[oklch(0.92_0.05_30)] text-[oklch(0.35_0.1_30)]',
+  ZAO: 'bg-[oklch(0.92_0.04_320)] text-[oklch(0.35_0.08_320)]',
 }
 
+// Типы у которых есть КПП
+const TYPE_HAS_KPP: Set<ProfileType> = new Set(['COMPANY', 'ANO', 'PAO', 'ZAO'])
+// Типы у которых ИНН 10 цифр (юрлица)
+const TYPE_INN_10: Set<ProfileType> = new Set(['COMPANY', 'ANO', 'PAO', 'ZAO'])
+
 const EMPTY_BANK: BankDetail = { bankName: '', checkingAccount: '', bik: '', correspondentAccount: '' }
+
+// Поля которые сбрасываются при смене типа (зависят от типа)
+function clearTypeSpecificFields(profile: Omit<Profile, 'id'>, newType: ProfileType): Omit<Profile, 'id'> {
+  const isLegalEntity = TYPE_HAS_KPP.has(newType)
+  const wasLegalEntity = TYPE_HAS_KPP.has(profile.type)
+  const innLenChanged = TYPE_INN_10.has(newType) !== TYPE_INN_10.has(profile.type)
+
+  return {
+    ...profile,
+    type: newType,
+    // КПП — только для юрлиц; если переходим на физлицо/ИП — очищаем
+    kpp: isLegalEntity ? profile.kpp : '',
+    // ОГРН меняет длину и формат при смене группы — сбрасываем
+    ogrn: isLegalEntity !== wasLegalEntity ? '' : profile.ogrn,
+    // ИНН меняет длину (10 vs 12) — сбрасываем если длина изменилась
+    inn: innLenChanged ? '' : profile.inn,
+  }
+}
 
 function emptyProfile(type: ProfileType): Omit<Profile, 'id'> {
   return {
@@ -103,15 +132,19 @@ function FileUploadZone({ label, hint, value, onChange }: {
 
 // ─── Форма реквизитов ─────────────────────────────────────────────────────────
 
-function ProfileForm({ profile, onChange }: {
+function ProfileForm({ profile, onChange, isNew }: {
   profile: Omit<Profile, 'id'>
   onChange: (updated: Omit<Profile, 'id'>) => void
+  isNew: boolean
 }) {
   const bank = profile.bankDetails[0] ?? { ...EMPTY_BANK }
   const set = (key: keyof Omit<Profile, 'id' | 'bankDetails'>, val: string) =>
     onChange({ ...profile, [key]: val })
   const setBank = (key: keyof BankDetail, val: string) =>
     onChange({ ...profile, bankDetails: [{ ...bank, [key]: val }] })
+  // G.2: при смене типа сбрасываем несовместимые поля (только при создании)
+  const handleTypeChange = (newType: ProfileType) =>
+    onChange(clearTypeSpecificFields(profile, newType))
 
   const innError = profile.inn ? validateInn(profile.inn) : null
   const ogrnError = profile.ogrn ? validateOgrn(profile.ogrn, profile.type === 'COMPANY' ? 'company' : 'ip') : null
@@ -126,16 +159,27 @@ function ProfileForm({ profile, onChange }: {
         <div className="flex flex-col gap-[12px]">
           {/* Тип профиля */}
           <Field label="Тип">
-            <div className="flex gap-[8px]">
-              {(['SOLE_PROPRIETOR', 'COMPANY', 'INDIVIDUAL'] as ProfileType[]).map((t) => (
-                <button key={t} onClick={() => set('type', t)}
-                  className={['px-[12px] h-[34px] rounded-[var(--radius-md)] text-[13px] font-medium border transition-colors cursor-pointer',
-                    profile.type === t ? 'border-[var(--ink)] bg-[var(--surface-inset)] text-[var(--ink)]' : 'border-[var(--line-2)] text-[var(--ink-3)] hover:border-[var(--line-strong)]',
-                  ].join(' ')}>
-                  {TYPE_LABELS[t]}
-                </button>
-              ))}
-            </div>
+            {isNew ? (
+              // При создании — выбор типа кнопками
+              <div className="flex flex-wrap gap-[6px]">
+                {(['SOLE_PROPRIETOR', 'COMPANY', 'INDIVIDUAL', 'ANO', 'PAO', 'ZAO'] as ProfileType[]).map((t) => (
+                  <button key={t} onClick={() => handleTypeChange(t)}
+                    className={['px-[12px] h-[32px] rounded-[var(--radius-md)] text-[12px] font-medium border transition-colors cursor-pointer',
+                      profile.type === t ? 'border-[var(--ink)] bg-[var(--surface-inset)] text-[var(--ink)]' : 'border-[var(--line-2)] text-[var(--ink-3)] hover:border-[var(--line-strong)]',
+                    ].join(' ')}>
+                    {TYPE_LABELS[t]}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              // При редактировании — тип зафиксирован, только бейдж
+              <div className="flex items-center gap-[8px]">
+                <span className={['text-[12px] font-semibold px-[10px] py-[4px] rounded-[var(--radius-md)]', TYPE_COLORS[profile.type]].join(' ')}>
+                  {TYPE_LABELS[profile.type]}
+                </span>
+                <span className="text-[12px] text-[var(--ink-4)]">Тип зафиксирован при создании</span>
+              </div>
+            )}
           </Field>
 
           <Field label="Полное наименование">
@@ -143,26 +187,38 @@ function ProfileForm({ profile, onChange }: {
               placeholder={profile.type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель Иванов Иван Иванович' : profile.type === 'COMPANY' ? 'Общество с ограниченной ответственностью «Название»' : 'Иванов Иван Иванович'} />
           </Field>
 
-          <div className={`grid gap-[12px] ${profile.type === 'COMPANY' ? 'grid-cols-3' : 'grid-cols-2'}`}>
-            <Field label={profile.type === 'COMPANY' ? 'ИНН (10 цифр)' : 'ИНН (12 цифр)'}>
-              <Input value={profile.inn}
-                onChange={(e) => set('inn', e.target.value.replace(/\D/g, '').slice(0, profile.type === 'COMPANY' ? 10 : 12))}
-                placeholder={profile.type === 'COMPANY' ? '7723456789' : '772345678901'}
-                error={innError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
-            </Field>
-            {profile.type === 'COMPANY' && (
-              <Field label="КПП (9 цифр)">
-                <Input value={profile.kpp} onChange={(e) => set('kpp', e.target.value.replace(/\D/g, '').slice(0, 9))}
-                  placeholder="772301001" error={kppError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
-              </Field>
-            )}
-            <Field label={profile.type === 'COMPANY' ? 'ОГРН (13 цифр)' : 'ОГРНИП (15 цифр)'}>
-              <Input value={profile.ogrn}
-                onChange={(e) => set('ogrn', e.target.value.replace(/\D/g, '').slice(0, profile.type === 'COMPANY' ? 13 : 15))}
-                placeholder={profile.type === 'COMPANY' ? '1234567890123' : '318774600412345'}
-                error={ogrnError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
-            </Field>
-          </div>
+          {/* ИНН, КПП, ОГРН — набор полей зависит от типа */}
+          {(() => {
+            const isLegal = TYPE_HAS_KPP.has(profile.type)
+            const inn10 = TYPE_INN_10.has(profile.type)
+            const isIndividual = profile.type === 'INDIVIDUAL'
+            return (
+              <div className={`grid gap-[12px] ${isLegal ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                {!isIndividual && (
+                  <Field label={inn10 ? 'ИНН (10 цифр)' : 'ИНН (12 цифр)'}>
+                    <Input value={profile.inn}
+                      onChange={(e) => set('inn', e.target.value.replace(/\D/g, '').slice(0, inn10 ? 10 : 12))}
+                      placeholder={inn10 ? '7723456789' : '772345678901'}
+                      error={innError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                )}
+                {isLegal && (
+                  <Field label="КПП (9 цифр)">
+                    <Input value={profile.kpp} onChange={(e) => set('kpp', e.target.value.replace(/\D/g, '').slice(0, 9))}
+                      placeholder="772301001" error={kppError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                )}
+                {!isIndividual && (
+                  <Field label={isLegal ? 'ОГРН (13 цифр)' : 'ОГРНИП (15 цифр)'}>
+                    <Input value={profile.ogrn}
+                      onChange={(e) => set('ogrn', e.target.value.replace(/\D/g, '').slice(0, isLegal ? 13 : 15))}
+                      placeholder={isLegal ? '1234567890123' : '318774600412345'}
+                      error={ogrnError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                )}
+              </div>
+            )
+          })()}
 
           <Field label="Юридический адрес">
             <Input value={profile.legalAddress} onChange={(e) => set('legalAddress', e.target.value)}
@@ -205,12 +261,20 @@ function ProfileForm({ profile, onChange }: {
             </Field>
             <Field label="Должность">
               <Input value={profile.signatorPosition} onChange={(e) => set('signatorPosition', e.target.value)}
-                placeholder={profile.type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель' : profile.type === 'COMPANY' ? 'Генеральный директор' : ''} />
+                placeholder={
+                  profile.type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель'
+                  : profile.type === 'INDIVIDUAL' ? ''
+                  : 'Генеральный директор'
+                } />
             </Field>
           </div>
           <Field label="Действует на основании">
             <Input value={profile.signatorBasis} onChange={(e) => set('signatorBasis', e.target.value)}
-              placeholder={profile.type === 'SOLE_PROPRIETOR' ? 'Свидетельства о регистрации' : profile.type === 'COMPANY' ? 'Устава' : 'Паспорта'} />
+              placeholder={
+                profile.type === 'SOLE_PROPRIETOR' ? 'Свидетельства о регистрации'
+                : profile.type === 'INDIVIDUAL' ? 'Паспорта'
+                : 'Устава'
+              } />
           </Field>
           <div className="flex gap-[12px] mt-[4px]">
             <FileUploadZone label="Загрузить факсимиле" hint="PNG, SVG — без фона" value={profile.signatureFilePath} onChange={() => {}} />
@@ -395,7 +459,7 @@ export default function RequisitesPage() {
           <div>
             {draft ? (
               <>
-                <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} />
+                <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} isNew={selectedId === 'new'} />
                 <div className="flex items-center justify-between mt-[16px] pt-[16px] border-t border-[var(--line)]">
                   <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
                   <div className="flex items-center gap-[12px]">

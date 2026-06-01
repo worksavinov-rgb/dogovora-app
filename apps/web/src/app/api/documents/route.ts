@@ -7,7 +7,14 @@ const createSchema = z.object({
   type: z.enum(['CONTRACT', 'APPENDIX', 'AMENDMENT']),
   title: z.string().min(1, 'Укажите название'),
   number: z.string().optional(),
+  signingDate: z.string().optional(),
+  profileId: z.string().optional(),
   counterpartyId: z.string().min(1, 'Выберите контрагента'),
+  // Иерархия: для APPENDIX/AMENDMENT — опциональная привязка к родительскому CONTRACT
+  parentDocumentId: z.string().optional(),
+  documentNumber: z.number().int().positive().optional(),
+  // Текст загруженного файла (если base === 'upload')
+  uploadedContent: z.string().optional(),
   // AI-настройки для первой версии
   aiSettings: z.object({
     protectionLevel: z.number().min(0).max(100).default(65),
@@ -39,12 +46,14 @@ export async function GET(req: NextRequest) {
     },
     include: {
       counterparty: true,
+      profile: { select: { id: true, name: true, type: true } },
       versions: {
         orderBy: { number: 'desc' },
         take: 1,
         include: { purchase: true },
       },
-      _count: { select: { versions: true } },
+      parentDocument: { select: { id: true, title: true, number: true } },
+      _count: { select: { versions: true, childDocuments: true } },
     },
     orderBy: { updatedAt: 'desc' },
     ...(limit ? { take: limit } : {}),
@@ -88,6 +97,28 @@ export async function POST(req: NextRequest) {
     description: '',
   }
 
+  // Если передан загруженный текст — используем его как начальный контент версии
+  const uploadedContent = body.uploadedContent as string | undefined
+  const hasUploadedContent = Boolean(uploadedContent && uploadedContent.trim().length > 0)
+  const fileSize = hasUploadedContent ? Buffer.byteLength(uploadedContent!.trim(), 'utf8') : undefined
+
+  // Если передан parentDocumentId — проверяем что он принадлежит пользователю
+  if (data.parentDocumentId) {
+    const parentDoc = await prisma.document.findFirst({
+      where: { id: data.parentDocumentId, userId, type: 'CONTRACT' },
+    })
+    if (!parentDoc) return NextResponse.json({ error: 'Родительский договор не найден' }, { status: 404 })
+  }
+
+  // Автонумерация: если тип APPENDIX/AMENDMENT и привязан родительский документ
+  let documentNumber = data.documentNumber
+  if (data.parentDocumentId && !documentNumber) {
+    const existingCount = await prisma.document.count({
+      where: { parentDocumentId: data.parentDocumentId, type: data.type },
+    })
+    documentNumber = existingCount + 1
+  }
+
   // Создаём документ + первую версию (DRAFT) атомарно
   const document = await prisma.document.create({
     data: {
@@ -95,12 +126,20 @@ export async function POST(req: NextRequest) {
       counterpartyId: data.counterpartyId,
       title: data.title,
       number: data.number,
+      signingDate: data.signingDate ? new Date(data.signingDate) : undefined,
+      profileId: data.profileId || undefined,
       type: data.type,
+      parentDocumentId: data.parentDocumentId,
+      documentNumber,
       versions: {
         create: {
           number: 1,
           status: 'DRAFT',
           aiSettings,
+          ...(hasUploadedContent ? {
+            content: uploadedContent!.trim(),
+            fileSize,
+          } : {}),
         },
       },
     },

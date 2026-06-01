@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { calcVersionPrice } from '@/lib/pricing'
 
 type Params = { params: Promise<{ id: string }> }
-
-const VERSION_PRICE = 540 // ₽, фиксированная цена в MVP
 
 // POST /api/versions/:id/purchase — купить версию
 // ACID: SELECT FOR UPDATE на кошелёк, идемпотентность по versionId
@@ -17,7 +16,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   // Проверяем что версия существует и принадлежит пользователю
   const version = await prisma.version.findFirst({
     where: { id: versionId, document: { userId } },
-    include: { purchase: true, document: { select: { title: true } } },
+    include: { purchase: true, document: { select: { title: true, type: true } } },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -33,6 +32,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     })
   }
 
+  const chars = version.content?.length ?? 0
+  const price = calcVersionPrice(version.document.type, chars)
+
   // Кошелёк (lazy init)
   const wallet = await prisma.wallet.upsert({
     where: { userId },
@@ -41,9 +43,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   })
 
   // Проверка баланса
-  if (Number(wallet.balance) < VERSION_PRICE) {
+  if (Number(wallet.balance) < price) {
     return NextResponse.json(
-      { error: 'Недостаточно средств', balance: Number(wallet.balance), required: VERSION_PRICE },
+      { error: 'Недостаточно средств', balance: Number(wallet.balance), required: price },
       { status: 402 },
     )
   }
@@ -52,27 +54,27 @@ export async function POST(req: NextRequest, { params }: Params) {
   const [, purchase] = await prisma.$transaction(async (tx) => {
     // Повторно читаем кошелёк внутри транзакции (эмуляция SELECT FOR UPDATE)
     const lockedWallet = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } })
-    if (Number(lockedWallet.balance) < VERSION_PRICE) {
+    if (Number(lockedWallet.balance) < price) {
       throw new Error('Insufficient funds')
     }
 
     const updatedWallet = await tx.wallet.update({
       where: { id: wallet.id },
-      data: { balance: { decrement: VERSION_PRICE } },
+      data: { balance: { decrement: price } },
     })
 
     await tx.transaction.create({
       data: {
         walletId: wallet.id,
         type: 'DEBIT',
-        amount: VERSION_PRICE,
+        amount: price,
         description: `Покупка версии: ${version.document.title}`,
         relatedVersionId: versionId,
       },
     })
 
     const newPurchase = await tx.purchase.create({
-      data: { versionId, amount: VERSION_PRICE },
+      data: { versionId, amount: price },
     })
 
     await tx.version.update({
