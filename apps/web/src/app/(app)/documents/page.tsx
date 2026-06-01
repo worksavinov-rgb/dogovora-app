@@ -643,21 +643,21 @@ export default function DocumentsPage() {
                 {/* Тип */}
                 <p className="hidden md:block text-[12px] text-[var(--ink-3)]">{TYPE_LABELS[doc.type] ?? doc.type}</p>
                 {/* Моя компания */}
-                <div className="hidden md:flex items-center gap-[5px] min-w-0">
+                <div className="hidden md:flex items-start gap-[5px]">
                   {doc.profile ? (
                     <>
-                      <span className="shrink-0 text-[10px] font-semibold px-[5px] py-[1px] rounded bg-[oklch(0.92_0.05_280)] text-[oklch(0.35_0.1_280)]">
+                      <span className="shrink-0 text-[10px] font-semibold px-[5px] py-[1px] rounded bg-[oklch(0.92_0.05_280)] text-[oklch(0.35_0.1_280)] mt-[1px]">
                         {PROFILE_TYPE_SHORT[doc.profile.type] ?? doc.profile.type}
                       </span>
-                      <p className="text-[12px] text-[var(--ink-3)] truncate">{doc.profile.name}</p>
+                      <p className="text-[12px] text-[var(--ink-3)] leading-[1.4]">{doc.profile.name}</p>
                     </>
                   ) : (
                     <p className="text-[12px] text-[var(--ink-4)]">—</p>
                   )}
                 </div>
                 {/* Контрагент */}
-                <div className="hidden md:flex items-center min-w-0">
-                  <p className="text-[12px] text-[var(--ink-3)] truncate">{doc.counterparty.name}</p>
+                <div className="hidden md:block">
+                  <p className="text-[12px] text-[var(--ink-3)] leading-[1.4]">{doc.counterparty.name}</p>
                 </div>
                 {/* Версии */}
                 <p className="hidden md:block text-[12px] text-[var(--ink-4)]" style={{ fontFamily:'var(--font-mono)' }}>
