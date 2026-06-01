@@ -435,6 +435,8 @@ export default function DocumentsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [editingDoc, setEditingDoc] = useState<Document | null>(null)
   const [signingDoc, setSigningDoc] = useState<{ doc: Document; versionId: string } | null>(null)
+  const [page, setPage] = useState(1)
+  const PAGE_SIZE = 100
 
   // Загрузка контрагентов для фильтра
   useEffect(() => {
@@ -465,6 +467,7 @@ export default function DocumentsPage() {
       setSortField(field)
       setSortDir('desc')
     }
+    setPage(1)
   }
 
   async function handleStatusChange(docId: string, versionId: string, newStatus: string) {
@@ -484,6 +487,9 @@ export default function DocumentsPage() {
 
   const tree = buildTree(docs, sortField, sortDir)
   const totalVersions = docs.reduce((s, d) => s + d._count.versions, 0)
+  const totalPages = Math.max(1, Math.ceil(tree.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageRows = tree.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   return (
     <>
@@ -572,7 +578,7 @@ export default function DocumentsPage() {
         {/* Сброс фильтров */}
         {(q || typeFilter || statusFilter || counterpartyFilter) && (
           <button
-            onClick={() => { setQ(''); setTypeFilter(''); setStatusFilter(''); setCounterpartyFilter('') }}
+            onClick={() => { setQ(''); setTypeFilter(''); setStatusFilter(''); setCounterpartyFilter(''); setPage(1) }}
             className="h-[36px] px-[10px] text-[12px] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] rounded-[var(--radius-md)] transition-colors cursor-pointer"
           >
             × Сбросить
@@ -608,7 +614,7 @@ export default function DocumentsPage() {
             <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать документ</Button>
           </div>
         ) : (
-          tree.map(({ doc, depth }, i) => {
+          pageRows.map(({ doc, depth }, i) => {
             const lastVer = doc.versions[0]
             const isChild = depth === 1
             const docNumber = doc.number
@@ -699,6 +705,62 @@ export default function DocumentsPage() {
           })
         )}
       </Card>
+
+      {/* Пагинация */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-[16px]">
+          <p className="text-[13px] text-[var(--ink-4)]">
+            Строки {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, tree.length)} из {tree.length}
+          </p>
+          <div className="flex items-center gap-[4px]">
+            <button
+              onClick={() => setPage(1)}
+              disabled={safePage === 1}
+              className="h-[32px] px-[10px] text-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >«</button>
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="h-[32px] px-[10px] text-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >‹</button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+              .reduce<(number | '…')[]>((acc, p, idx, arr) => {
+                if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('…')
+                acc.push(p)
+                return acc
+              }, [])
+              .map((p, idx) =>
+                p === '…' ? (
+                  <span key={`ellipsis-${idx}`} className="h-[32px] px-[8px] flex items-center text-[12px] text-[var(--ink-4)]">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p as number)}
+                    className={[
+                      'h-[32px] min-w-[32px] px-[10px] text-[12px] rounded-[var(--radius-md)] border transition-colors cursor-pointer',
+                      safePage === p
+                        ? 'bg-[var(--ink)] text-[var(--bg)] border-[var(--ink)]'
+                        : 'border-[var(--line-2)] text-[var(--ink-3)] hover:bg-[var(--surface-2)]',
+                    ].join(' ')}
+                  >{p}</button>
+                )
+              )}
+
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage === totalPages}
+              className="h-[32px] px-[10px] text-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >›</button>
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={safePage === totalPages}
+              className="h-[32px] px-[10px] text-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >»</button>
+          </div>
+        </div>
+      )}
     </div>
     </>
   )
