@@ -139,7 +139,7 @@ const PLANS = [
   {
     key: 'STARTER',
     name: 'Старт',
-    storage: '500 МБ',
+    storage: '10 МБ',
     price: 'Бесплатно',
     features: ['До 50 документов', 'ИИ-чат', 'Проверка рисков'],
   },

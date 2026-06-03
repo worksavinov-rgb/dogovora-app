@@ -12,6 +12,7 @@ datasource db {
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
+  name         String   @default("")
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -50,6 +51,7 @@ model Profile {
   inn            String?
   kpp            String?
   ogrn           String?
+  ogrnDate       String?     // дата присвоения ОГРНИП (для ИП)
   legalAddress   String?
   // Подписант от имени этого профиля
   signatorName   String?
@@ -63,6 +65,7 @@ model Profile {
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   bankDetails BankDetail[]
+  documents   Document[]
 
   @@map("profiles")
 }
@@ -88,6 +91,7 @@ model Counterparty {
   legalAddress String?
   email        String?
   phone        String?
+  contacts     Json?    // [{ role: string, email: string, phone: string }] до 3 контактов
   isArchived   Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -164,18 +168,25 @@ enum DocumentScope {
 // ─── Документы и версии ───────────────────────────────────────────────────────
 
 model Document {
-  id             String       @id @default(cuid())
-  userId         String
-  counterpartyId String
-  title          String
-  number         String?
-  type           DocumentType
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  userId           String
+  counterpartyId   String
+  profileId        String?      // профиль пользователя (одна из сторон)
+  title            String
+  number           String?
+  signingDate      DateTime?    // плановая дата подписания
+  type             DocumentType
+  parentDocumentId String?      // для APPENDIX/AMENDMENT: ссылка на родительский CONTRACT
+  documentNumber   Int?         // порядковый номер приложения/ДС (1, 2, 3...)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  versions     Version[]
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  counterparty   Counterparty @relation(fields: [counterpartyId], references: [id])
+  profile        Profile?     @relation(fields: [profileId], references: [id])
+  parentDocument Document?    @relation("ChildDocuments", fields: [parentDocumentId], references: [id])
+  childDocuments Document[]   @relation("ChildDocuments")
+  versions       Version[]
 
   @@map("documents")
 }
@@ -224,7 +235,7 @@ model Purchase {
   amount      Decimal  @db.Decimal(10, 2)
   purchasedAt DateTime @default(now())
 
-  version Version @relation(fields: [versionId], references: [id])
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   @@map("purchases")
 }
@@ -241,6 +252,7 @@ enum VersionStatus {
   REVIEW       // На проверке
   APPROVED     // Утверждено
   PAID         // Оплачено
+  SIGNED       // Подписано
 }
 
 enum ChatRole {
@@ -272,7 +284,7 @@ model Transaction {
   createdAt        DateTime        @default(now())
 
   wallet         Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  relatedVersion Version? @relation(fields: [relatedVersionId], references: [id])
+  relatedVersion Version? @relation(fields: [relatedVersionId], references: [id], onDelete: SetNull)
 
   @@map("transactions")
 }
@@ -303,7 +315,7 @@ model StorageQuota {
   id        String      @id @default(cuid())
   userId    String      @unique
   usedBytes BigInt      @default(0)
-  limitBytes BigInt     @default(524288000) // 500 MB по умолчанию
+  limitBytes BigInt     @default(10485760) // 10 MB по умолчанию (тариф Старт)
   plan      StoragePlan @default(STARTER)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

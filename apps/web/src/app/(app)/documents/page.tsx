@@ -7,11 +7,12 @@ import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
 import { DocumentRowSkeleton } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
 interface Counterparty { id: string; name: string; inn: string | null }
-interface Version { id: string; number: number; status: string; fileSize: number | null; createdAt: string }
+interface Version { id: string; number: number; status: string; fileSize: number | null; createdAt: string; purchase?: { id: string } | null }
 interface ParentDoc { id: string; title: string; number: string | null }
 interface Profile { id: string; name: string; type: string }
 interface Document {
@@ -63,7 +64,7 @@ function sortDocs(docs: Document[], field: SortField, dir: SortDir): Document[] 
 }
 
 /** Строит плоский упорядоченный массив для рендера: корень → его дети → следующий корень … */
-function buildTree(docs: Document[], sortField: SortField, sortDir: SortDir): Array<{ doc: Document; depth: number }> {
+function buildTree(docs: Document[], sortField: SortField, sortDir: SortDir): Array<{ doc: Document; depth: number; parentId: string | null }> {
   const roots = sortDocs(docs.filter((d) => !d.parentDocument), sortField, sortDir)
   const childrenOf = new Map<string, Document[]>()
   for (const d of docs) {
@@ -74,11 +75,11 @@ function buildTree(docs: Document[], sortField: SortField, sortDir: SortDir): Ar
     }
   }
 
-  const result: Array<{ doc: Document; depth: number }> = []
+  const result: Array<{ doc: Document; depth: number; parentId: string | null }> = []
   for (const root of roots) {
-    result.push({ doc: root, depth: 0 })
+    result.push({ doc: root, depth: 0, parentId: null })
     const children = (childrenOf.get(root.id) ?? []).sort((a, b) => (a.documentNumber ?? 0) - (b.documentNumber ?? 0))
-    for (const child of children) result.push({ doc: child, depth: 1 })
+    for (const child of children) result.push({ doc: child, depth: 1, parentId: root.id })
   }
   return result
 }
@@ -290,14 +291,168 @@ function SignDocumentModal({ doc, versionId, onClose, onSigned }: {
   )
 }
 
+// ─── Модалка привязки документа к другому документу ─────────────────────────
+
+function LinkDocumentModal({ doc, allDocs, onClose, onLinked }: {
+  doc: Document
+  allDocs: Document[]
+  onClose: () => void
+  onLinked: () => void
+}) {
+  const [q, setQ] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Документы доступные для привязки: не сам, не потомки (только depth=0 проверяем на уровне UI — глубокие циклы блокирует сервер)
+  const candidates = allDocs.filter((d) => d.id !== doc.id)
+
+  const filtered = q.trim()
+    ? candidates.filter((d) => d.title.toLowerCase().includes(q.toLowerCase()) || (d.number ?? '').toLowerCase().includes(q.toLowerCase()))
+    : candidates
+
+  async function link(parentId: string | null) {
+    setSaving(true)
+    await fetch(`/api/documents/${doc.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parentDocumentId: parentId }),
+    })
+    setSaving(false)
+    onLinked()
+    onClose()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="bg-white rounded-[var(--radius-xl)] shadow-xl w-[480px] flex flex-col"
+        style={{ maxHeight: 'min(600px, 80vh)' }}
+      >
+        {/* Шапка — фиксирована */}
+        <div style={{ padding: '24px 24px 0' }}>
+          <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">
+            Привязать к документу
+          </p>
+
+          {/* Текущий документ */}
+          <div className="flex items-center gap-[8px] mb-[14px] px-[10px] py-[8px] rounded-[var(--radius-md)]"
+            style={{ background: 'var(--surface-inset)' }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
+              <p className="text-[11px] text-[var(--ink-4)]">{TYPE_LABELS[doc.type] ?? doc.type}</p>
+            </div>
+          </div>
+
+          {/* Текущий пакет (если есть родитель) */}
+          {doc.parentDocument && (
+            <div className="rounded-[var(--radius-md)] mb-[12px] px-[12px] py-[10px] flex items-center justify-between gap-[12px]"
+              style={{ border: '1px solid var(--line-2)' }}>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] text-[var(--ink-4)] mb-[1px]">Текущий пакет</p>
+                <p className="text-[13px] text-[var(--ink)] truncate">{doc.parentDocument.title}</p>
+              </div>
+              <button
+                onClick={() => link(null)}
+                disabled={saving}
+                className="shrink-0 h-[30px] px-[10px] text-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer disabled:opacity-40"
+              >
+                Отвязать
+              </button>
+            </div>
+          )}
+
+          {/* Поиск */}
+          <div className="relative mb-[8px]">
+            <span className="absolute left-[10px] top-1/2 -translate-y-1/2 text-[var(--ink-4)]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            </span>
+            <input
+              className="w-full h-[36px] pl-[32px] pr-[12px] text-[13px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] outline-none focus:border-[var(--accent)] transition-colors"
+              placeholder="Поиск по названию или номеру"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          <p className="text-[11px] text-[var(--ink-4)] mb-[6px] px-[2px]">
+            {filtered.length} {filtered.length === 1 ? 'документ' : filtered.length < 5 ? 'документа' : 'документов'}
+          </p>
+        </div>
+
+        {/* Список — скроллится */}
+        <div className="overflow-y-auto flex-1" style={{ padding: '0 16px' }}>
+          {filtered.length === 0 ? (
+            <p className="text-[13px] text-[var(--ink-4)] py-[16px] text-center">Ничего не найдено</p>
+          ) : (
+            filtered.map((d) => {
+              const isCurrent = doc.parentDocument?.id === d.id
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => !saving && link(d.id)}
+                  disabled={saving || isCurrent}
+                  className={[
+                    'w-full text-left px-[10px] py-[9px] rounded-[var(--radius-md)] transition-colors',
+                    isCurrent ? 'bg-[var(--surface-inset)] cursor-default' : 'hover:bg-[var(--surface-inset)] cursor-pointer',
+                  ].join(' ')}
+                >
+                  <div className="flex items-center gap-[10px]">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                      stroke={isCurrent ? 'var(--accent)' : 'var(--ink-4)'}
+                      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] text-[var(--ink)] truncate font-medium">{d.title}</p>
+                      <p className="text-[11px] text-[var(--ink-4)] truncate">
+                        {TYPE_LABELS[d.type] ?? d.type}
+                        {d.number ? ` · ${d.number}` : ''}
+                        {' · '}{d.counterparty.name}
+                      </p>
+                    </div>
+                    {isCurrent && (
+                      <span className="shrink-0 text-[10px] font-medium px-[6px] py-[2px] rounded"
+                        style={{ background: 'oklch(0.92 0.05 260)', color: 'var(--accent)' }}>
+                        текущий
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )
+            })
+          )}
+        </div>
+
+        {/* Кнопка — фиксирована внизу */}
+        <div style={{ padding: '12px 24px 20px' }}>
+          <button
+            onClick={onClose}
+            className="w-full h-[40px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Меню трёх точек для строки документа ────────────────────────────────────
 
-function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
+function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete, onLink }: {
   doc: Document
   onStatusChange: (docId: string, versionId: string, newStatus: string) => void
   onEdit: (doc: Document) => void
   onSign: (doc: Document, versionId: string) => void
   onDelete: (doc: Document) => void
+  onLink: (doc: Document) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -313,6 +468,10 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  function handleOpen() {
+    setOpen((v) => !v)
+  }
+
   const canReview = lastVer && !['REVIEW', 'APPROVED', 'PAID', 'SIGNED'].includes(lastVer.status)
   const canApprove = lastVer && lastVer.status === 'REVIEW'
   const canSign = lastVer && lastVer.status === 'PAID'
@@ -320,7 +479,7 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleOpen}
         className="shrink-0 w-[28px] h-[28px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -328,10 +487,12 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
         </svg>
       </button>
 
-      {open && (
-        <div
-          className="absolute right-0 top-[32px] z-50 rounded-[var(--radius-md)] py-[4px] min-w-[180px]"
-          style={{ background: 'white', border: '1px solid var(--line)', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
+      {open && (() => {
+        const rect = ref.current?.getBoundingClientRect()
+        const goUp = rect ? rect.top > window.innerHeight - rect.bottom : false
+        return <div
+          className="absolute right-0 z-50 rounded-[var(--radius-md)] py-[4px] min-w-[180px]"
+          style={{ background: 'white', border: '1px solid var(--line)', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', ...(goUp ? { bottom: '32px' } : { top: '32px' }) }}
         >
           <button
             className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
@@ -384,6 +545,13 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
           )}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
           <button
+            className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+            onClick={() => { onLink(doc); setOpen(false) }}
+          >
+            {doc.parentDocument ? '↗ Переместить в пакет' : '⊕ Привязать к документу'}
+          </button>
+          <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+          <button
             className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer"
             style={{ color: 'var(--danger)' }}
             onClick={() => { onDelete(doc); setOpen(false) }}
@@ -391,7 +559,7 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete }: {
             Удалить документ
           </button>
         </div>
-      )}
+      })()}
     </div>
   )
 }
@@ -435,8 +603,11 @@ export default function DocumentsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [editingDoc, setEditingDoc] = useState<Document | null>(null)
   const [signingDoc, setSigningDoc] = useState<{ doc: Document; versionId: string } | null>(null)
+  const [linkingDoc, setLinkingDoc] = useState<Document | null>(null)
+  const [collapsedRoots, setCollapsedRoots] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 100
+  const [deleteConfirm, setDeleteConfirm] = useState<Document | null>(null)
 
   // Загрузка контрагентов для фильтра
   useEffect(() => {
@@ -480,19 +651,42 @@ export default function DocumentsPage() {
   }
 
   async function handleDelete(doc: Document) {
-    if (!confirm(`Удалить «${doc.title}»?\n\nБудут удалены все версии. Это нельзя отменить.`)) return
-    await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' })
+    setDeleteConfirm(doc)
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return
+    await fetch(`/api/documents/${deleteConfirm.id}`, { method: 'DELETE' })
+    setDeleteConfirm(null)
     load()
   }
 
   const tree = buildTree(docs, sortField, sortDir)
+  const visibleTree = tree.filter(({ parentId }) => !parentId || !collapsedRoots.has(parentId))
   const totalVersions = docs.reduce((s, d) => s + d._count.versions, 0)
-  const totalPages = Math.max(1, Math.ceil(tree.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(visibleTree.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
-  const pageRows = tree.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const pageRows = visibleTree.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  function toggleCollapse(docId: string) {
+    setCollapsedRoots((prev) => {
+      const next = new Set(prev)
+      if (next.has(docId)) next.delete(docId)
+      else next.add(docId)
+      return next
+    })
+  }
 
   return (
     <>
+    <ConfirmDialog
+      open={!!deleteConfirm}
+      title={`Удалить «${deleteConfirm?.title ?? ''}»?`}
+      message="Будут удалены все версии. Это действие нельзя отменить."
+      confirmLabel="Удалить"
+      onConfirm={confirmDelete}
+      onCancel={() => setDeleteConfirm(null)}
+    />
     {editingDoc && (
       <EditDocumentModal
         doc={editingDoc}
@@ -506,6 +700,14 @@ export default function DocumentsPage() {
         versionId={signingDoc.versionId}
         onClose={() => setSigningDoc(null)}
         onSigned={load}
+      />
+    )}
+    {linkingDoc && (
+      <LinkDocumentModal
+        doc={linkingDoc}
+        allDocs={docs}
+        onClose={() => setLinkingDoc(null)}
+        onLinked={load}
       />
     )}
     <div className="max-w-[1280px]">
@@ -617,6 +819,8 @@ export default function DocumentsPage() {
           pageRows.map(({ doc, depth }, i) => {
             const lastVer = doc.versions[0]
             const isChild = depth === 1
+            const hasChildren = doc._count.childDocuments > 0
+            const isCollapsed = collapsedRoots.has(doc.id)
             const docNumber = doc.number
               ? doc.number
               : doc.documentNumber
@@ -630,7 +834,7 @@ export default function DocumentsPage() {
                   'cursor-pointer hover:bg-[var(--surface-2)] transition-colors items-center',
                   'flex gap-[12px] py-[10px] pr-[16px]',
                   'md:grid md:grid-cols-[1fr_80px_100px_180px_180px_72px_130px_80px_60px_36px] md:gap-[8px]',
-                  i < tree.length - 1 ? 'border-b border-[var(--line)]' : '',
+                  i < pageRows.length - 1 ? 'border-b border-[var(--line)]' : '',
                   isChild ? 'bg-[var(--surface-inset)]' : '',
                 ].join(' ')}
                 style={{ paddingLeft: isChild ? 32 : 16 }}
@@ -640,6 +844,20 @@ export default function DocumentsPage() {
                   {isChild && (
                     <span className="shrink-0 text-[var(--ink-4)] text-[11px] leading-none">↳</span>
                   )}
+                  {!isChild && hasChildren ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleCollapse(doc.id) }}
+                      className="shrink-0 w-[16px] h-[16px] flex items-center justify-center text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+                      title={isCollapsed ? 'Развернуть' : 'Свернуть'}
+                    >
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
+                        <path d="M2 3.5L5 6.5L8 3.5"/>
+                      </svg>
+                    </button>
+                  ) : !isChild ? (
+                    <span className="shrink-0 w-[16px]" />
+                  ) : null}
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
                     stroke={isChild ? 'var(--accent)' : 'var(--ink-4)'}
                     strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
@@ -649,9 +867,12 @@ export default function DocumentsPage() {
                     <p className={['truncate font-medium', isChild ? 'text-[12px] text-[var(--ink-2)]' : 'text-[13px] text-[var(--ink)]'].join(' ')}>
                       {doc.title}
                     </p>
-                    {!isChild && doc._count.childDocuments > 0 && (
+                    {!isChild && hasChildren && (
                       <p className="text-[11px] text-[var(--ink-4)]">
-                        {doc._count.childDocuments} {doc._count.childDocuments === 1 ? 'вложение' : doc._count.childDocuments < 5 ? 'вложения' : 'вложений'}
+                        {isCollapsed
+                          ? `▸ ${doc._count.childDocuments} ${doc._count.childDocuments === 1 ? 'вложение' : doc._count.childDocuments < 5 ? 'вложения' : 'вложений'}`
+                          : `${doc._count.childDocuments} ${doc._count.childDocuments === 1 ? 'вложение' : doc._count.childDocuments < 5 ? 'вложения' : 'вложений'}`
+                        }
                       </p>
                     )}
                     <p className="text-[11px] text-[var(--ink-4)] truncate md:hidden">{doc.counterparty.name}</p>
@@ -686,7 +907,7 @@ export default function DocumentsPage() {
                 </p>
                 {/* Статус */}
                 <div className="shrink-0">
-                  {lastVer && <StatusBadge status={STATUS_MAP[lastVer.status] ?? 'draft'} />}
+                  {lastVer && <StatusBadge status={lastVer.purchase ? 'paid' : (STATUS_MAP[lastVer.status] ?? 'draft')} />}
                 </div>
                 {/* Обновлён */}
                 <p className="hidden md:block text-[12px] text-[var(--ink-3)]">{relDate(doc.updatedAt)}</p>
@@ -699,6 +920,7 @@ export default function DocumentsPage() {
                   onEdit={setEditingDoc}
                   onSign={(d, vId) => setSigningDoc({ doc: d, versionId: vId })}
                   onDelete={handleDelete}
+                  onLink={setLinkingDoc}
                 />
               </div>
             )

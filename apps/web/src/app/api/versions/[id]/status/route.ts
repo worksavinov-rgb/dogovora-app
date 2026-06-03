@@ -30,6 +30,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const version = await prisma.version.findFirst({
     where: { id, document: { userId } },
+    include: { purchase: true },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -37,12 +38,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Нельзя изменить статус подписанной версии' }, { status: 400 })
   }
 
-  if (data.status === 'SIGNED' && version.status !== 'PAID') {
-    return NextResponse.json({ error: 'Можно подписать только оплаченную версию' }, { status: 400 })
+  // Версия оплачена (по статусу или по наличию purchase) — статус заморожен
+  if (version.purchase || version.status === 'PAID') {
+    if (data.status !== 'SIGNED') {
+      return NextResponse.json({ error: 'Нельзя изменить статус оплаченной версии' }, { status: 403 })
+    }
   }
 
-  if (version.status === 'PAID' && data.status !== 'SIGNED') {
-    return NextResponse.json({ error: 'Нельзя изменить статус оплаченной версии' }, { status: 400 })
+  if (data.status === 'SIGNED' && version.status !== 'PAID' && !version.purchase) {
+    return NextResponse.json({ error: 'Можно подписать только оплаченную версию' }, { status: 400 })
   }
 
   const updated = await prisma.version.update({
@@ -54,7 +58,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     await prisma.document.update({
       where: { id: version.documentId },
       data: {
-        signedAt: data.signedAt ? new Date(data.signedAt) : new Date(),
         ...(data.number ? { number: data.number } : {}),
       },
     })

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,7 @@ interface Template {
 async function parseDocxToText(file: File): Promise<string> {
   const mammoth = await import('mammoth')
   const arrayBuffer = await file.arrayBuffer()
-  const result = await mammoth.extractRawText({ arrayBuffer })
+  const result = await mammoth.convertToHtml({ arrayBuffer })
   return result.value
 }
 
@@ -144,6 +145,7 @@ export default function TemplatesPage() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -191,10 +193,15 @@ export default function TemplatesPage() {
     await load()
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Удалить шаблон? Это действие нельзя отменить.')) return
-    await fetch(`/api/templates/${id}`, { method: 'DELETE' })
-    setTemplates((prev) => prev.filter((t) => t.id !== id))
+  function handleDelete(id: string) {
+    setDeleteConfirmId(id)
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirmId) return
+    await fetch(`/api/templates/${deleteConfirmId}`, { method: 'DELETE' })
+    setTemplates((prev) => prev.filter((t) => t.id !== deleteConfirmId))
+    setDeleteConfirmId(null)
   }
 
   function handleUse(template: Template) {
@@ -206,6 +213,14 @@ export default function TemplatesPage() {
 
   return (
     <>
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Удалить шаблон?"
+        message="Шаблон будет удалён безвозвратно. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
       {renamingTemplate && (
         <RenameDialog
           template={renamingTemplate}

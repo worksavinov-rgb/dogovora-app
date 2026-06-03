@@ -5,6 +5,12 @@ import { getUserId } from '@/lib/api-auth'
 
 type Params = { params: Promise<{ id: string }> }
 
+const contactSchema = z.object({
+  role: z.string().max(80).default(''),
+  email: z.string().max(200).default(''),
+  phone: z.string().max(50).default(''),
+})
+
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   inn: z.string().optional().nullable(),
@@ -13,6 +19,7 @@ const updateSchema = z.object({
   legalAddress: z.string().optional().nullable(),
   email: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
+  contacts: z.array(contactSchema).max(3).optional(),
   isArchived: z.boolean().optional(),
   bankName: z.string().optional(),
   checkingAccount: z.string().optional(),

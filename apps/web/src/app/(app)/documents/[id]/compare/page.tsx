@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 
 interface Version {
   id: string
@@ -260,7 +261,9 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
     }).finally(() => setLoadingContent(false))
   }, [leftId, rightId])
 
-  const diff = leftContent || rightContent ? diffDocuments(leftContent, rightContent) : []
+  // Если контент — HTML (из загруженного шаблона), стриппим теги перед диффом
+  const normalize = (s: string) => isHtmlString(s) ? htmlToPlainText(s) : s
+  const diff = leftContent || rightContent ? diffDocuments(normalize(leftContent), normalize(rightContent)) : []
 
   // Статистика изменений
   const addedLines = diff.filter((l) => l.lineType === 'added').length

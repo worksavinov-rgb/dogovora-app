@@ -212,7 +212,7 @@ function Topbar({ breadcrumbs = [], actions, balance, onMenuClick }: TopbarProps
                   {crumb.label}
                 </Link>
               ) : (
-                <span className="text-[var(--ink)] font-medium">{crumb.label}</span>
+                <span className="text-[var(--ink)] font-medium truncate" style={{ maxWidth: 400 }}>{crumb.label}</span>
               )}
             </React.Fragment>
           ))}

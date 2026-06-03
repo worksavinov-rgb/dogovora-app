@@ -14,7 +14,7 @@ const variantStyles: Record<BadgeVariant, string> = {
   progress:  'text-[oklch(0.45_0.10_235)] bg-[var(--info-soft)] border-[oklch(0.85_0.04_235)]',
   review:    'text-[oklch(0.45_0.10_75)] bg-[var(--warn-soft)] border-[oklch(0.85_0.06_75)]',
   approved:  'text-[var(--ok)] bg-[var(--ok-soft)] border-[oklch(0.85_0.04_155)]',
-  paid:      'text-[var(--accent-ink)] bg-[var(--accent-soft)] border-[oklch(0.85_0.03_260)]',
+  paid:      'text-[oklch(0.25_0.10_145)] bg-[oklch(0.88_0.10_145)] border-[oklch(0.72_0.14_145)]',
   signed:    'text-[oklch(0.32_0.08_155)] bg-[oklch(0.94_0.04_155)] border-[oklch(0.80_0.06_155)]',
   danger:    'text-[var(--danger)] bg-[var(--danger-soft)] border-[oklch(0.85_0.05_25)]',
 }

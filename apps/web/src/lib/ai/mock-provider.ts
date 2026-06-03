@@ -122,7 +122,7 @@ export const mockProvider: AIProvider = {
     }
   },
 
-  async *generate(description: string, counterpartyName: string, _settings: AISettings, _userProfile?: UserProfileData, _counterpartyData?: CounterpartyData, _parentDocContent?: string, _referenceContent?: string) {
+  async *generate(description: string, counterpartyName: string, _settings: AISettings, _userProfile?: UserProfileData, _counterpartyData?: CounterpartyData, _parentDocContent?: string, _referenceContent?: string, _base?: string, _userRole?: 'customer' | 'executor') {
     const template = `ДОГОВОР № ___
 на разработку программного обеспечения
 

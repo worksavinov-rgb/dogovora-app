@@ -8,6 +8,7 @@ export interface UserProfileData {
   inn?: string | null
   kpp?: string | null
   ogrn?: string | null
+  ogrnDate?: string | null
   legalAddress?: string | null
   signatorName?: string | null
   signatorPosition?: string | null
@@ -105,6 +106,10 @@ export interface AIProvider {
     userProfile?: UserProfileData,
     counterpartyData?: CounterpartyData,
     parentDocContent?: string,   // полный текст родительского договора (для APPENDIX/AMENDMENT)
-    referenceContent?: string,   // образец документа (шаблон/загруженный файл) для структуры
+    referenceContent?: string,   // образец документа (шаблон/загруженный файл)
+    base?: string,               // 'scratch' | 'template' | 'upload' — влияет на режим генерации
+    userRole?: 'customer' | 'executor',  // роль пользователя в договоре
+    city?: string,                        // город подписания
+    signingDate?: string,                 // дата подписания (ISO)
   ): AsyncGenerator<string>
 }

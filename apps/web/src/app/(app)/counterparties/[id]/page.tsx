@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Field, Input } from '@/components/ui/input'
 import { SignatoryModal, SignatoryData } from '@/components/counterparties/signatory-modal'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { validateInn, validateBik, validateCheckingAccount } from '@/lib/validation'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
@@ -19,15 +20,22 @@ interface Signatory { id: string; fullName: string; signatureName: string; posit
 interface Version { id: string; number: number; status: string; createdAt: string; purchase: { id: string } | null }
 interface Document { id: string; title: string; type: string; createdAt: string; versions: Version[] }
 
+interface ContactPerson { role: string; email: string; phone: string }
+
 interface Counterparty {
   id: string; name: string; inn: string | null; kpp: string | null; ogrn: string | null
   legalAddress: string | null; email: string | null; phone: string | null
+  contacts: ContactPerson[] | null
   isArchived: boolean; createdAt: string; updatedAt: string
   bankDetails: BankDetail[]; signatories: Signatory[]; documents: Document[]
 }
 
-const STATUS_MAP: Record<string, 'draft' | 'progress' | 'review' | 'approved' | 'paid'> = {
-  DRAFT: 'draft', IN_PROGRESS: 'progress', REVIEW: 'review', APPROVED: 'approved', PAID: 'paid',
+const STATUS_MAP: Record<string, 'draft' | 'progress' | 'review' | 'approved' | 'paid' | 'signed'> = {
+  DRAFT: 'draft', IN_PROGRESS: 'progress', REVIEW: 'review', APPROVED: 'approved', PAID: 'paid', SIGNED: 'signed',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  CONTRACT: 'Договор', APPENDIX: 'Приложение', AMENDMENT: 'ДС',
 }
 
 const BASIS_LABELS: Record<string, string> = {
@@ -45,60 +53,93 @@ function relativeDate(iso: string): string {
 
 // ─── Вкладка: Документы ───────────────────────────────────────────────────────
 
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Черновик', IN_PROGRESS: 'В работе', REVIEW: 'На проверке',
+  APPROVED: 'Утверждено', PAID: 'Оплачено', SIGNED: 'Подписано',
+}
+
+function isClosedVersion(ver: Version) {
+  return ver.purchase || ver.status === 'PAID' || ver.status === 'SIGNED'
+}
+
 function DocumentsTab({ cp }: { cp: Counterparty }) {
   const router = useRouter()
-  const allDocs = cp.documents
 
-  if (allDocs.length === 0) {
-    return (
-      <Card pad={false}>
-        <div className="py-[60px] text-center">
-          <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">Документов пока нет</p>
-          <p className="text-[13px] text-[var(--ink-4)] mb-[20px]">Создайте первый договор с этим контрагентом</p>
-          <Button variant="secondary" onClick={() => router.push(`/documents/new?counterpartyId=${cp.id}`)}>Создать документ</Button>
-        </div>
-      </Card>
-    )
-  }
+  // Только документы с хотя бы одной оплаченной/подписанной версией
+  const visibleDocs = cp.documents
+    .map((doc) => ({ ...doc, versions: doc.versions.filter(isClosedVersion) }))
+    .filter((doc) => doc.versions.length > 0)
 
   return (
-    <Card pad={false}>
-      {allDocs.map((doc, i) => (
-        <div key={doc.id}>
-          {/* Документ-группа */}
-          <div className={['px-[16px] py-[12px] flex items-start gap-[10px]', i > 0 ? 'border-t border-[var(--line)]' : ''].join(' ')}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mt-[2px] shrink-0">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-            </svg>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <p className="text-[13px] font-medium text-[var(--ink)]">{doc.title}</p>
-                <p className="text-[12px] text-[var(--ink-4)] shrink-0 ml-[12px]">{doc.versions.length} вер.</p>
-              </div>
-              <p className="text-[12px] text-[var(--ink-4)] mt-[2px]">{relativeDate(doc.createdAt)}</p>
-            </div>
+    <div className="flex flex-col gap-[16px]">
+      {visibleDocs.length === 0 ? (
+        <Card pad={false}>
+          <div className="py-[60px] text-center">
+            <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">Оплаченных документов нет</p>
+            <p className="text-[13px] text-[var(--ink-4)]">Оплаченные и подписанные версии появятся здесь</p>
           </div>
-          {/* Версии */}
-          {doc.versions.map((ver) => (
-            <div
-              key={ver.id}
-              onClick={() => router.push(`/documents/${doc.id}?version=${ver.id}`)}
-              className="grid grid-cols-[60px_1fr_120px_28px_28px] gap-[12px] items-center px-[16px] py-[10px] pl-[42px] border-t border-[var(--line)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
-            >
-              <p className="text-[12px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>v.{ver.number}</p>
-              <p className="text-[12px] text-[var(--ink-3)]">{relativeDate(ver.createdAt)}</p>
-              <div><Badge variant={STATUS_MAP[ver.status] ?? 'draft'}>{ver.status}</Badge></div>
-              <button className="w-[28px] h-[28px] flex items-center justify-center text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors" onClick={(e) => e.stopPropagation()}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </button>
-              <button className="w-[28px] h-[28px] flex items-center justify-center text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors" onClick={(e) => e.stopPropagation()}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
-              </button>
+        </Card>
+      ) : (
+        <Card pad={false}>
+          {visibleDocs.map((doc, i) => (
+            <div key={doc.id}>
+              {/* Заголовок документа — кликабельный */}
+              <div
+                onClick={() => router.push(`/documents/${doc.id}`)}
+                className={[
+                  'px-[16px] py-[12px] flex items-center gap-[10px] cursor-pointer hover:bg-[var(--surface-inset)] transition-colors',
+                  i > 0 ? 'border-t border-[var(--line)]' : '',
+                ].join(' ')}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-semibold text-[var(--ink)] truncate">{doc.title}</p>
+                </div>
+                <span className="shrink-0 text-[11px] text-[var(--ink-4)]">{TYPE_LABELS[doc.type] ?? doc.type}</span>
+                <span className="shrink-0 text-[11px] text-[var(--ink-4)]">{relativeDate(doc.createdAt)}</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </div>
+
+              {/* Версии */}
+              {doc.versions.map((ver) => (
+                <div
+                  key={ver.id}
+                  onClick={() => router.push(`/documents/${doc.id}/work?version=${ver.id}`)}
+                  className="flex items-center gap-[12px] px-[16px] py-[10px] pl-[42px] border-t border-[var(--line)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                >
+                  <span className="text-[12px] text-[var(--ink-4)] shrink-0 w-[32px]" style={{ fontFamily: 'var(--font-mono)' }}>v.{ver.number}</span>
+                  <span className="flex-1 text-[12px] text-[var(--ink-3)]">{relativeDate(ver.createdAt)}</span>
+                  <Badge variant={ver.purchase ? 'paid' : (STATUS_MAP[ver.status] ?? 'draft')}>
+                    {ver.purchase && ver.status !== 'SIGNED' ? 'Оплачено' : STATUS_LABELS[ver.status] ?? ver.status}
+                  </Badge>
+                  {ver.purchase && (
+                    <button
+                      className="shrink-0 w-[28px] h-[28px] flex items-center justify-center text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors"
+                      title="Скачать"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        fetch(`/api/versions/${ver.id}/download`).then(async (r) => {
+                          if (!r.ok) return
+                          const blob = await r.blob()
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url; a.download = `${doc.title}_v${ver.number}.docx`; a.click()
+                          URL.revokeObjectURL(url)
+                        })
+                      }}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           ))}
-        </div>
-      ))}
-    </Card>
+        </Card>
+      )}
+    </div>
   )
 }
 
@@ -109,6 +150,9 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
   const [saving, setSaving] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSignatory, setEditingSignatory] = useState<Signatory | null>(null)
+  const [deleteSignatoryId, setDeleteSignatoryId] = useState<string | null>(null)
+
+  const emptyContact = (): ContactPerson => ({ role: '', email: '', phone: '' })
 
   // Форма редактирования
   const [form, setForm] = useState({
@@ -116,6 +160,7 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
     legalAddress: cp.legalAddress ?? '', email: cp.email ?? '', phone: cp.phone ?? '',
     bankName: cp.bankDetails[0]?.bankName ?? '', checkingAccount: cp.bankDetails[0]?.checkingAccount ?? '',
     bik: cp.bankDetails[0]?.bik ?? '', correspondentAccount: cp.bankDetails[0]?.correspondentAccount ?? '',
+    contacts: (cp.contacts && cp.contacts.length > 0 ? cp.contacts : [emptyContact()]) as ContactPerson[],
   })
 
   const innError = form.inn ? validateInn(form.inn) : null
@@ -124,8 +169,11 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
 
   const handleSave = async () => {
     setSaving(true)
+    // Фильтруем пустые контакты перед сохранением
+    const contacts = form.contacts.filter(c => c.role || c.email || c.phone)
     await fetch(`/api/counterparties/${cp.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...form, contacts }),
     })
     setSaving(false)
     setEditing(false)
@@ -145,14 +193,27 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
     onRefresh()
   }
 
-  const handleDeleteSignatory = async (sid: string) => {
-    if (!confirm('Удалить подписанта?')) return
-    await fetch(`/api/counterparties/${cp.id}/signatories/${sid}`, { method: 'DELETE' })
+  const handleDeleteSignatory = (sid: string) => {
+    setDeleteSignatoryId(sid)
+  }
+
+  const confirmDeleteSignatory = async () => {
+    if (!deleteSignatoryId) return
+    await fetch(`/api/counterparties/${cp.id}/signatories/${deleteSignatoryId}`, { method: 'DELETE' })
+    setDeleteSignatoryId(null)
     onRefresh()
   }
 
   return (
     <div className="grid grid-cols-[1fr_260px] gap-[16px]">
+      <ConfirmDialog
+        open={!!deleteSignatoryId}
+        title="Удалить подписанта?"
+        message="Подписант будет удалён. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        onConfirm={confirmDeleteSignatory}
+        onCancel={() => setDeleteSignatoryId(null)}
+      />
       {/* Левая колонка — реквизиты */}
       <div className="flex flex-col gap-[12px]">
 
@@ -226,24 +287,82 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
 
         {/* Контакты */}
         <Card>
-          <div className="flex items-center gap-[8px] mb-[14px]">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z"/>
-            </svg>
-            <p className="text-[13px] font-medium">Контакты</p>
-            <p className="text-[11px] text-[var(--ink-4)]">Не попадают в текст договора, нужны для уведомлений</p>
+          <div className="flex items-center justify-between mb-[14px]">
+            <div className="flex items-center gap-[8px]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.11 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3 2.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21 16.92z"/>
+              </svg>
+              <p className="text-[13px] font-medium">Контакты</p>
+              <p className="text-[11px] text-[var(--ink-4)]">Не попадают в текст договора</p>
+            </div>
+            {editing && form.contacts.length < 3 && (
+              <button
+                onClick={() => setForm(p => ({ ...p, contacts: [...p.contacts, emptyContact()] }))}
+                className="text-[12px] text-[var(--accent)] hover:opacity-70 transition-opacity cursor-pointer flex items-center gap-[4px]"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Добавить контакт
+              </button>
+            )}
           </div>
+
           {editing ? (
-            <div className="grid grid-cols-2 gap-[10px]">
-              <Field label="Email"><Input value={form.email} onChange={(e) => setForm(p => ({...p, email: e.target.value}))} /></Field>
-              <Field label="Телефон"><Input value={form.phone} onChange={(e) => setForm(p => ({...p, phone: e.target.value}))} /></Field>
+            <div className="flex flex-col gap-[14px]">
+              {form.contacts.map((c, i) => (
+                <div key={i} className="flex flex-col gap-[8px] pb-[14px]" style={i < form.contacts.length - 1 ? { borderBottom: '1px solid var(--line)' } : {}}>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-medium text-[var(--ink-3)] uppercase tracking-[0.06em]">Контакт {i + 1}</p>
+                    {form.contacts.length > 1 && (
+                      <button
+                        onClick={() => setForm(p => ({ ...p, contacts: p.contacts.filter((_, idx) => idx !== i) }))}
+                        className="text-[11px] text-[var(--ink-4)] hover:text-red-500 transition-colors cursor-pointer"
+                      >Удалить</button>
+                    )}
+                  </div>
+                  <Field label="Должность / роль">
+                    <Input
+                      value={c.role}
+                      placeholder="Бухгалтер, Менеджер..."
+                      onChange={(e) => setForm(p => ({ ...p, contacts: p.contacts.map((x, idx) => idx === i ? { ...x, role: e.target.value } : x) }))}
+                    />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-[10px]">
+                    <Field label="Email">
+                      <Input
+                        value={c.email}
+                        onChange={(e) => setForm(p => ({ ...p, contacts: p.contacts.map((x, idx) => idx === i ? { ...x, email: e.target.value } : x) }))}
+                      />
+                    </Field>
+                    <Field label="Телефон">
+                      <Input
+                        value={c.phone}
+                        onChange={(e) => setForm(p => ({ ...p, contacts: p.contacts.map((x, idx) => idx === i ? { ...x, phone: e.target.value } : x) }))}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-[8px] text-[13px]">
-              {cp.email && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[2px]">Email</p><p className="text-[var(--ink-2)]">{cp.email}</p></div>}
-              {cp.phone && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[2px]">Телефон</p><p className="text-[var(--ink-2)]">{cp.phone}</p></div>}
-              {!cp.email && !cp.phone && <p className="text-[var(--ink-4)]">Контакты не указаны</p>}
-            </div>
+            (() => {
+              const contacts = cp.contacts && cp.contacts.length > 0 ? cp.contacts : []
+              const legacy = !cp.contacts && (cp.email || cp.phone) ? [{ role: '', email: cp.email ?? '', phone: cp.phone ?? '' }] : []
+              const all = [...contacts, ...legacy]
+              if (all.length === 0) return <p className="text-[13px] text-[var(--ink-4)]">Контакты не указаны</p>
+              return (
+                <div className="flex flex-col gap-[12px]">
+                  {all.map((c, i) => (
+                    <div key={i} className="flex flex-col gap-[4px]">
+                      {c.role && <p className="text-[11px] font-medium text-[var(--ink-3)] uppercase tracking-[0.06em]">{c.role}</p>}
+                      <div className="grid grid-cols-2 gap-[8px] text-[13px]">
+                        {c.email && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[2px]">Email</p><p className="text-[var(--ink-2)]">{c.email}</p></div>}
+                        {c.phone && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[2px]">Телефон</p><p className="text-[var(--ink-2)]">{c.phone}</p></div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()
           )}
         </Card>
 

@@ -43,7 +43,9 @@ export interface GenerateDocumentJobData {
   parentDocTitle?: string     // название родительского договора
   parentDocNumber?: string    // номер родительского договора
   parentDocContent?: string   // текст финальной версии родительского договора
-  referenceContent?: string   // образец структуры (шаблон/файл) для Приложений/ДС
+  referenceContent?: string   // образец структуры (шаблон/файл)
+  base?: string               // 'scratch' | 'template' | 'upload'
+  userRole?: 'customer' | 'executor'   // роль пользователя в договоре
   userProfile?: UserProfileData        // профиль пользователя (одна из сторон)
   counterpartyData?: CounterpartyData  // полные данные контрагента
 }
@@ -78,7 +80,7 @@ export function startGenerateWorker() {
       const {
         versionId, description, counterpartyName, protectionLevel, targetSize, customInstruction,
         docType, docNumber, signingDate, documentNumber, parentDocTitle, parentDocNumber, parentDocContent,
-        referenceContent, userProfile, counterpartyData,
+        referenceContent, base, userRole, userProfile, counterpartyData,
       } = job.data
 
       // Обновляем статус версии → IN_PROGRESS
@@ -118,7 +120,11 @@ export function startGenerateWorker() {
       let fullText = ''
       const settings = { protectionLevel, targetSize, customInstruction }
       const aiProvider = getAIProvider()
-      const generator = aiProvider.generate(enrichedDescription, counterpartyName, settings, userProfile, counterpartyData, parentDocContent, referenceContent)
+      const cityFromProfile = userProfile?.legalAddress
+        ? (userProfile.legalAddress.match(/(?:г\.|город)\s+([А-Яа-яЁё\-]+)/i)?.[1] ?? null)
+        : null
+      const contractCity = cityFromProfile ?? 'Москва'
+      const generator = aiProvider.generate(enrichedDescription, counterpartyName, settings, userProfile, counterpartyData, parentDocContent, referenceContent, base, userRole, contractCity, signingDate)
 
       for await (const chunk of generator) {
         fullText += chunk
@@ -137,11 +143,7 @@ export function startGenerateWorker() {
 
       // Применяем форматирование
       try {
-        // Извлекаем город из юридического адреса профиля (ищем "г. Город" или "город Город")
-        const cityFromProfile = userProfile?.legalAddress
-          ? (userProfile.legalAddress.match(/(?:г\.|город)\s+([А-Яа-яЁё\-]+)/i)?.[1] ?? null)
-          : null
-        const city = cityFromProfile ?? 'Москва'
+        const city = contractCity
 
         // Номер договора: для дочерних берём из родителя, для основных — из doc.number
         const contractNumber = parentDocNumber
@@ -199,7 +201,7 @@ export function startGenerateWorker() {
   })
 
   worker.on('failed', (job, err) => {
-    console.error(`[worker] Job ${job?.id} failed:`, err.message)
+    console.error(`[worker] Job ${job?.id} failed:`, err.message, err.stack)
   })
 
   return worker

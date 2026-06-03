@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 import { CounterpartyRowSkeleton } from '@/components/ui/skeleton'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 interface Counterparty {
   id: string
@@ -27,6 +28,7 @@ function guessOrgForm(cp: Counterparty): string {
 function CounterpartyMenu({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => void }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -55,16 +57,28 @@ function CounterpartyMenu({ cp, onRefresh }: { cp: Counterparty; onRefresh: () =
     onRefresh()
   }
 
-  const del = async (e: React.MouseEvent) => {
+  const del = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!confirm(`Удалить контрагента «${cp.name}»? Это действие нельзя отменить.`)) return
     setOpen(false)
+    setDeleteConfirm(true)
+  }
+
+  const confirmDel = async () => {
     await fetch(`/api/counterparties/${cp.id}`, { method: 'DELETE' })
+    setDeleteConfirm(false)
     onRefresh()
   }
 
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+      <ConfirmDialog
+        open={deleteConfirm}
+        title={`Удалить «${cp.name}»?`}
+        message="Контрагент будет перемещён в архив. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        onConfirm={confirmDel}
+        onCancel={() => setDeleteConfirm(false)}
+      />
       <button
         onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
         className={['w-[32px] h-[32px] flex items-center justify-center rounded-[var(--radius-sm)] transition-colors cursor-pointer', open ? 'bg-[var(--surface-2)] text-[var(--ink)]' : 'text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)]'].join(' ')}

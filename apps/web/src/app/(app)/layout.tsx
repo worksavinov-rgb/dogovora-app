@@ -4,10 +4,12 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { useAuthStore } from '@/store/auth'
+import { useTopbarStore } from '@/store/topbar'
 
 export default function AppGroupLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user, balance, isInitialized, initialize } = useAuthStore()
+  const pageTitle = useTopbarStore((s) => s.pageTitle)
 
   useEffect(() => {
     initialize()
@@ -32,5 +34,6 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
 
   if (!user) return null
 
-  return <AppLayout balance={balance}>{children}</AppLayout>
+  const breadcrumbs = pageTitle ? [{ label: pageTitle }] : undefined
+  return <AppLayout balance={balance} breadcrumbs={breadcrumbs}>{children}</AppLayout>
 }

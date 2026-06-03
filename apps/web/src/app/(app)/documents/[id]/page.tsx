@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
 import { useToast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { calcVersionPrice } from '@/lib/pricing'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
@@ -190,13 +191,14 @@ function PurchaseModal({
 
 // ─── Меню трёх точек для версии ──────────────────────────────────────────────
 
-function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
+function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign, onDeleteDocument }: {
   ver: Version
   doc: Document
   onBuy: (ver: Version) => void
   onStatusChange: (verId: string, status: string) => void
   onDeleted: (verId: string) => void
   onSign: (ver: Version) => void
+  onDeleteDocument?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -268,22 +270,28 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
             </button>
           )}
 
-          {/* Все статусы */}
+          {/* Все статусы — заблокированы для оплаченных версий */}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
-          <p className="px-[14px] py-[4px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Сменить статус</p>
-          {ALL_STATUSES.filter((s) => s.key !== ver.status).map((s) => (
-            <button
-              key={s.key}
-              className="w-full text-left px-[14px] py-[7px] text-[13px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-              style={{ color: s.color }}
-              onClick={() => {
-                if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
-                else { onStatusChange(ver.id, s.key); setOpen(false) }
-              }}
-            >
-              → {s.label}
-            </button>
-          ))}
+          {ver.purchase ? (
+            <p className="px-[14px] py-[6px] text-[11px] text-[var(--ink-4)]">🔒 Версия оплачена — статус защищён</p>
+          ) : (
+            <>
+              <p className="px-[14px] py-[4px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Сменить статус</p>
+              {ALL_STATUSES.filter((s) => s.key !== ver.status).map((s) => (
+                <button
+                  key={s.key}
+                  className="w-full text-left px-[14px] py-[7px] text-[13px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+                  style={{ color: s.color }}
+                  onClick={() => {
+                    if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
+                    else { onStatusChange(ver.id, s.key); setOpen(false) }
+                  }}
+                >
+                  → {s.label}
+                </button>
+              ))}
+            </>
+          )}
 
           {/* Купить */}
           {canBuy && (
@@ -297,6 +305,36 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
               </button>
             </>
           )}
+
+          {/* Удалить версию (только неоплаченные) */}
+          {!ver.purchase && (
+            <>
+              <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+              <button
+                className="w-full text-left px-[14px] py-[8px] text-[13px] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer flex items-center gap-[8px]"
+                style={{ color: 'oklch(0.5 0.15 20)' }}
+                onClick={() => { setOpen(false); onDeleted(ver.id) }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                Удалить версию
+              </button>
+            </>
+          )}
+
+          {/* Удалить документ */}
+          {onDeleteDocument && (
+            <>
+              <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+              <button
+                className="w-full text-left px-[14px] py-[8px] text-[13px] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer flex items-center gap-[8px]"
+                style={{ color: 'oklch(0.5 0.15 20)' }}
+                onClick={() => { setOpen(false); onDeleteDocument() }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                Удалить документ
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -306,13 +344,14 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign }: {
 // ─── Компонент строки версии ──────────────────────────────────────────────────
 
 function VersionRow({
-  ver, isCurrent, doc, onBuy, onStatusChange, onDeleted, onSign,
+  ver, isCurrent, doc, onBuy, onStatusChange, onDeleted, onSign, onDeleteDocument,
 }: {
   ver: Version; isCurrent: boolean; doc: Document
   onBuy: (ver: Version) => void
   onStatusChange: (verId: string, status: string) => void
   onDeleted: (verId: string) => void
   onSign: (ver: Version) => void
+  onDeleteDocument?: () => void
 }) {
   const router = useRouter()
 
@@ -334,7 +373,7 @@ function VersionRow({
         </div>
 
         <div className="flex items-center gap-[8px] shrink-0">
-          <StatusBadge status={STATUS_MAP[ver.status] ?? 'draft'} />
+          <StatusBadge status={ver.purchase ? 'paid' : (STATUS_MAP[ver.status] ?? 'draft')} />
 
           {ver.status === 'APPROVED' && !ver.purchase ? (
             <button
@@ -355,7 +394,7 @@ function VersionRow({
             </button>
           )}
 
-          <VersionMenu ver={ver} doc={doc} onBuy={onBuy} onStatusChange={onStatusChange} onDeleted={onDeleted} onSign={onSign} />
+          <VersionMenu ver={ver} doc={doc} onBuy={onBuy} onStatusChange={onStatusChange} onDeleted={onDeleted} onSign={onSign} onDeleteDocument={onDeleteDocument} />
         </div>
       </div>
     </div>
@@ -376,6 +415,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   const [signingVer, setSigningVer] = useState<Version | null>(null)
   const [signing, setSigning] = useState(false)
   const [sortAsc, setSortAsc] = useState(false) // false = по убыванию (новые сначала)
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   async function loadDoc() {
     const res = await fetch(`/api/documents/${id}`)
@@ -450,14 +490,33 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
     await loadDoc()
   }
 
-  function handleVersionDeleted(_verId: string) {
-    void loadDoc()
+  function handleVersionDeleted(verId: string) {
+    setConfirmDialog({
+      title: 'Удалить версию?',
+      message: 'Версия будет удалена без возможности восстановления.',
+      onConfirm: async () => {
+        setConfirmDialog(null)
+        const res = await fetch(`/api/versions/${verId}`, { method: 'DELETE' })
+        if (res.status === 403) { showToast('Нельзя удалить оплаченную версию.', 'error'); return }
+        if (!res.ok) { showToast('Не удалось удалить версию.', 'error'); return }
+        await loadDoc()
+      },
+    })
   }
 
-  async function handleDeleteDocument() {
-    if (!confirm(`Удалить документ «${doc?.title}»?\n\nБудут удалены все версии. Это действие нельзя отменить.`)) return
-    await fetch(`/api/documents/${id}`, { method: 'DELETE' })
-    router.push('/documents')
+  function handleDeleteDocument() {
+    setConfirmDialog({
+      title: 'Удалить документ?',
+      message: `Документ «${doc?.title}» и все его версии будут удалены без возможности восстановления.`,
+      onConfirm: async () => {
+        setConfirmDialog(null)
+        const res = await fetch(`/api/documents/${id}`, { method: 'DELETE' })
+        if (res.status === 403) { showToast('Нельзя удалить документ: есть оплаченные версии.', 'error'); return }
+        if (!res.ok) { showToast('Не удалось удалить документ.', 'error'); return }
+        router.push('/documents')
+        router.refresh()
+      },
+    })
   }
 
   if (loading) {
@@ -577,6 +636,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                       onStatusChange={handleVersionStatusChange}
                       onDeleted={handleVersionDeleted}
                       onSign={setSigningVer}
+                      onDeleteDocument={handleDeleteDocument}
                     />
                   ))
               )}
@@ -592,7 +652,6 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   { icon: '✦', label: 'Открыть в ИИ-чате', primary: true, onClick: () => router.push(`/documents/${id}/work`) },
                   { icon: '⇄', label: 'Сравнить', primary: false, onClick: () => router.push(`/documents/${id}/compare`) },
                   { icon: '◎', label: 'Проверить риски', primary: false, onClick: () => router.push(`/documents/${id}/check`) },
-                  { icon: '🗑', label: 'Удалить документ', primary: false, danger: true, onClick: handleDeleteDocument },
                   ...(currentVersion?.purchase ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
@@ -683,6 +742,14 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!confirmDialog}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        onConfirm={confirmDialog?.onConfirm ?? (() => {})}
+        onCancel={() => setConfirmDialog(null)}
+      />
     </>
   )
 }

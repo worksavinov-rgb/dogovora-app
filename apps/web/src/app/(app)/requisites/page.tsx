@@ -5,10 +5,19 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
 import { validateInn, validateOgrn, validateBik, validateCheckingAccount, validateKpp } from '@/lib/validation'
+import { useAuthStore } from '@/store/auth'
+import { useToast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
 type ProfileType = 'SOLE_PROPRIETOR' | 'COMPANY' | 'INDIVIDUAL' | 'ANO' | 'PAO' | 'ZAO'
+
+type ProfileFormData = {
+  type: ProfileType; name: string; inn: string; kpp: string; ogrn: string; ogrnDate: string
+  legalAddress: string; signatorName: string; signatorPosition: string; signatorBasis: string
+  bankName: string; checkingAccount: string; bik: string; correspondentAccount: string
+}
 
 interface BankDetail {
   id?: string
@@ -25,6 +34,7 @@ interface Profile {
   inn: string
   kpp: string
   ogrn: string
+  ogrnDate: string
   legalAddress: string
   signatorName: string
   signatorPosition: string
@@ -79,7 +89,7 @@ function clearTypeSpecificFields(profile: Omit<Profile, 'id'>, newType: ProfileT
 
 function emptyProfile(type: ProfileType): Omit<Profile, 'id'> {
   return {
-    type, name: '', inn: '', kpp: '', ogrn: '', legalAddress: '',
+    type, name: '', inn: '', kpp: '', ogrn: '', ogrnDate: '', legalAddress: '',
     signatorName: '', signatorPosition: '', signatorBasis: '',
     signatureFilePath: null, stampFilePath: null,
     bankDetails: [{ ...EMPTY_BANK }],
@@ -89,7 +99,7 @@ function emptyProfile(type: ProfileType): Omit<Profile, 'id'> {
 function profileToForm(p: Profile): Omit<Profile, 'id'> {
   return {
     type: p.type, name: p.name,
-    inn: p.inn ?? '', kpp: p.kpp ?? '', ogrn: p.ogrn ?? '',
+    inn: p.inn ?? '', kpp: p.kpp ?? '', ogrn: p.ogrn ?? '', ogrnDate: p.ogrnDate ?? '',
     legalAddress: p.legalAddress ?? '',
     signatorName: p.signatorName ?? '', signatorPosition: p.signatorPosition ?? '',
     signatorBasis: p.signatorBasis ?? '',
@@ -220,6 +230,13 @@ function ProfileForm({ profile, onChange, isNew }: {
             )
           })()}
 
+          {profile.type === 'SOLE_PROPRIETOR' && (
+            <Field label="Дата присвоения ОГРНИП">
+              <Input value={profile.ogrnDate} onChange={(e) => set('ogrnDate', e.target.value)}
+                placeholder="Например: 05.10.2018" />
+            </Field>
+          )}
+
           <Field label="Юридический адрес">
             <Input value={profile.legalAddress} onChange={(e) => set('legalAddress', e.target.value)}
               placeholder="123056, г. Москва, ул. Красина, д. 17, кв. 42" />
@@ -296,6 +313,7 @@ export default function RequisitesPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/profiles')
@@ -355,8 +373,14 @@ export default function RequisitesPage() {
     } finally { setSaving(false) }
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Удалить этот профиль реквизитов?')) return
+  const handleDelete = (id: string) => {
+    setDeleteConfirmId(id)
+  }
+
+  const confirmDelete = async () => {
+    const id = deleteConfirmId
+    if (!id) return
+    setDeleteConfirmId(null)
     setDeletingId(id)
     await fetch(`/api/profiles/${id}`, { method: 'DELETE' })
     const next = profiles.filter((p) => p.id !== id)
@@ -379,17 +403,168 @@ export default function RequisitesPage() {
     setSaveError(null)
   }
 
+  const [tab, setTab] = useState<'account' | 'requisites'>('account')
+
   return (
     <div className="max-w-[960px]">
+      <ConfirmDialog
+        open={!!deleteConfirmId}
+        title="Удалить профиль реквизитов?"
+        message="Профиль будет удалён. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+      />
       <div className="mb-[24px]">
-        <p className="text-[12px] text-[var(--ink-4)] uppercase tracking-[0.1em] font-medium mb-[4px]">Профиль</p>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 400, marginBottom: 8, lineHeight: 1.2 }}>
-          Мои реквизиты
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 400, marginBottom: 16, lineHeight: 1.2 }}>
+          Настройки
         </h2>
-        <p className="text-[14px] text-[var(--ink-3)]">
-          Данные компаний и ИП — автоматически подставляются в договоры. Добавьте столько профилей, сколько нужно.
-        </p>
+        <div className="flex gap-[2px] border-b border-[var(--line)]">
+          {([
+            { key: 'account', label: 'Аккаунт' },
+            { key: 'requisites', label: 'Реквизиты компаний' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className="h-[38px] px-[16px] text-[13px] font-medium transition-colors cursor-pointer relative"
+              style={{ color: tab === t.key ? 'var(--ink)' : 'var(--ink-3)' }}
+            >
+              {t.label}
+              {tab === t.key && (
+                <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--ink)] rounded-t-full" />
+              )}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {tab === 'account' && <AccountTab />}
+      {tab === 'requisites' && <RequisitesContent loading={loading} saving={saving} profiles={profiles} selectedId={selectedId} setSelectedId={setSelectedId} draft={draft} setDraft={setDraft} saveError={saveError} setSaveError={setSaveError} handleNew={handleNew} handleSave={handleSave} handleDelete={handleDelete} handleCancel={handleCancel} handleSelect={handleSelect} deletingId={deletingId} />}
+    </div>
+  )
+}
+
+// ─── Вкладка Аккаунт ──────────────────────────────────────────────────────────
+
+function AccountTab() {
+  const { user, setUser } = useAuthStore()
+  const { toast } = useToast()
+  const [name, setName] = useState(user?.name ?? '')
+  const [email, setEmail] = useState(user?.email ?? '')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [savingPassword, setSavingPassword] = useState(false)
+
+  async function handleSaveProfile() {
+    setSavingProfile(true)
+    try {
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast(data.error ?? 'Ошибка сохранения', 'error'); return }
+      setUser({ ...user!, name: data.user.name, email: data.user.email })
+      toast('Профиль обновлён', 'success')
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  async function handleChangePassword() {
+    if (newPassword !== confirmPassword) { toast('Пароли не совпадают', 'error'); return }
+    setSavingPassword(true)
+    try {
+      const res = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) { toast(data.error ?? 'Ошибка', 'error'); return }
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('')
+      toast('Пароль изменён', 'success')
+    } finally {
+      setSavingPassword(false)
+    }
+  }
+
+  const initials = (user?.name || user?.email || '?').slice(0, 1).toUpperCase()
+
+  return (
+    <div className="flex flex-col gap-[20px] max-w-[560px]">
+      {/* Аватар */}
+      <Card>
+        <div className="flex items-center gap-[16px]">
+          <div className="w-[56px] h-[56px] rounded-full bg-[oklch(0.88_0.04_260)] flex items-center justify-center text-[20px] font-semibold shrink-0" style={{ color: 'var(--accent)' }}>
+            {initials}
+          </div>
+          <div>
+            <p className="text-[15px] font-semibold text-[var(--ink)]">{user?.name || 'Имя не указано'}</p>
+            <p className="text-[13px] text-[var(--ink-3)]">{user?.email}</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Основные данные */}
+      <Card>
+        <p className="text-[11px] font-semibold text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Личные данные</p>
+        <div className="flex flex-col gap-[12px]">
+          <Field label="Имя">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ваше имя" />
+          </Field>
+          <Field label="Email">
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com" />
+          </Field>
+        </div>
+        <div className="mt-[16px]">
+          <Button variant="primary" onClick={handleSaveProfile} disabled={savingProfile}>
+            {savingProfile ? 'Сохраняю…' : 'Сохранить'}
+          </Button>
+        </div>
+      </Card>
+
+      {/* Смена пароля */}
+      <Card>
+        <p className="text-[11px] font-semibold text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Смена пароля</p>
+        <div className="flex flex-col gap-[12px]">
+          <Field label="Текущий пароль">
+            <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" />
+          </Field>
+          <Field label="Новый пароль">
+            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="••••••••" />
+          </Field>
+          <Field label="Повторите новый пароль">
+            <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="••••••••" />
+          </Field>
+        </div>
+        <div className="mt-[16px]">
+          <Button variant="secondary" onClick={handleChangePassword} disabled={savingPassword || !currentPassword || !newPassword}>
+            {savingPassword ? 'Сохраняю…' : 'Изменить пароль'}
+          </Button>
+        </div>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Контент реквизитов (вынесен из основного компонента) ─────────────────────
+
+function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDraft, saveError, setSaveError, handleNew, handleSave, handleDelete, handleCancel, handleSelect, deletingId }: {
+  loading: boolean; saving: boolean; profiles: Profile[]; selectedId: string | null; setSelectedId?: (id: string | null) => void
+  draft: Omit<Profile, 'id'> | null; setDraft: (d: Omit<Profile, 'id'> | null) => void; saveError: string | null; setSaveError: (e: string | null) => void
+  handleNew: () => void; handleSave: () => void; handleDelete: (id: string) => void; handleCancel: () => void
+  handleSelect: (p: Profile) => void; deletingId: string | null
+}) {
+  return (
+    <div>
+      <p className="text-[14px] text-[var(--ink-3)] mb-[20px]">
+        Данные компаний и ИП — автоматически подставляются в договоры.
+      </p>
 
       {loading ? (
         <div className="flex items-center justify-center py-[60px]">
@@ -483,3 +658,4 @@ export default function RequisitesPage() {
     </div>
   )
 }
+

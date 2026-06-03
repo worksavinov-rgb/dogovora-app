@@ -23,7 +23,7 @@ interface RecentDoc {
 }
 
 interface WalletData { balance: number }
-interface StorageData { usedBytes: number; limitBytes: number; percent: number }
+interface StorageData { usedBytes: number; limitBytes: number; percent: number; totalDocs: number; totalVersions: number }
 
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ export default function HomePage() {
           {getDayOfWeek()}, {getDateStr()}
         </p>
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 400, marginBottom: 6 }}>
-          Доброе утро{userName ? `, ${userName}` : ''}.
+          Доброе утро{userName ? `, ${userName}` : ''}!
         </h1>
         {pendingCount > 0 ? (
           <p className="text-[14px] text-[var(--ink-3)]">
@@ -176,6 +176,15 @@ export default function HomePage() {
             >
               Все документы →
             </button>
+          </div>
+
+          {/* Шапка колонок */}
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-[12px] items-center px-[20px] py-[7px]"
+            style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface-inset)' }}>
+            <p className="text-[10px] font-semibold text-[var(--ink-4)] uppercase tracking-[0.08em]">Название</p>
+            <p className="text-[10px] font-semibold text-[var(--ink-4)] uppercase tracking-[0.08em]">Статус</p>
+            <p className="text-[10px] font-semibold text-[var(--ink-4)] uppercase tracking-[0.08em]">Версия</p>
+            <p className="text-[10px] font-semibold text-[var(--ink-4)] uppercase tracking-[0.08em]">Дата</p>
           </div>
 
           {loading ? (
@@ -330,8 +339,8 @@ export default function HomePage() {
               />
             </div>
             <p className="text-[11px] text-[var(--ink-4)]">
-              {docs.length > 0
-                ? `Загружено ${docs.length} документов`
+              {storage
+                ? `${storage.totalDocs} документов · ${storage.totalVersions} версий`
                 : 'Файлов пока нет'}
             </p>
           </Card>

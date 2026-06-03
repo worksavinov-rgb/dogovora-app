@@ -18,7 +18,22 @@ export async function GET(req: NextRequest, { params }: Params) {
           id: true,
           title: true,
           type: true,
-          counterparty: { select: { id: true, name: true } },
+          counterparty: {
+            select: {
+              id: true,
+              name: true,
+              inn: true,
+              kpp: true,
+              ogrn: true,
+              legalAddress: true,
+              email: true,
+              bankDetails: { take: 1 },
+              signatories: { where: { isDefault: true }, take: 1 },
+            },
+          },
+          profile: {
+            include: { bankDetails: { take: 1 } },
+          },
         },
       },
       purchase: true,
@@ -38,4 +53,23 @@ export async function GET(req: NextRequest, { params }: Params) {
     document: version.document,
     purchase: version.purchase,
   })
+}
+
+// DELETE /api/versions/:id — удаление неоплаченной версии
+export async function DELETE(req: NextRequest, { params }: Params) {
+  const userId = getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await params
+  const version = await prisma.version.findFirst({
+    where: { id, document: { userId } },
+    include: { purchase: true },
+  })
+  if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (version.purchase) {
+    return NextResponse.json({ error: 'Нельзя удалить оплаченную версию' }, { status: 403 })
+  }
+
+  await prisma.version.delete({ where: { id } })
+  return NextResponse.json({ ok: true })
 }
