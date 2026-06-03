@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { saveFile, versionFileKey } from '@/lib/storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
 
 type Params = { params: Promise<{ id: string }> }
@@ -44,12 +45,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       city,
     })
 
-    const formattedBase64 = formattedBuffer.toString('base64')
+    const formattedKey = versionFileKey(id, 'formatted.docx')
+    await saveFile(formattedKey, formattedBuffer)
 
     await prisma.version.update({
       where: { id },
       data: {
-        formattedContent: formattedBase64,
+        formattedFilePath: formattedKey,
         formattingApplied: true,
       },
     })

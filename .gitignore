@@ -10,6 +10,10 @@ build/
 logs/
 *.log
 
+# Файловое хранилище (загруженные/сгенерированные файлы)
+storage/
+apps/web/storage/
+
 # Env файлы
 .env
 .env.local

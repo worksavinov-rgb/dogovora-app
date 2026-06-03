@@ -1,6 +1,7 @@
 import { Queue, Worker, Job } from 'bullmq'
 import { prisma } from './db'
 import { getAIProvider } from './ai/provider'
+import { saveFile, versionFileKey } from './storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
 import type { CounterpartyData, UserProfileData } from './ai/types'
 
@@ -159,7 +160,9 @@ export function startGenerateWorker() {
           city,
         })
 
-        const formattedBase64 = formattedBuffer.toString('base64')
+        // Форматированный DOCX пишем в файловое хранилище, в БД — только путь
+        const formattedKey = versionFileKey(versionId, 'formatted.docx')
+        await saveFile(formattedKey, formattedBuffer)
 
         await prisma.version.update({
           where: { id: versionId },
@@ -167,7 +170,7 @@ export function startGenerateWorker() {
             status: 'DRAFT',
             content: trimmedText,
             fileSize: fileSize,
-            formattedContent: formattedBase64,
+            formattedFilePath: formattedKey,
             formattingApplied: true,
           },
         })

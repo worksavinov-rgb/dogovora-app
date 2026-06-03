@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
 
 type Params = { params: Promise<{ id: string }> }
@@ -34,13 +35,24 @@ export async function GET(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Документ ещё не сгенерирован' }, { status: 400 })
   }
 
-  let docxBuffer: Buffer
+  let docxBuffer: Buffer | null = null
 
-  // Если уже есть отформатированный DOCX — используем его
-  if (version.formattedContent) {
+  // 1. Файл уже лежит в хранилище — читаем по пути
+  if (version.formattedFilePath) {
+    try {
+      docxBuffer = await readFile(version.formattedFilePath)
+    } catch (err) {
+      console.warn('[download] Файл не найден в хранилище, перегенерирую:', err)
+    }
+  }
+
+  // 2. Legacy: старые версии хранят base64 в БД
+  if (!docxBuffer && version.formattedContent) {
     docxBuffer = Buffer.from(version.formattedContent, 'base64')
-  } else {
-    // Генерируем DOCX на лету из plain text
+  }
+
+  // 3. Нет файла — генерируем на лету и сохраняем в хранилище
+  if (!docxBuffer) {
     try {
       docxBuffer = await DocumentFormatter.formatDocument(version.content, {
         contractNumber: version.document.number ?? undefined,
@@ -48,11 +60,12 @@ export async function GET(req: NextRequest, { params }: Params) {
         city: 'Москва',
       })
 
-      // Сохраняем для следующего скачивания
+      const formattedKey = versionFileKey(id, 'formatted.docx')
+      await saveFile(formattedKey, docxBuffer)
       await prisma.version.update({
         where: { id },
         data: {
-          formattedContent: docxBuffer.toString('base64'),
+          formattedFilePath: formattedKey,
           formattingApplied: true,
         },
       })

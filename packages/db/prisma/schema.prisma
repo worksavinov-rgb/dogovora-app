@@ -63,6 +63,7 @@ model Profile {
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   bankDetails BankDetail[]
+  documents   Document[]
 
   @@map("profiles")
 }
@@ -164,20 +165,45 @@ enum DocumentScope {
 // ─── Документы и версии ───────────────────────────────────────────────────────
 
 model Document {
-  id             String       @id @default(cuid())
-  userId         String
-  counterpartyId String
-  title          String
-  number         String?
-  type           DocumentType
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  userId           String
+  counterpartyId   String
+  profileId        String?      // выбранная "моя компания" (профиль-сторона)
+  title            String
+  number           String?
+  type             DocumentType
+  signingDate      DateTime?    // плановая дата подписания
+  signedAt         DateTime?    // фактическая дата подписания
+  documentNumber   Int?         // порядковый номер приложения/ДС (1, 2, 3...)
+  parentDocumentId String?      // для APPENDIX/AMENDMENT — ссылка на родительский CONTRACT
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  counterparty Counterparty @relation(fields: [counterpartyId], references: [id])
-  versions     Version[]
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  counterparty   Counterparty  @relation(fields: [counterpartyId], references: [id])
+  profile        Profile?      @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  parentDocument Document?     @relation("DocumentHierarchy", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  childDocuments Document[]    @relation("DocumentHierarchy")
+  versions       Version[]
+  draft          DocumentDraft?
 
   @@map("documents")
+}
+
+// Рабочая копия документа (автосохранение). Одна на документ, мутабельная.
+// Хранит текущий текст с правками между явными сохранениями версий.
+// Версии (Version) остаются неизменяемыми снимками истории.
+model DocumentDraft {
+  id            String   @id @default(cuid())
+  documentId    String   @unique
+  baseVersionId String?  // от какой версии оттолкнулись
+  content       String   // текущий рабочий текст
+  revision      Int      @default(0) // optimistic-lock (защита от гонки двух вкладок)
+  updatedAt     DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_drafts")
 }
 
 // ВАЖНО: версии — append-only. Текст/файл никогда не обновляется.
@@ -188,8 +214,9 @@ model Version {
   status     VersionStatus @default(DRAFT)
   filePath   String?       // путь в S3
   fileSize   Int?          // байты
-  content    String?       // текст документа (пока без S3)
-  formattedContent String?  // отформатированный DOCX/JSON контент
+  content    String?       // текст документа (хранится в БД — небольшой)
+  formattedContent String?  // DEPRECATED: legacy base64 DOCX (читается для старых версий)
+  formattedFilePath String? // путь к файлу форматированного DOCX в файловом хранилище
   formattingApplied Boolean? @default(false) // флаг: применено ли форматирование
   parentDocumentId String?   // для приложений/допсоглащений: ссылка на родительский договор
   documentNumber Int?        // номер приложения/допсоглащения (1, 2, 3...)
@@ -241,6 +268,7 @@ enum VersionStatus {
   REVIEW       // На проверке
   APPROVED     // Утверждено
   PAID         // Оплачено
+  SIGNED       // Подписано
 }
 
 enum ChatRole {

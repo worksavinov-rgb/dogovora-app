@@ -216,8 +216,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [streamingDoc, setStreamingDoc] = useState<string | null>(null) // обновление документа
   const [saving, setSaving] = useState(false)
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
-  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false) // есть несохранённые ИИ-правки
-  const [applyingFormat, setApplyingFormat] = useState(false)
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false) // есть правки, не зафиксированные как версия
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle') // статус автосохранения
   const [downloading, setDownloading] = useState(false)
   const [purchasing, setPurchasing] = useState(false)
   const [purchased, setPurchased] = useState(false)
@@ -228,6 +228,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const chatEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Автосохранение рабочей копии (черновика)
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const draftRevisionRef = useRef(0)
+  const baseVersionIdRef = useRef<string | null>(null)
+  const isLatestRef = useRef(true) // автосейв только для последней (редактируемой) версии
+  const dirtyRef = useRef(false)   // есть несохранённый «хвост» (для beforeunload)
+  const lastSavedContentRef = useRef<string | null>(null)
 
   // Polling статуса задачи генерации
   const pollJob = useCallback(async function runPoll(jobId: string, versionId: string) {
@@ -287,14 +294,40 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         }
         setVersion(versionWithDoc)
 
+        // Автосейв включаем только для последней (редактируемой) версии
+        const isLatest = ver.id === doc.versions[0]?.id
+        isLatestRef.current = isLatest
+        baseVersionIdRef.current = ver.id
+        lastSavedContentRef.current = ver.content ?? null
+
         // Загружаем историю чата
         fetch(`/api/versions/${ver.id}/chat`)
           .then((r) => r.ok ? r.json() : [])
           .then(setMessages)
           .catch(() => {})
 
-        // Если контент уже есть — показываем сразу
-        if (ver.content) {
+        // Загружаем рабочую копию (черновик с несохранёнными правками прошлой сессии)
+        let draftContent: string | null = null
+        if (isLatest) {
+          try {
+            const draftRes = await fetch(`/api/documents/${id}/draft`)
+            if (draftRes.ok) {
+              const draft = await draftRes.json() as { content: string; revision: number } | null
+              if (draft && typeof draft.content === 'string') {
+                draftRevisionRef.current = draft.revision
+                draftContent = draft.content
+              }
+            }
+          } catch { /* черновик не критичен — продолжаем с версией */ }
+        }
+
+        if (draftContent !== null && draftContent !== ver.content) {
+          // Есть несохранённые правки — подтягиваем рабочую копию
+          setDocContent(draftContent)
+          lastSavedContentRef.current = draftContent
+          setHasUnsavedEdits(true)
+        } else if (ver.content) {
+          // Контент версии уже есть — показываем сразу
           setDocContent(ver.content)
         } else {
           // Запускаем генерацию через BullMQ
@@ -319,8 +352,56 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
     }
   }, [id, pollJob, router])
+
+  // Лёгкий предохранитель: предупреждаем при уходе, только если автосейв не долетел
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  // ─── Автосохранение рабочей копии (черновика) ───────────────────────────────
+  async function saveDraft(content: string) {
+    try {
+      setSaveStatus('saving')
+      const res = await fetch(`/api/documents/${id}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          baseVersionId: baseVersionIdRef.current ?? undefined,
+          revision: draftRevisionRef.current,
+        }),
+      })
+      if (!res.ok) { setSaveStatus('error'); return }
+      const data = await res.json() as { revision: number }
+      draftRevisionRef.current = data.revision
+      lastSavedContentRef.current = content
+      dirtyRef.current = false
+      setSaveStatus('saved')
+    } catch {
+      setSaveStatus('error')
+    }
+  }
+
+  function scheduleAutosave(content: string) {
+    if (content === lastSavedContentRef.current) return
+    dirtyRef.current = true // включает beforeunload-предохранитель
+    // Старые версии не сохраняем в draft (он один на документ и привязан к последней).
+    // Зафиксировать правки можно только через «Сохранить» → создаст новую версию.
+    if (!isLatestRef.current) return
+    setSaveStatus('saving')
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => { void saveDraft(content) }, 2000)
+  }
 
   // Автоскролл чата
   useEffect(() => {
@@ -448,9 +529,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
       // Применяем обновлённый документ
       if (aiDocText.trim()) {
-        setDocContent(aiDocText.trim())
+        const updatedDoc = aiDocText.trim()
+        setDocContent(updatedDoc)
         setHasUnsavedEdits(true)
-        // Обновляем мобильный таб чтобы пользователь видел документ
+        scheduleAutosave(updatedDoc) // автосохранение рабочей копии
       }
 
       // Финализируем чат-сообщение
@@ -502,6 +584,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       if (res.ok) {
         const newVersion = await res.json() as { id: string }
         setHasUnsavedEdits(false)
+        // Правки зафиксированы как версия — рабочая копия больше не нужна
+        if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+        dirtyRef.current = false
+        draftRevisionRef.current = 0
+        await fetch(`/api/documents/${id}/draft`, { method: 'DELETE' }).catch(() => {})
         // A.6: фоновое применение форматирования к новой версии (не блокирует переход)
         fetch(`/api/versions/${newVersion.id}/apply-formatting`, { method: 'POST' }).catch(() => {})
         router.push(`/documents/${id}`)
@@ -540,20 +627,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       }
     } finally {
       setStatusChanging(false)
-    }
-  }
-
-  async function applyFormatting() {
-    if (!version || applyingFormat) return
-    setApplyingFormat(true)
-    try {
-      const res = await fetch(`/api/versions/${version.id}/apply-formatting`, { method: 'POST' })
-      if (res.ok) {
-        setVersion((prev) => prev ? { ...prev, formattingApplied: true } : prev)
-        setDocHtml(null) // сбросим — useEffect перезагрузит новый HTML
-      }
-    } finally {
-      setApplyingFormat(false)
     }
   }
 
@@ -613,9 +686,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     { value: 'PAID', label: 'Оплачено' },
   ]
   const currentStatusLabel = STATUS_OPTIONS.find(s => s.value === version.status)?.label ?? version.status
-  const isUploaded = version.aiSettings?.base === 'upload'
-  const needsFormatting = isUploaded && !version.formattingApplied && Boolean(docContent)
-
   return (
     <>
     <style>{`
@@ -665,10 +735,28 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           <span className="shrink-0 text-[12px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-mono)' }}>
             v.{version.number}{charCount > 0 ? ` · ${charCount.toLocaleString('ru')} зн. / ${wordCount.toLocaleString('ru')} сл.` : ''}
           </span>
-          {hasUnsavedEdits && (
+          {saveStatus === 'saving' && (
+            <span className="hidden md:flex shrink-0 items-center gap-[4px] text-[11px] text-[var(--ink-4)]">
+              <span className="w-[10px] h-[10px] rounded-full border-2 border-[var(--line)] border-t-[var(--ink-3)] animate-spin" />
+              Сохранение…
+            </span>
+          )}
+          {saveStatus === 'saved' && (
+            <span className="hidden md:flex shrink-0 items-center gap-[4px] text-[11px] text-[var(--ink-4)]">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Сохранено
+            </span>
+          )}
+          {saveStatus === 'error' && (
+            <span className="hidden md:flex shrink-0 items-center gap-[4px] text-[11px] text-[var(--danger)]">
+              <span className="w-[5px] h-[5px] rounded-full bg-[var(--danger)]" />
+              Ошибка сохранения
+            </span>
+          )}
+          {saveStatus === 'idle' && hasUnsavedEdits && (
             <span className="hidden md:flex shrink-0 items-center gap-[4px] text-[11px] text-[oklch(0.55_0.08_60)]">
               <span className="w-[5px] h-[5px] rounded-full bg-[oklch(0.65_0.1_60)]" />
-              Не сохранено
+              Не зафиксировано
             </span>
           )}
 
@@ -889,7 +977,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                         className="docx-rendered"
                         style={{ userSelect: isPurchased ? 'text' : 'none' }}
                         onCopy={!isPurchased ? (e) => e.preventDefault() : undefined}
-                        // eslint-disable-next-line react/no-danger
                         dangerouslySetInnerHTML={{ __html: docHtml }}
                       />
                     ) : docView === 'formatted' ? (
