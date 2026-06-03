@@ -122,7 +122,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Создаём документ + первую версию (DRAFT) атомарно
-  const document = await prisma.document.create({
+  let document
+  try { document = await prisma.document.create({
     data: {
       userId,
       counterpartyId: data.counterpartyId,
@@ -151,6 +152,11 @@ export async function POST(req: NextRequest) {
       _count: { select: { versions: true } },
     },
   })
+
+  } catch (err) {
+    console.error('[POST /api/documents] DB error:', err)
+    return NextResponse.json({ error: 'Ошибка создания документа' }, { status: 500 })
+  }
 
   return NextResponse.json(document, { status: 201 })
 }

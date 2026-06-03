@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { getAIProvider } from '@/lib/ai/provider'
+import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -71,7 +72,10 @@ export async function POST(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
   const aiProvider = getAIProvider()
-  const documentText = data.currentDocument?.trim() || version.content || ''
+  // Если контент — HTML (загружен из DOCX через mammoth), конвертируем в структурированный plain text.
+  // ИИ работает с plain text; таблицы сохраняются как tab-separated строки.
+  const rawDoc = data.currentDocument?.trim() || version.content || ''
+  const documentText = isHtmlString(rawDoc) ? htmlToPlainText(rawDoc) : rawDoc
   const encoder = new TextEncoder()
 
   // ─── Режим EDIT: ИИ возвращает обновлённый документ ─────────────────────────
@@ -84,10 +88,23 @@ export async function POST(req: NextRequest, { params }: Params) {
         try {
           // 1. Стримим обновлённый документ
           let updatedDoc = ''
+          console.log('[chat/edit] starting editDocument, docLength=', documentText.length, 'instruction=', data.content.slice(0, 80))
           const docGen = aiProvider.editDocument(documentText, data.content, settings)
           for await (const chunk of docGen) {
             updatedDoc += chunk
             send({ type: 'doc', chunk })
+          }
+          console.log('[chat/edit] editDocument done, updatedDocLength=', updatedDoc.length)
+
+          // Если ИИ вернул пустой документ или очень короткий — предупреждаем, но не обновляем
+          if (!updatedDoc.trim()) {
+            send({ type: 'chat', chunk: 'Не удалось применить изменение — ИИ вернул пустой ответ. Попробуйте перефразировать запрос.' })
+            await prisma.chatMessage.create({
+              data: { versionId: id, role: 'AI', content: 'Не удалось применить изменение — ИИ вернул пустой ответ. Попробуйте перефразировать запрос.' },
+            })
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+            return
           }
 
           // 2. Генерируем краткое объяснение только по ТЕКУЩЕЙ правке
@@ -112,15 +129,23 @@ export async function POST(req: NextRequest, { params }: Params) {
 
           // 3. Сохраняем объяснение в историю чата
           await prisma.chatMessage.create({
-            data: { versionId: id, role: 'AI', content: explanation.trim() },
+            data: { versionId: id, role: 'AI', content: explanation.trim() || 'Документ обновлён.' },
           })
 
           send({ type: 'done', updatedDocLength: updatedDoc.length })
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {
-          console.error('[chat/edit]', err)
-          controller.error(err)
+          console.error('[chat/edit] ERROR:', err)
+          // Отправляем ошибку клиенту как читаемое сообщение
+          try {
+            const errMsg = err instanceof Error ? err.message : 'Ошибка ИИ'
+            send({ type: 'chat', chunk: `Ошибка: ${errMsg.slice(0, 200)}` })
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+          } catch {
+            controller.error(err)
+          }
         }
       },
     })

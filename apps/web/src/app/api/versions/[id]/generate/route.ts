@@ -36,7 +36,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     customInstruction?: string
     description?: string
     profileId?: string
-    referenceContent?: string  // образец структуры для Приложений/ДС
+    referenceContent?: string  // образец структуры / загруженный бланк
+    base?: string              // 'scratch' | 'template' | 'upload'
+    userRole?: 'customer' | 'executor'
   }
 
   // Если уже есть контент И нет referenceContent (значит это не шаблон-для-генерации) — не перегенерируем
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     inn: profile.inn,
     kpp: profile.kpp,
     ogrn: profile.ogrn,
+    ogrnDate: profile.ogrnDate ?? null,
     legalAddress: profile.legalAddress,
     signatorName: profile.signatorName,
     signatorPosition: profile.signatorPosition,
@@ -129,9 +132,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     signingDate: doc.signingDate ? doc.signingDate.toISOString() : undefined,
     documentNumber: doc.documentNumber ?? undefined,
     referenceContent: aiSettings?.referenceContent ?? undefined,
+    base: aiSettings?.base ?? undefined,
     parentDocTitle: doc.parentDocument?.title ?? undefined,
     parentDocNumber: doc.parentDocument?.number ?? undefined,
     parentDocContent,
+    userRole: aiSettings?.userRole ?? 'customer',
     userProfile,
     counterpartyData,
   })

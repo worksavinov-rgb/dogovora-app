@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
+import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -38,7 +39,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   const city = cityFromProfile ?? 'Москва'
 
   try {
-    const formattedBuffer = await DocumentFormatter.formatDocument(version.content, {
+    const plainContent = isHtmlString(version.content) ? htmlToPlainText(version.content) : version.content
+
+    const formattedBuffer = await DocumentFormatter.formatDocument(plainContent, {
       contractNumber: version.document.number ?? undefined,
       contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
       city,

@@ -17,7 +17,17 @@ export async function GET(req: NextRequest, { params }: Params) {
     where: { id, document: { userId } },
     include: {
       document: {
-        select: { title: true, number: true },
+        select: {
+          title: true,
+          number: true,
+          counterparty: {
+            include: {
+              bankDetails: { take: 1 },
+              signatories: { where: { isDefault: true }, take: 1 },
+            },
+          },
+          profile: { include: { bankDetails: { take: 1 } } },
+        },
       },
       purchase: true,
     },
@@ -36,30 +46,42 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   let docxBuffer: Buffer
 
-  // Если уже есть отформатированный DOCX — используем его
-  if (version.formattedContent) {
-    docxBuffer = Buffer.from(version.formattedContent, 'base64')
-  } else {
-    // Генерируем DOCX на лету из plain text
-    try {
-      docxBuffer = await DocumentFormatter.formatDocument(version.content, {
-        contractNumber: version.document.number ?? undefined,
-        contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
-        city: 'Москва',
-      })
+  try {
+    const aiSettings = version.aiSettings as { userRole?: string } | null
 
-      // Сохраняем для следующего скачивания
-      await prisma.version.update({
-        where: { id },
-        data: {
-          formattedContent: docxBuffer.toString('base64'),
-          formattingApplied: true,
-        },
-      })
-    } catch (err) {
-      console.error('[download] Formatter error:', err)
-      return NextResponse.json({ error: 'Ошибка создания файла' }, { status: 500 })
-    }
+    docxBuffer = await DocumentFormatter.formatDocument(version.content, {
+      contractNumber: version.document.number ?? undefined,
+      contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
+      city: 'Москва',
+      myRole: aiSettings?.userRole === 'executor' ? 'Исполнитель' : 'Заказчик',
+      myParty: version.document.profile ? {
+        name: version.document.profile.name,
+        type: version.document.profile.type,
+        inn: version.document.profile.inn,
+        kpp: version.document.profile.kpp,
+        ogrn: version.document.profile.ogrn,
+        legalAddress: version.document.profile.legalAddress,
+        email: null,
+        signatorName: version.document.profile.signatorName,
+        signatorPosition: version.document.profile.signatorPosition,
+        bank: version.document.profile.bankDetails[0] ?? null,
+      } : undefined,
+      counterparty: version.document.counterparty ? {
+        name: version.document.counterparty.name,
+        type: version.document.counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR',
+        inn: version.document.counterparty.inn,
+        kpp: version.document.counterparty.kpp,
+        ogrn: version.document.counterparty.ogrn,
+        legalAddress: version.document.counterparty.legalAddress,
+        email: version.document.counterparty.email,
+        signatorName: version.document.counterparty.signatories[0]?.fullName ?? null,
+        signatorPosition: version.document.counterparty.signatories[0]?.position ?? null,
+        bank: version.document.counterparty.bankDetails[0] ?? null,
+      } : undefined,
+    })
+  } catch (err) {
+    console.error('[download] Formatter error:', err)
+    return NextResponse.json({ error: 'Ошибка создания файла' }, { status: 500 })
   }
 
   // Формируем имя файла

@@ -179,3 +179,50 @@ button { font-family: inherit; }
 .docx-rendered b { font-weight: 600; }
 .docx-rendered em,
 .docx-rendered i { font-style: italic; }
+
+/* ─── Рендер договора (react-markdown) ─────────────────────────────────────── */
+.doc-markdown {
+  font-family: 'Times New Roman', Georgia, serif;
+  font-size: 14px;
+  color: #111;
+  line-height: 1.8;
+}
+.doc-markdown p {
+  margin-bottom: 8px;
+  text-align: justify;
+}
+.doc-markdown strong {
+  font-weight: 700;
+}
+.doc-markdown h1, .doc-markdown h2, .doc-markdown h3, .doc-markdown h4 {
+  font-family: 'Times New Roman', Georgia, serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-top: 28px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+.doc-markdown h1:first-child, .doc-markdown h2:first-child {
+  margin-top: 0;
+}
+.doc-markdown ol {
+  padding-left: 0;
+  list-style: none;
+  margin-bottom: 8px;
+}
+.doc-markdown ol li {
+  margin-bottom: 6px;
+  text-align: justify;
+}
+.doc-markdown ul {
+  padding-left: 20px;
+  list-style: disc;
+  margin-bottom: 8px;
+}
+.doc-markdown ul li {
+  margin-bottom: 4px;
+}
+.doc-markdown hr {
+  border: none;
+  margin: 24px 0;
+}

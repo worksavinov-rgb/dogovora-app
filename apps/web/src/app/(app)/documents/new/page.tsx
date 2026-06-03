@@ -12,7 +12,7 @@ import { Slider } from '@/components/ui/slider'
 async function parseDocxToText(file: File): Promise<string> {
   const mammoth = await import('mammoth')
   const arrayBuffer = await file.arrayBuffer()
-  const result = await mammoth.extractRawText({ arrayBuffer })
+  const result = await mammoth.convertToHtml({ arrayBuffer })
   return result.value
 }
 
@@ -35,6 +35,7 @@ interface Step1Data {
   type: DocType
   profileId: string        // моя компания (профиль пользователя)
   counterpartyId: string
+  userRole: 'customer' | 'executor'
   title: string
   number: string
   signingDate: string      // дата подписания (YYYY-MM-DD), необязательная
@@ -44,6 +45,8 @@ interface Step1Data {
   templateId?: string      // выбранный шаблон
   templateText?: string    // загруженный контент шаблона
   parentDocumentId?: string  // для APPENDIX/AMENDMENT
+  parentUploadFile?: File | null  // загруженный родительский договор (если нет в системе)
+  parentUploadText?: string       // распарсенный текст родительского договора
 }
 
 interface Step2Data {
@@ -65,7 +68,7 @@ interface DropdownOption {
 }
 
 function SearchableDropdown({
-  value, options, placeholder, searchPlaceholder, emptyText, onChange, disabled,
+  value, options, placeholder, searchPlaceholder, emptyText, onChange, disabled, dropUp,
 }: {
   value: string
   options: DropdownOption[]
@@ -74,6 +77,7 @@ function SearchableDropdown({
   emptyText?: string
   onChange: (id: string) => void
   disabled?: boolean
+  dropUp?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -153,59 +157,68 @@ function SearchableDropdown({
       {/* Выпадающий список */}
       {open && (
         <div
-          className="absolute z-50 w-full mt-[4px] rounded-[var(--radius-md)] shadow-lg overflow-hidden"
-          style={{ background: 'var(--surface)', border: '1px solid var(--line-2)' }}
+          className="absolute z-50 w-full rounded-[var(--radius-md)] shadow-lg overflow-hidden"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--line-2)',
+            ...(dropUp ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
+          }}
         >
-          {/* Строка поиска */}
-          <div className="relative p-[8px] border-b border-[var(--line)]">
-            <svg className="absolute left-[18px] top-1/2 -translate-y-1/2 text-[var(--ink-4)]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder ?? 'Поиск…'}
-              className="w-full h-[32px] pl-[30px] pr-[8px] text-[13px] bg-[var(--surface-inset)] rounded-[var(--radius-md)] outline-none border border-[var(--line-2)] focus:border-[var(--accent)] transition-colors"
-            />
-          </div>
-
-          {/* Список вариантов */}
-          <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
-            {filtered.length === 0 ? (
-              <p className="text-[13px] text-[var(--ink-4)] text-center py-[16px] px-[12px]">
-                {search ? `Ничего не найдено по «${search}»` : (emptyText ?? 'Нет вариантов')}
-              </p>
-            ) : (
-              filtered.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => handleSelect(opt.id)}
-                  className={[
-                    'w-full flex items-center gap-[8px] px-[12px] py-[9px] text-left transition-colors cursor-pointer hover:bg-[var(--surface-inset)]',
-                    value === opt.id ? 'bg-[var(--surface-inset)]' : '',
-                  ].join(' ')}
-                >
-                  {opt.badge && (
-                    <span className={['text-[10px] font-semibold px-[6px] py-[1px] rounded shrink-0', opt.badgeColor ?? ''].join(' ')}>
-                      {opt.badge}
-                    </span>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-[var(--ink)] truncate">{opt.label}</p>
-                    {opt.sublabel && (
-                      <p className="text-[11px] text-[var(--ink-4)] truncate" style={{ fontFamily: 'var(--font-mono)' }}>
-                        {opt.sublabel}
-                      </p>
-                    )}
-                  </div>
-                  {value === opt.id && (
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.42 0.06 260)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  )}
-                </button>
-              ))
-            )}
-          </div>
+          {/* Строка поиска — сверху при dropDown, снизу при dropUp */}
+          {(() => {
+            const searchBar = (
+              <div className={['relative p-[8px]', dropUp ? 'border-t border-[var(--line)]' : 'border-b border-[var(--line)]'].join(' ')}>
+                <svg className="absolute left-[18px] top-1/2 -translate-y-1/2 text-[var(--ink-4)]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input
+                  ref={searchRef}
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={searchPlaceholder ?? 'Поиск…'}
+                  className="w-full h-[32px] pl-[30px] pr-[8px] text-[13px] bg-[var(--surface-inset)] rounded-[var(--radius-md)] outline-none border border-[var(--line-2)] focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+            )
+            const list = (
+              <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
+                {filtered.length === 0 ? (
+                  <p className="text-[13px] text-[var(--ink-4)] text-center py-[16px] px-[12px]">
+                    {search ? `Ничего не найдено по «${search}»` : (emptyText ?? 'Нет вариантов')}
+                  </p>
+                ) : (
+                  filtered.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => handleSelect(opt.id)}
+                      className={[
+                        'w-full flex items-center gap-[8px] px-[12px] py-[9px] text-left transition-colors cursor-pointer hover:bg-[var(--surface-inset)]',
+                        value === opt.id ? 'bg-[var(--surface-inset)]' : '',
+                      ].join(' ')}
+                    >
+                      {opt.badge && (
+                        <span className={['text-[10px] font-semibold px-[6px] py-[1px] rounded shrink-0', opt.badgeColor ?? ''].join(' ')}>
+                          {opt.badge}
+                        </span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium text-[var(--ink)] truncate">{opt.label}</p>
+                        {opt.sublabel && (
+                          <p className="text-[11px] text-[var(--ink-4)] truncate" style={{ fontFamily: 'var(--font-mono)' }}>
+                            {opt.sublabel}
+                          </p>
+                        )}
+                      </div>
+                      {value === opt.id && (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.42 0.06 260)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )
+            return dropUp ? <>{list}{searchBar}</> : <>{searchBar}{list}</>
+          })()}
         </div>
       )}
     </div>
@@ -256,7 +269,25 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
   const [parentDocsLoading, setParentDocsLoading] = useState(false)
   const [parentDocsOpen, setParentDocsOpen] = useState(false)
   const parentDocsRef = useRef<HTMLDivElement>(null)
+  const [parentMode, setParentMode] = useState<'select' | 'upload'>('select')
+  const parentFileRef = useRef<HTMLInputElement>(null)
+  const [parentDragOver, setParentDragOver] = useState(false)
   const needsParent = data.type === 'APPENDIX' || data.type === 'AMENDMENT'
+
+  const handleParentFile = async (file: File) => {
+    const initial = { ...data, parentUploadFile: file, parentUploadText: '', parentDocumentId: undefined }
+    onChange(initial)
+    try {
+      if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+        const text = await parseDocxToText(file)
+        onChange({ ...initial, parentUploadText: text })
+      } else if (file.type === 'text/plain' || file.name.endsWith('.txt') || file.name.endsWith('.rtf')) {
+        const reader = new FileReader()
+        reader.onload = (e) => onChange({ ...initial, parentUploadText: e.target?.result as string })
+        reader.readAsText(file, 'utf-8')
+      }
+    } catch {}
+  }
 
   // Загружаем договоры при смене типа или контрагента
   // Закрываем дропдаун по клику вне
@@ -376,6 +407,28 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
             )}
           </Field>
 
+          <div className="grid grid-cols-2 gap-[8px]">
+            {([
+              { value: 'customer', label: 'Я — Заказчик', sub: 'Получаю услугу, товар или работу' },
+              { value: 'executor', label: 'Я — Исполнитель', sub: 'Оказываю услугу или выполняю работу' },
+            ] as const).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => set('userRole', opt.value)}
+                className={[
+                  'text-left px-[14px] py-[12px] rounded-[var(--radius-md)] border transition-colors cursor-pointer',
+                  data.userRole === opt.value
+                    ? 'border-[var(--ink)] bg-[var(--surface-inset)]'
+                    : 'border-[var(--line-2)] bg-[var(--surface)] hover:bg-[var(--surface-inset)]',
+                ].join(' ')}
+              >
+                <p className="text-[13px] font-medium text-[var(--ink)]">{opt.label}</p>
+                <p className="text-[11px] text-[var(--ink-4)] mt-[2px]">{opt.sub}</p>
+              </button>
+            ))}
+          </div>
+
           <Field label="Контрагент">
             <SearchableDropdown
               value={data.counterpartyId}
@@ -396,10 +449,11 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
               </p>
             )}
           </Field>
+
         </div>
       </Card>
 
-      {/* Привязка к родительскому договору (для Приложений и ДС) — теперь ВЫШЕ реквизитов */}
+      {/* Основной договор (обязательно для Приложений и ДС) */}
       {needsParent && (() => {
         const q = parentDocsSearch.toLowerCase()
         const filtered = q
@@ -409,129 +463,206 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
             )
           : parentDocs
 
+        const hasParent = Boolean(data.parentDocumentId || data.parentUploadFile)
+
         return (
           <Card>
             <div className="flex items-start gap-[10px] mb-[14px]">
               <div className="shrink-0 w-[28px] h-[28px] rounded-full bg-[oklch(0.95_0.015_260)] flex items-center justify-center mt-[1px]">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="oklch(0.42 0.06 260)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
               </div>
-              <div>
-                <p className="text-[13px] font-medium text-[var(--ink)]">Привязать к договору?</p>
-                <p className="text-[12px] text-[var(--ink-4)] mt-[1px]">
-                  {data.type === 'APPENDIX' ? 'Приложение' : 'Доп. соглашение'} получит автоматический номер — система посчитает сколько уже есть и присвоит следующий.
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-[8px] mb-[1px]">
+                  <p className="text-[13px] font-medium text-[var(--ink)]">Основной договор</p>
+                  <span className="text-[10px] font-semibold px-[6px] py-[1px] rounded bg-[oklch(0.95_0.015_20)] text-[oklch(0.5_0.1_20)]">Обязательно</span>
+                </div>
+                <p className="text-[12px] text-[var(--ink-4)]">
+                  {data.type === 'APPENDIX' ? 'Приложение' : 'Доп. соглашение'} будет привязано к договору — ИИ использует его содержание и реквизиты.
                 </p>
               </div>
             </div>
 
-            {!data.counterpartyId ? (
-              <div className="flex items-center gap-[8px] px-[12px] py-[10px] rounded-[var(--radius-md)] text-[12px] text-[var(--ink-4)]"
-                style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Сначала выберите контрагента выше — покажем его договоры
-              </div>
-            ) : parentDocsLoading ? (
-              <div className="flex items-center justify-center py-[16px] gap-[8px] text-[12px] text-[var(--ink-4)]">
-                <div className="w-[12px] h-[12px] rounded-full border-2 border-[var(--line)] border-t-[var(--ink-3)] animate-spin" />
-                Загружаю договоры…
-              </div>
-            ) : (
-              <div ref={parentDocsRef} className="relative">
+            {/* Переключатель режима */}
+            <div className="flex gap-0 mb-[12px] border-b border-[var(--line)]">
+              {(['select', 'upload'] as const).map((mode) => (
                 <button
+                  key={mode}
                   type="button"
-                  onClick={() => { setParentDocsOpen((v) => !v); setParentDocsSearch('') }}
-                  className="w-full flex items-center justify-between gap-[8px] h-[40px] px-[12px] rounded-[var(--radius-md)] border text-[13px] transition-colors cursor-pointer"
-                  style={{
-                    borderColor: parentDocsOpen ? 'var(--accent)' : 'var(--line-2)',
-                    background: 'var(--surface)',
-                    color: data.parentDocumentId ? 'var(--ink)' : 'var(--ink-4)',
+                  onClick={() => {
+                    setParentMode(mode)
+                    if (mode === 'select') onChange({ ...data, parentUploadFile: null, parentUploadText: '' })
+                    else onChange({ ...data, parentDocumentId: undefined, number: '' })
                   }}
+                  className={[
+                    'px-[14px] py-[8px] text-[12px] font-medium border-b-2 -mb-px transition-colors cursor-pointer',
+                    parentMode === mode
+                      ? 'border-[var(--ink)] text-[var(--ink)]'
+                      : 'border-transparent text-[var(--ink-4)] hover:text-[var(--ink-3)]',
+                  ].join(' ')}
                 >
-                  <span className="truncate">
-                    {data.parentDocumentId
-                      ? (() => {
-                          const d = parentDocs.find((x) => x.id === data.parentDocumentId)
-                          return d ? `${d.title}${d.number ? ` — № ${d.number}` : ''}` : 'Выбран договор'
-                        })()
-                      : 'Без привязки — самостоятельный документ'}
-                  </span>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ transform: parentDocsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>
-                    <polyline points="6 9 12 15 18 9"/>
-                  </svg>
+                  {mode === 'select' ? 'Выбрать из системы' : 'Загрузить файл'}
                 </button>
+              ))}
+            </div>
 
-                {parentDocsOpen && (
-                  <div
-                    className="absolute left-0 right-0 top-[44px] z-50 rounded-[var(--radius-md)] overflow-hidden"
-                    style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
+            {parentMode === 'select' ? (
+              !data.counterpartyId ? (
+                <div className="flex items-center gap-[8px] px-[12px] py-[10px] rounded-[var(--radius-md)] text-[12px] text-[var(--ink-4)]"
+                  style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Сначала выберите контрагента выше — покажем его договоры
+                </div>
+              ) : parentDocsLoading ? (
+                <div className="flex items-center justify-center py-[16px] gap-[8px] text-[12px] text-[var(--ink-4)]">
+                  <div className="w-[12px] h-[12px] rounded-full border-2 border-[var(--line)] border-t-[var(--ink-3)] animate-spin" />
+                  Загружаю договоры…
+                </div>
+              ) : parentDocs.length === 0 ? (
+                <div className="flex flex-col items-center gap-[8px] py-[20px] text-center">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <p className="text-[13px] text-[var(--ink-3)]">Договоров с этим контрагентом ещё нет</p>
+                  <button
+                    type="button"
+                    onClick={() => setParentMode('upload')}
+                    className="text-[12px] text-[var(--accent-ink)] hover:underline cursor-pointer"
                   >
-                    <div className="p-[8px] border-b border-[var(--line)]">
-                      <div className="relative">
-                        <svg className="absolute left-[8px] top-1/2 -translate-y-1/2 text-[var(--ink-4)]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        <input
-                          autoFocus
-                          type="text"
-                          value={parentDocsSearch}
-                          onChange={(e) => setParentDocsSearch(e.target.value)}
-                          placeholder="Поиск по названию или номеру…"
-                          className="w-full h-[32px] pl-[28px] pr-[8px] text-[13px] bg-[var(--surface-inset)] rounded-[var(--radius-sm)] outline-none"
-                        />
+                    Загрузить договор с компьютера →
+                  </button>
+                </div>
+              ) : (
+                <div ref={parentDocsRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => { setParentDocsOpen((v) => !v); setParentDocsSearch('') }}
+                    className="w-full flex items-center justify-between gap-[8px] h-[40px] px-[12px] rounded-[var(--radius-md)] border text-[13px] transition-colors cursor-pointer"
+                    style={{
+                      borderColor: parentDocsOpen ? 'var(--accent)' : data.parentDocumentId ? 'var(--ok)' : 'var(--line-2)',
+                      background: 'var(--surface)',
+                      color: data.parentDocumentId ? 'var(--ink)' : 'var(--ink-4)',
+                    }}
+                  >
+                    <span className="truncate">
+                      {data.parentDocumentId
+                        ? (() => {
+                            const d = parentDocs.find((x) => x.id === data.parentDocumentId)
+                            return d ? `${d.title}${d.number ? ` — № ${d.number}` : ''}` : 'Выбран договор'
+                          })()
+                        : 'Выберите основной договор…'}
+                    </span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ transform: parentDocsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </button>
+
+                  {parentDocsOpen && (
+                    <div
+                      className="absolute left-0 right-0 top-[44px] z-50 rounded-[var(--radius-md)] overflow-hidden"
+                      style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' }}
+                    >
+                      <div className="p-[8px] border-b border-[var(--line)]">
+                        <div className="relative">
+                          <svg className="absolute left-[8px] top-1/2 -translate-y-1/2 text-[var(--ink-4)]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                          <input
+                            autoFocus
+                            type="text"
+                            value={parentDocsSearch}
+                            onChange={(e) => setParentDocsSearch(e.target.value)}
+                            placeholder="Поиск по названию или номеру…"
+                            className="w-full h-[32px] pl-[28px] pr-[8px] text-[13px] bg-[var(--surface-inset)] rounded-[var(--radius-sm)] outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="max-h-[240px] overflow-y-auto">
+                        {filtered.length === 0 ? (
+                          <p className="text-[12px] text-[var(--ink-4)] text-center py-[14px] px-[12px]">
+                            {parentDocsSearch ? `Ничего не найдено по «${parentDocsSearch}»` : `У этого контрагента нет договоров`}
+                          </p>
+                        ) : (
+                          filtered.map((doc) => (
+                            <button
+                              key={doc.id}
+                              type="button"
+                              onClick={() => {
+                                fetch(`/api/documents?type=${data.type}&parentDocumentId=${doc.id}`)
+                                  .then((r) => r.ok ? r.json() : [])
+                                  .then((existing: Array<{ documentNumber?: number | null }>) => {
+                                    const maxNum = existing.reduce((m, d) => Math.max(m, d.documentNumber ?? 0), 0)
+                                    onChange({ ...data, parentDocumentId: doc.id, number: String(maxNum + 1) })
+                                  })
+                                  .catch(() => { onChange({ ...data, parentDocumentId: doc.id }) })
+                                setParentDocsOpen(false)
+                                setParentDocsSearch('')
+                              }}
+                              className="w-full flex items-center justify-between px-[12px] py-[10px] text-left hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-[13px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
+                                {doc.number && <p className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>№ {doc.number}</p>}
+                              </div>
+                              {data.parentDocumentId === doc.id && (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 ml-[8px]"><polyline points="20 6 9 17 4 12"/></svg>
+                              )}
+                            </button>
+                          ))
+                        )}
                       </div>
                     </div>
-
-                    <div className="max-h-[240px] overflow-y-auto">
+                  )}
+                </div>
+              )
+            ) : (
+              /* Режим загрузки файла */
+              <>
+                <input
+                  ref={parentFileRef}
+                  type="file"
+                  accept=".pdf,.docx,.doc,.txt"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleParentFile(f) }}
+                />
+                {data.parentUploadFile ? (
+                  <div>
+                    <div className="flex items-center gap-[10px] p-[12px] rounded-[var(--radius-md)] border border-[var(--ok)] bg-[oklch(0.97_0.02_150)]">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium text-[var(--ink)] truncate">{data.parentUploadFile.name}</p>
+                        <p className="text-[11px] text-[var(--ink-4)]">{(data.parentUploadFile.size / 1024).toFixed(0)} КБ</p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => { onChange({ ...data, parentDocumentId: undefined, number: '' }); setParentDocsOpen(false) }}
-                        className="w-full flex items-center justify-between px-[12px] py-[10px] text-left hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-                      >
-                        <div>
-                          <p className="text-[13px] font-medium text-[var(--ink)]">Без привязки</p>
-                          <p className="text-[11px] text-[var(--ink-4)]">Самостоятельный документ</p>
-                        </div>
-                        {!data.parentDocumentId && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        )}
-                      </button>
-
-                      {filtered.length === 0 ? (
-                        <p className="text-[12px] text-[var(--ink-4)] text-center py-[14px] px-[12px]">
-                          {parentDocsSearch ? `Ничего не найдено по «${parentDocsSearch}»` : `У этого контрагента нет договоров`}
-                        </p>
-                      ) : (
-                        filtered.map((doc) => (
-                          <button
-                            key={doc.id}
-                            type="button"
-                            onClick={() => {
-                              // Считаем следующий порядковый номер для этого типа у данного родительского договора
-                              const existingCount = parentDocs.filter(() => true).indexOf(doc) // placeholder, real count fetched below
-                              fetch(`/api/documents?type=${data.type}&parentDocumentId=${doc.id}`)
-                                .then((r) => r.ok ? r.json() : [])
-                                .then((existing: Array<{ documentNumber?: number | null }>) => {
-                                  const maxNum = existing.reduce((m, d) => Math.max(m, d.documentNumber ?? 0), 0)
-                                  onChange({ ...data, parentDocumentId: doc.id, number: String(maxNum + 1) })
-                                })
-                                .catch(() => { onChange({ ...data, parentDocumentId: doc.id }) })
-                              setParentDocsOpen(false)
-                              setParentDocsSearch('')
-                            }}
-                            className="w-full flex items-center justify-between px-[12px] py-[10px] text-left hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-                          >
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
-                              {doc.number && <p className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>№ {doc.number}</p>}
-                            </div>
-                            {data.parentDocumentId === doc.id && (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 ml-[8px]"><polyline points="20 6 9 17 4 12"/></svg>
-                            )}
-                          </button>
-                        ))
-                      )}
+                        onClick={() => onChange({ ...data, parentUploadFile: null, parentUploadText: '' })}
+                        className="text-[var(--ink-4)] hover:text-[var(--danger)] transition-colors cursor-pointer text-[20px] leading-none"
+                      >×</button>
                     </div>
+                    <p className="mt-[8px] text-[11px] text-[var(--ink-4)] leading-[1.5]">
+                      Договор будет сохранён в системе и станет основным для создаваемого документа.
+                    </p>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => parentFileRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); setParentDragOver(true) }}
+                    onDragLeave={() => setParentDragOver(false)}
+                    onDrop={(e) => { e.preventDefault(); setParentDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleParentFile(f) }}
+                    className={[
+                      'flex flex-col items-center justify-center gap-[8px] p-[28px] rounded-[var(--radius-md)] border-2 border-dashed cursor-pointer transition-colors',
+                      parentDragOver ? 'border-[var(--accent)] bg-[oklch(0.97_0.02_260)]' : 'border-[var(--line-2)] hover:border-[var(--line-strong)] bg-[var(--surface-inset)]',
+                    ].join(' ')}
+                  >
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <p className="text-[13px] font-medium text-[var(--ink)]">Нажмите или перетащите договор</p>
+                    <p className="text-[12px] text-[var(--ink-4)]">PDF, DOCX, DOC — до 10 МБ</p>
                   </div>
                 )}
-              </div>
+              </>
+            )}
+
+            {!hasParent && data.counterpartyId && (
+              <p className="mt-[10px] text-[11px] text-[oklch(0.5_0.1_20)]">
+                Выберите основной договор из системы или загрузите файл — без него перейти дальше невозможно.
+              </p>
             )}
           </Card>
         )
@@ -609,35 +740,35 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                 </a>
               </div>
             ) : (
-              <div className="flex flex-col gap-[6px]">
-                {templates.map((tpl) => (
-                  <label key={tpl.id}
-                    className="flex items-center gap-[10px] p-[10px] rounded-[var(--radius-md)] border cursor-pointer transition-colors"
-                    style={{
-                      borderColor: data.templateId === tpl.id ? 'var(--ink)' : 'var(--line-2)',
-                      background: data.templateId === tpl.id ? 'var(--surface-inset)' : 'transparent',
-                    }}>
-                    <input
-                      type="radio"
-                      checked={data.templateId === tpl.id}
-                      onChange={() => set('templateId', tpl.id)}
-                      className="shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium text-[var(--ink)] truncate">{tpl.name}</p>
-                      <p className="text-[11px] text-[var(--ink-4)]">
-                        Обновлён {new Date(tpl.updatedAt).toLocaleDateString('ru', { day: 'numeric', month: 'short' })}
-                      </p>
-                    </div>
-                    {data.templateId === tpl.id && (
-                      loadingTemplate ? (
-                        <span className="text-[11px] text-[var(--ink-4)]">Загружаю…</span>
-                      ) : data.templateText ? (
-                        <span className="text-[11px] text-[var(--ok)]">✓ Готово</span>
-                      ) : null
-                    )}
-                  </label>
-                ))}
+              <div className="flex flex-col gap-[8px]">
+                <SearchableDropdown
+                  value={data.templateId ?? ''}
+                  placeholder="Выберите шаблон…"
+                  searchPlaceholder="Поиск по названию шаблона…"
+                  emptyText="Шаблоны не найдены"
+                  dropUp
+                  onChange={(id) => set('templateId', id)}
+                  options={templates.map((tpl) => ({
+                    id: tpl.id,
+                    label: tpl.name,
+                    sublabel: `Обновлён ${new Date(tpl.updatedAt).toLocaleDateString('ru', { day: 'numeric', month: 'short' })}`,
+                  }))}
+                />
+                {data.templateId && (
+                  <div className="flex items-center gap-[6px] text-[12px]">
+                    {loadingTemplate ? (
+                      <>
+                        <div className="w-[10px] h-[10px] rounded-full border-2 border-[var(--line)] border-t-[var(--ink-3)] animate-spin" />
+                        <span className="text-[var(--ink-4)]">Загружаю шаблон…</span>
+                      </>
+                    ) : data.templateText ? (
+                      <>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span className="text-[var(--ok)]">Шаблон загружен — ИИ использует его как основу</span>
+                      </>
+                    ) : null}
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -648,14 +779,23 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
             <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.rtf,.txt" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }} />
             {data.uploadedFile ? (
-              <div className="flex items-center gap-[10px] p-[12px] rounded-[var(--radius-md)] border border-[var(--ok)] bg-[oklch(0.97_0.02_150)]">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-[var(--ink)] truncate">{data.uploadedFile.name}</p>
-                  <p className="text-[11px] text-[var(--ink-4)]">{(data.uploadedFile.size / 1024).toFixed(0)} КБ</p>
+              <div>
+                <div className="flex items-center gap-[10px] p-[12px] rounded-[var(--radius-md)] border border-[var(--ok)] bg-[oklch(0.97_0.02_150)]">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-[var(--ink)] truncate">{data.uploadedFile.name}</p>
+                    <p className="text-[11px] text-[var(--ink-4)]">{(data.uploadedFile.size / 1024).toFixed(0)} КБ</p>
+                  </div>
+                  <button onClick={() => onChange({ ...data, uploadedFile: null, uploadedText: '' })}
+                    className="text-[var(--ink-4)] hover:text-[var(--danger)] transition-colors cursor-pointer text-[20px] leading-none">×</button>
                 </div>
-                <button onClick={() => onChange({ ...data, uploadedFile: null, uploadedText: '' })}
-                  className="text-[var(--ink-4)] hover:text-[var(--danger)] transition-colors cursor-pointer text-[20px] leading-none">×</button>
+                {data.type === 'CONTRACT' && (
+                  <div className="mt-[8px] flex items-start gap-[6px] px-[10px] py-[8px] rounded-[var(--radius-md)] text-[12px] leading-[1.5]"
+                    style={{ background: 'oklch(0.96 0.015 260)', color: 'oklch(0.35 0.08 260)' }}>
+                    <svg className="shrink-0 mt-[1px]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    Файл будет использован как бланк-шаблон. ИИ проанализирует его структуру и стиль, затем создаст новый договор на основе этого образца с подстановкой данных сторон и условий.
+                  </div>
+                )}
               </div>
             ) : (
               <div
@@ -666,8 +806,15 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                 className={['flex flex-col items-center justify-center gap-[8px] p-[32px] rounded-[var(--radius-md)] border-2 border-dashed cursor-pointer transition-colors', dragOver ? 'border-[var(--accent)] bg-[oklch(0.97_0.02_260)]' : 'border-[var(--line-2)] hover:border-[var(--line-strong)] bg-[var(--surface-inset)]'].join(' ')}
               >
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <p className="text-[13px] font-medium text-[var(--ink)]">Нажмите или перетащите файл</p>
+                <p className="text-[13px] font-medium text-[var(--ink)]">
+                  {data.type === 'CONTRACT' ? 'Загрузить бланк-шаблон договора' : 'Нажмите или перетащите файл'}
+                </p>
                 <p className="text-[12px] text-[var(--ink-4)]">PDF, DOCX, RTF, TXT — до 10 МБ</p>
+                {data.type === 'CONTRACT' && (
+                  <p className="text-[11px] text-[var(--ink-4)] text-center max-w-[280px] leading-[1.5]">
+                    ИИ сохранит структуру и стиль бланка и сгенерирует договор на его основе
+                  </p>
+                )}
               </div>
             )}
           </>
@@ -843,6 +990,7 @@ export default function NewDocumentPage() {
     type: preselectedType,
     profileId: '',
     counterpartyId: preselectedCounterpartyId,
+    userRole: 'customer',
     title: '',
     number: '',
     signingDate: '',
@@ -851,6 +999,8 @@ export default function NewDocumentPage() {
     uploadedText: '',
     templateId: preselectedTemplateId || undefined,
     parentDocumentId: preselectedParentDocId || undefined,
+    parentUploadFile: null,
+    parentUploadText: '',
   })
   const [step2, setStep2] = useState<Step2Data>({
     description: '', protectionLevel: 65, targetSize: 8400, customInstruction: '', selectedChips: [],
@@ -917,6 +1067,12 @@ export default function NewDocumentPage() {
       setError('Выберите контрагента')
       return
     }
+    const isChildDocType = step1.type === 'APPENDIX' || step1.type === 'AMENDMENT'
+    if (isChildDocType && !step1.parentDocumentId && !step1.parentUploadFile) {
+      setStep(1)
+      setError('Выберите основной договор из системы или загрузите файл')
+      return
+    }
     setSaving(true); setError(null)
     try {
       const uploadedContent =
@@ -928,12 +1084,36 @@ export default function NewDocumentPage() {
 
       const { selectedChips: _chips, ...step2Rest } = step2
 
-      // Для Приложений/ДС шаблон/файл — это образец структуры для ИИ (referenceContent),
-      // а не финальный контент версии. ИИ синтезирует: родительский договор + образец + описание.
-      // Для Договора — шаблон/файл сразу становится контентом версии (без генерации).
-      const isChildDoc = step1.type === 'APPENDIX' || step1.type === 'AMENDMENT'
-      const referenceContent = isChildDoc ? uploadedContent : undefined
-      const versionContent = isChildDoc ? undefined : uploadedContent
+      // base=upload и base=template — загруженный/шаблонный контент сохраняется как content версии.
+      // ИИ не генерирует документ автоматически; пользователь сам запрашивает правки через чат.
+      // base=scratch — контент не задан, ИИ генерирует с нуля по описанию.
+      const versionContent = uploadedContent || undefined
+      const referenceContent = undefined
+
+      // Если выбран загруженный родительский договор — сначала создаём его в системе
+      let parentDocumentId = step1.parentDocumentId
+      if (!parentDocumentId && step1.parentUploadFile) {
+        const parentTitle = step1.parentUploadFile.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ')
+        const parentRes = await fetch('/api/documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'CONTRACT',
+            title: parentTitle,
+            counterpartyId: step1.counterpartyId,
+            profileId: step1.profileId || undefined,
+            uploadedContent: step1.parentUploadText || undefined,
+            aiSettings: { base: 'upload', protectionLevel: 65, targetSize: 8400, customInstruction: '', description: '' },
+          }),
+        })
+        if (!parentRes.ok) {
+          const e = await parentRes.json().catch(() => ({}))
+          setError(`Ошибка при сохранении основного договора: ${e.error ?? parentRes.status}`)
+          return
+        }
+        const parentDoc = await parentRes.json()
+        parentDocumentId = parentDoc.id
+      }
 
       const res = await fetch('/api/documents', {
         method: 'POST',
@@ -943,10 +1123,11 @@ export default function NewDocumentPage() {
           signingDate: step1.signingDate || undefined,
           profileId: step1.profileId || undefined,
           counterpartyId: step1.counterpartyId,
-          parentDocumentId: step1.parentDocumentId || undefined,
+          parentDocumentId: parentDocumentId || undefined,
           uploadedContent: versionContent,
           aiSettings: {
             ...step2Rest,
+            userRole: step1.userRole,
             base: step1.base,
             profileId: step1.profileId || undefined,
             referenceContent: referenceContent || undefined,
@@ -961,7 +1142,8 @@ export default function NewDocumentPage() {
       const doc = await res.json()
       router.push(`/documents/${doc.id}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Неизвестная ошибка')
+      const msg = e instanceof Error ? e.message : ''
+      setError(msg.includes('token') || msg.includes('DOCTYPE') ? 'Ошибка сервера. Попробуйте ещё раз.' : (msg || 'Неизвестная ошибка'))
     } finally {
       setSaving(false)
     }
@@ -1133,9 +1315,19 @@ export default function NewDocumentPage() {
               <Button variant="primary" onClick={() => {
                 if (!step1.title.trim()) { setError('Укажите название документа'); return }
                 if (!step1.counterpartyId) { setError('Выберите контрагента'); return }
-                setError(null); setStep(2); setStep2Visited(true)
+                const needsParent = step1.type === 'APPENDIX' || step1.type === 'AMENDMENT'
+                if (needsParent && !step1.parentDocumentId && !step1.parentUploadFile) {
+                  setError('Выберите основной договор из системы или загрузите файл'); return
+                }
+                setError(null)
+                // Если файл загружен — пропускаем шаг 2 и сразу создаём черновик
+                if (step1.base === 'upload' && step1.uploadedText) {
+                  void handleCreate()
+                } else {
+                  setStep(2); setStep2Visited(true)
+                }
               }}>
-                Далее →
+                {step1.base === 'upload' && step1.uploadedText ? '✦ Создать черновик' : 'Далее →'}
               </Button>
             ) : (
               <Button variant="primary" onClick={handleCreate} loading={saving}>
