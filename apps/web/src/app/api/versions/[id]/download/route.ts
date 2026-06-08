@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
 
 type Params = { params: Promise<{ id: string }> }
@@ -17,17 +18,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     where: { id, document: { userId } },
     include: {
       document: {
-        select: {
-          title: true,
-          number: true,
-          counterparty: {
-            include: {
-              bankDetails: { take: 1 },
-              signatories: { where: { isDefault: true }, take: 1 },
-            },
-          },
-          profile: { include: { bankDetails: { take: 1 } } },
-        },
+        select: { title: true, number: true },
       },
       purchase: true,
     },
@@ -44,44 +35,44 @@ export async function GET(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Документ ещё не сгенерирован' }, { status: 400 })
   }
 
-  let docxBuffer: Buffer
+  let docxBuffer: Buffer | null = null
 
-  try {
-    const aiSettings = version.aiSettings as { userRole?: string } | null
+  // 1. Файл уже лежит в хранилище — читаем по пути
+  if (version.formattedFilePath) {
+    try {
+      docxBuffer = await readFile(version.formattedFilePath)
+    } catch (err) {
+      console.warn('[download] Файл не найден в хранилище, перегенерирую:', err)
+    }
+  }
 
-    docxBuffer = await DocumentFormatter.formatDocument(version.content, {
-      contractNumber: version.document.number ?? undefined,
-      contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
-      city: 'Москва',
-      myRole: aiSettings?.userRole === 'executor' ? 'Исполнитель' : 'Заказчик',
-      myParty: version.document.profile ? {
-        name: version.document.profile.name,
-        type: version.document.profile.type,
-        inn: version.document.profile.inn,
-        kpp: version.document.profile.kpp,
-        ogrn: version.document.profile.ogrn,
-        legalAddress: version.document.profile.legalAddress,
-        email: null,
-        signatorName: version.document.profile.signatorName,
-        signatorPosition: version.document.profile.signatorPosition,
-        bank: version.document.profile.bankDetails[0] ?? null,
-      } : undefined,
-      counterparty: version.document.counterparty ? {
-        name: version.document.counterparty.name,
-        type: version.document.counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR',
-        inn: version.document.counterparty.inn,
-        kpp: version.document.counterparty.kpp,
-        ogrn: version.document.counterparty.ogrn,
-        legalAddress: version.document.counterparty.legalAddress,
-        email: version.document.counterparty.email,
-        signatorName: version.document.counterparty.signatories[0]?.fullName ?? null,
-        signatorPosition: version.document.counterparty.signatories[0]?.position ?? null,
-        bank: version.document.counterparty.bankDetails[0] ?? null,
-      } : undefined,
-    })
-  } catch (err) {
-    console.error('[download] Formatter error:', err)
-    return NextResponse.json({ error: 'Ошибка создания файла' }, { status: 500 })
+  // 2. Legacy: старые версии хранят base64 в БД
+  if (!docxBuffer && version.formattedContent) {
+    docxBuffer = Buffer.from(version.formattedContent, 'base64')
+  }
+
+  // 3. Нет файла — генерируем на лету и сохраняем в хранилище
+  if (!docxBuffer) {
+    try {
+      docxBuffer = await DocumentFormatter.formatDocument(version.content, {
+        contractNumber: version.document.number ?? undefined,
+        contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
+        city: 'Москва',
+      })
+
+      const formattedKey = versionFileKey(id, 'formatted.docx')
+      await saveFile(formattedKey, docxBuffer)
+      await prisma.version.update({
+        where: { id },
+        data: {
+          formattedFilePath: formattedKey,
+          formattingApplied: true,
+        },
+      })
+    } catch (err) {
+      console.error('[download] Formatter error:', err)
+      return NextResponse.json({ error: 'Ошибка создания файла' }, { status: 500 })
+    }
   }
 
   // Формируем имя файла
