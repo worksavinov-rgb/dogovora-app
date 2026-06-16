@@ -10,6 +10,7 @@ const createSchema = z.object({
   signingDate: z.string().optional(),
   profileId: z.string().optional(),
   counterpartyId: z.string().min(1, 'Выберите контрагента'),
+  userRole: z.enum(['CUSTOMER', 'EXECUTOR', 'customer', 'executor']).optional(),
   // Иерархия: для APPENDIX/AMENDMENT — опциональная привязка к родительскому CONTRACT
   parentDocumentId: z.string().optional(),
   documentNumber: z.number().int().positive().optional(),
@@ -131,6 +132,9 @@ export async function POST(req: NextRequest) {
       number: data.number,
       signingDate: data.signingDate ? new Date(data.signingDate) : undefined,
       profileId: data.profileId || undefined,
+      userRole: data.userRole
+        ? (data.userRole.toUpperCase() as 'CUSTOMER' | 'EXECUTOR')
+        : 'EXECUTOR',
       type: data.type,
       parentDocumentId: data.parentDocumentId,
       documentNumber,
@@ -158,5 +162,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Ошибка создания документа' }, { status: 500 })
   }
 
-  return NextResponse.json(document, { status: 201 })
+  // BigInt (fileSize) не сериализуется в JSON — конвертируем в number
+  const safe = JSON.parse(JSON.stringify(document, (_k, v) =>
+    typeof v === 'bigint' ? Number(v) : v
+  ))
+  return NextResponse.json(safe, { status: 201 })
 }

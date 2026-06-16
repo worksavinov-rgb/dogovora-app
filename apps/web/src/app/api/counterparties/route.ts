@@ -17,6 +17,14 @@ const createSchema = z.object({
   checkingAccount: z.string().optional(),
   bik: z.string().optional(),
   correspondentAccount: z.string().optional(),
+  // Подписант (опционально — создаётся при наличии fullName)
+  signatory: z.object({
+    fullName: z.string().min(1),
+    signatureName: z.string().default(''),
+    position: z.string().default(''),
+    basisType: z.enum(['CHARTER', 'POA', 'CERTIFICATE', 'REGULATION', 'OTHER']).default('CHARTER'),
+    basisText: z.string().optional(),
+  }).optional(),
 })
 
 // GET /api/counterparties?q=...&status=active|archive
@@ -76,7 +84,7 @@ export async function POST(req: NextRequest) {
     throw err
   }
 
-  const { bankName, checkingAccount, bik, correspondentAccount, orgForm, actualAddress, ...cpData } = data
+  const { bankName, checkingAccount, bik, correspondentAccount, orgForm, actualAddress, signatory, ...cpData } = data
 
   const cp = await prisma.counterparty.create({
     data: {
@@ -84,6 +92,21 @@ export async function POST(req: NextRequest) {
       userId,
       bankDetails: (bankName || bik)
         ? { create: { bankName: bankName ?? '', checkingAccount: checkingAccount ?? '', bik: bik ?? '', correspondentAccount: correspondentAccount ?? '' } }
+        : undefined,
+      signatories: signatory?.fullName
+        ? {
+            create: [{
+              fullName: signatory.fullName,
+              signatureName: signatory.signatureName || (() => {
+                const parts = signatory.fullName.split(' ')
+                if (parts.length >= 2) return parts[0] + ' ' + parts.slice(1).map((p) => p[0] + '.').join('')
+                return signatory.fullName
+              })(),
+              position: signatory.position || '',
+              basisType: signatory.basisType || 'CHARTER',
+              isDefault: true,
+            }],
+          }
         : undefined,
     },
     include: { bankDetails: true, signatories: { include: { scopes: true } } },

@@ -8,12 +8,89 @@ import { Button } from '@/components/ui/button'
 import { Input, Field, Textarea } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 
+// Ключевые слова блока реквизитов/подписей
+const REQUISITES_KEYWORDS_NEW = /\b(ИНН|КПП|ОГРН|ОГРНИП|Р\/счет|р\/сч|БИК|К\/счет|к\/сч|расчётный счет|корр\. счет|e-mail|E-mail|Исполнитель:|Заказчик:)/i
+
+// Пост-обработка HTML из mammoth:
+// Разворачиваем в блоки ТОЛЬКО настоящие "layout-таблицы" Word:
+// A) 1-3 строки, 2-4 колонки, длинные ячейки (широкая колонка с текстом документа)
+// B) 2 колонки с реквизитами сторон (ИНН, Р/счет и т.д.) — любое кол-во строк
+function postProcessMammothHtml(html: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+
+  // Обрабатываем только таблицы верхнего уровня (не вложенные)
+  doc.querySelectorAll('table').forEach((table) => {
+    // Пропускаем вложенные таблицы
+    if (table.closest('td, th')) return
+
+    // Берём только прямые строки (не из вложенных таблиц)
+    const directRows = Array.from(table.children)
+      .flatMap(el => el.tagName === 'TBODY' || el.tagName === 'THEAD'
+        ? Array.from(el.children)
+        : [el])
+      .filter(el => el.tagName === 'TR') as HTMLTableRowElement[]
+
+    if (directRows.length === 0) return
+
+    // Прямые ячейки первой строки (не из вложенных таблиц)
+    const directCells = directRows
+      .flatMap(row => Array.from(row.children).filter(el => el.tagName === 'TD' || el.tagName === 'TH'))
+
+    if (directCells.length === 0) return
+
+    const cols = Math.max(...directRows.map(r =>
+      Array.from(r.children).filter(el => el.tagName === 'TD' || el.tagName === 'TH').length
+    ))
+
+    // Считаем средний размер ТОЛЬКО прямых ячеек (без вложенных таблиц)
+    const avgLen = directCells.reduce((s, c) => s + (c.textContent?.length ?? 0), 0) / directCells.length
+
+    // A) Layout-таблица по размеру: ≤3 строки, 2-4 колонки, длинные ячейки
+    const isLayoutBySize = directRows.length <= 3 && cols >= 2 && cols <= 4 && avgLen > 300
+
+    // B) Блок реквизитов/подписей: 2 колонки, >= 2 ячеек содержат ключевые слова
+    const allCells = Array.from(table.querySelectorAll('td, th'))
+    const reqMatchCount = allCells.filter(c => REQUISITES_KEYWORDS_NEW.test(c.textContent ?? '')).length
+    const isLayoutByContent = cols === 2 && reqMatchCount >= 2
+
+    if (isLayoutBySize || isLayoutByContent) {
+      const wrapper = document.createElement('div')
+      wrapper.className = 'doc-layout-table'
+      directCells.forEach((cell) => {
+        const div = document.createElement('div')
+        div.className = 'doc-layout-cell'
+        div.innerHTML = cell.innerHTML
+        wrapper.appendChild(div)
+      })
+      table.replaceWith(wrapper)
+    }
+  })
+
+  return doc.body.innerHTML
+}
+
 // mammoth.js подгружается динамически только в браузере
+// Word → HTML (храним HTML, рендерим напрямую без парсера реквизитов)
 async function parseDocxToText(file: File): Promise<string> {
   const mammoth = await import('mammoth')
   const arrayBuffer = await file.arrayBuffer()
-  const result = await mammoth.convertToHtml({ arrayBuffer })
-  return result.value
+  const result = await mammoth.convertToHtml({ arrayBuffer }, {
+    styleMap: [
+      "p[style-name='Заголовок 1'] => h1:fresh",
+      "p[style-name='Заголовок 2'] => h2:fresh",
+      "p[style-name='Заголовок 3'] => h3:fresh",
+      "p[style-name='Заголовок 4'] => h4:fresh",
+      "p[style-name='Heading 1'] => h1:fresh",
+      "p[style-name='Heading 2'] => h2:fresh",
+      "p[style-name='Heading 3'] => h3:fresh",
+      "p[style-name='Title'] => h1:fresh",
+      "p[style-name='Subtitle'] => h2:fresh",
+      "p[style-name='Название'] => h1:fresh",
+      "p[style-name='Подзаголовок'] => h2:fresh",
+    ]
+  })
+  return postProcessMammothHtml(result.value)
 }
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
@@ -851,7 +928,7 @@ function Step2({ data, onChange }: { data: Step2Data; onChange: (d: Step2Data) =
 
   // Приближённый расчёт страниц
   const pages = Math.round(data.targetSize / 2100)
-  const sizeLabel = data.targetSize < 3000 ? 'Краткий' : data.targetSize < 12000 ? 'Стандартный' : 'Развёрнутый'
+  const sizeLabel = data.targetSize < 12000 ? 'Стандартный' : data.targetSize < 30000 ? 'Развёрнутый' : 'Максимальный'
 
   return (
     <div className="flex flex-col gap-[16px]">
@@ -908,20 +985,20 @@ function Step2({ data, onChange }: { data: Step2Data; onChange: (d: Step2Data) =
         <Slider
           label=""
           value={data.targetSize}
-          min={1500} max={100000} step={500}
+          min={7500} max={50000} step={500}
           hint={`≈ ${pages} ${pages === 1 ? 'страница' : pages < 5 ? 'страницы' : 'страниц'} А4 шрифтом 11pt`}
           onChange={(v) => set('targetSize', v)}
           formatValue={(v) => `${v.toLocaleString('ru')} зн.`}
         />
         <div className="flex justify-between mt-[4px]">
-          {['< 4 страниц А4','Стандартный','Развёрнутый'].map((l) => (
+          {['Стандартный','Развёрнутый','Максимальный'].map((l) => (
             <p key={l} className="text-[11px] text-[var(--ink-4)]">{l}</p>
           ))}
         </div>
-        {data.targetSize >= 45000 && (
+        {data.targetSize >= 40000 && (
           <div className="mt-[10px] px-[12px] py-[9px] rounded-[var(--radius-md)] text-[12px] leading-[1.5]"
             style={{ background: 'oklch(0.97 0.015 60)', border: '1px solid oklch(0.88 0.04 60)', color: 'oklch(0.45 0.08 60)' }}>
-            ⚠ Большой объём не влияет на качество — формулировки могут быть размытыми или повторяющимися.
+            ⚠ Очень большой договор — генерация займёт больше времени.
             После создания необходимо отредактировать и скорректировать документ.
           </div>
         )}
@@ -1003,7 +1080,7 @@ export default function NewDocumentPage() {
     parentUploadText: '',
   })
   const [step2, setStep2] = useState<Step2Data>({
-    description: '', protectionLevel: 65, targetSize: 8400, customInstruction: '', selectedChips: [],
+    description: '', protectionLevel: 65, targetSize: 8000, customInstruction: '', selectedChips: [],
   })
 
   // Загрузить профили и контрагентов параллельно
@@ -1103,7 +1180,7 @@ export default function NewDocumentPage() {
             counterpartyId: step1.counterpartyId,
             profileId: step1.profileId || undefined,
             uploadedContent: step1.parentUploadText || undefined,
-            aiSettings: { base: 'upload', protectionLevel: 65, targetSize: 8400, customInstruction: '', description: '' },
+            aiSettings: { base: 'upload', protectionLevel: 65, targetSize: 8000, customInstruction: '', description: '' },
           }),
         })
         if (!parentRes.ok) {
@@ -1122,6 +1199,7 @@ export default function NewDocumentPage() {
           type: step1.type, title: step1.title, number: step1.number,
           signingDate: step1.signingDate || undefined,
           profileId: step1.profileId || undefined,
+          userRole: step1.userRole,
           counterpartyId: step1.counterpartyId,
           parentDocumentId: parentDocumentId || undefined,
           uploadedContent: versionContent,

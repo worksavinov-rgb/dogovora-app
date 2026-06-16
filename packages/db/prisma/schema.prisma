@@ -53,6 +53,7 @@ model Profile {
   ogrn           String?
   ogrnDate       String?     // дата присвоения ОГРНИП (для ИП)
   legalAddress   String?
+  email          String?
   // Подписант от имени этого профиля
   signatorName   String?
   signatorPosition String?
@@ -172,6 +173,7 @@ model Document {
   userId           String
   counterpartyId   String
   profileId        String?      // профиль пользователя (одна из сторон)
+  userRole         ContractRole @default(EXECUTOR) // роль пользователя в договоре
   title            String
   number           String?
   signingDate      DateTime?    // плановая дата подписания
@@ -187,8 +189,23 @@ model Document {
   parentDocument Document?    @relation("ChildDocuments", fields: [parentDocumentId], references: [id])
   childDocuments Document[]   @relation("ChildDocuments")
   versions       Version[]
+  draft          DocumentDraft?
 
   @@map("documents")
+}
+
+model DocumentDraft {
+  id            String   @id @default(cuid())
+  documentId    String   @unique
+  content       String
+  baseVersionId String?
+  revision      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_drafts")
 }
 
 // ВАЖНО: версии — append-only. Текст/файл никогда не обновляется.
@@ -201,6 +218,7 @@ model Version {
   fileSize   Int?          // байты
   content    String?       // текст документа (пока без S3)
   formattedContent String?  // отформатированный DOCX/JSON контент
+  formattedFilePath String?   // путь к DOCX с форматированием в S3
   formattingApplied Boolean? @default(false) // флаг: применено ли форматирование
   parentDocumentId String?   // для приложений/допсоглащений: ссылка на родительский договор
   documentNumber Int?        // номер приложения/допсоглащения (1, 2, 3...)
@@ -244,6 +262,11 @@ enum DocumentType {
   CONTRACT   // Договор
   APPENDIX   // Приложение
   AMENDMENT  // Доп. соглашение
+}
+
+enum ContractRole {
+  CUSTOMER   // Заказчик
+  EXECUTOR   // Исполнитель
 }
 
 enum VersionStatus {

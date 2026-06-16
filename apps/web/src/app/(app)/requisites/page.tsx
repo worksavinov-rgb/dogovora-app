@@ -8,6 +8,7 @@ import { validateInn, validateOgrn, validateBik, validateCheckingAccount, valida
 import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ interface Profile {
   ogrn: string
   ogrnDate: string
   legalAddress: string
+  email: string
   signatorName: string
   signatorPosition: string
   signatorBasis: string
@@ -89,7 +91,7 @@ function clearTypeSpecificFields(profile: Omit<Profile, 'id'>, newType: ProfileT
 
 function emptyProfile(type: ProfileType): Omit<Profile, 'id'> {
   return {
-    type, name: '', inn: '', kpp: '', ogrn: '', ogrnDate: '', legalAddress: '',
+    type, name: '', inn: '', kpp: '', ogrn: '', ogrnDate: '', legalAddress: '', email: '',
     signatorName: '', signatorPosition: '', signatorBasis: '',
     signatureFilePath: null, stampFilePath: null,
     bankDetails: [{ ...EMPTY_BANK }],
@@ -100,7 +102,7 @@ function profileToForm(p: Profile): Omit<Profile, 'id'> {
   return {
     type: p.type, name: p.name,
     inn: p.inn ?? '', kpp: p.kpp ?? '', ogrn: p.ogrn ?? '', ogrnDate: p.ogrnDate ?? '',
-    legalAddress: p.legalAddress ?? '',
+    legalAddress: p.legalAddress ?? '', email: p.email ?? '',
     signatorName: p.signatorName ?? '', signatorPosition: p.signatorPosition ?? '',
     signatorBasis: p.signatorBasis ?? '',
     signatureFilePath: p.signatureFilePath, stampFilePath: p.stampFilePath,
@@ -241,6 +243,14 @@ function ProfileForm({ profile, onChange, isNew }: {
             <Input value={profile.legalAddress} onChange={(e) => set('legalAddress', e.target.value)}
               placeholder="123056, г. Москва, ул. Красина, д. 17, кв. 42" />
           </Field>
+
+          {profile.type === 'SOLE_PROPRIETOR' && (
+            <Field label="Email">
+              <Input type="email" value={profile.email ?? ''}
+                onChange={(e) => set('email', e.target.value)}
+                placeholder="your@email.ru" />
+            </Field>
+          )}
         </div>
       </Card>
 
@@ -630,19 +640,47 @@ function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDr
             </button>
           </div>
 
-          {/* ─── Правая колонка: форма ─── */}
+          {/* ─── Правая колонка: форма + превью ─── */}
           <div>
             {draft ? (
-              <>
-                <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} isNew={selectedId === 'new'} />
-                <div className="flex items-center justify-between mt-[16px] pt-[16px] border-t border-[var(--line)]">
-                  <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
-                  <div className="flex items-center gap-[12px]">
-                    <Button variant="ghost" onClick={handleCancel}>Отмена</Button>
-                    <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
+              <div className="grid grid-cols-[1fr_220px] gap-[16px] items-start">
+                <div>
+                  <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} isNew={selectedId === 'new'} />
+                  <div className="flex items-center justify-between mt-[16px] pt-[16px] border-t border-[var(--line)]">
+                    <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
+                    <div className="flex items-center gap-[12px]">
+                      <Button variant="ghost" onClick={handleCancel}>Отмена</Button>
+                      <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
+                    </div>
                   </div>
                 </div>
-              </>
+
+                {/* Превью реквизитов */}
+                <div className="sticky top-[20px]">
+                  <Card>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-4)] mb-[12px]">
+                      Вид в договоре
+                    </p>
+                    <RequisitesPreview
+                      data={{
+                        type: draft.type,
+                        name: draft.name,
+                        inn: draft.inn,
+                        kpp: draft.kpp,
+                        ogrn: draft.ogrn,
+                        legalAddress: draft.legalAddress,
+                        email: draft.email,
+                        signatorName: draft.signatorName,
+                        signatorPosition: draft.signatorPosition,
+                        bankName: draft.bankDetails[0]?.bankName,
+                        bik: draft.bankDetails[0]?.bik,
+                        checkingAccount: draft.bankDetails[0]?.checkingAccount,
+                        correspondentAccount: draft.bankDetails[0]?.correspondentAccount,
+                      } satisfies RequisitesData}
+                    />
+                  </Card>
+                </div>
+              </div>
             ) : (
               <Card>
                 <div className="py-[60px] text-center">

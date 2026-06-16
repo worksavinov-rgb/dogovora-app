@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation'
 
 interface ReviewIssue {
   id: string
-  severity: 'risk' | 'warning' | 'ok'
+  severity: 'risk' | 'warning' | 'ok' | 'neutral'
+  importance?: 'high' | 'medium' | 'low'
   title: string
   description: string
   clause: string
+  recommendation?: string
+  category?: string
 }
 
 interface ReviewResult {
@@ -16,14 +19,29 @@ interface ReviewResult {
   riskCount: number
   warningCount: number
   okCount: number
+  spellCount?: number
   issues: ReviewIssue[]
   summary: string
 }
 
-const SEVERITY_CONFIG = {
-  risk:    { color: 'var(--danger)',    bg: 'oklch(0.97 0.015 20)', label: 'Риск',         icon: '✕' },
-  warning: { color: 'oklch(0.6 0.1 60)', bg: 'oklch(0.97 0.015 60)', label: 'Внимание',   icon: '!' },
+const SEVERITY_CONFIG: Record<string, { color: string; bg: string; label: string; icon: string }> = {
+  risk:    { color: 'var(--danger)',      bg: 'oklch(0.97 0.015 20)',  label: 'Риск',       icon: '✕' },
+  warning: { color: 'oklch(0.6 0.1 60)', bg: 'oklch(0.97 0.015 60)',  label: 'Внимание',   icon: '!' },
   ok:      { color: 'oklch(0.5 0.1 145)', bg: 'oklch(0.97 0.015 145)', label: 'OK',        icon: '✓' },
+  neutral: { color: 'var(--ink-4)',       bg: 'var(--surface-inset)',  label: 'Нейтрально', icon: '·' },
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  finance:    '💰 Финансы',
+  litigation: '⚖️ Суд',
+  abuse:      '🚨 Злоупотребление',
+  missing:    '➕ Отсутствует',
+}
+
+const IMPORTANCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  high:   { label: 'Высокий', color: 'oklch(0.45 0.16 20)',  bg: 'oklch(0.94 0.03 20)'  },
+  medium: { label: 'Средний', color: 'oklch(0.5 0.1 60)',    bg: 'oklch(0.95 0.02 60)'  },
+  low:    { label: 'Низкий',  color: 'var(--ink-4)',          bg: 'var(--surface-inset)' },
 }
 
 const MOCK_DOC = `ДОГОВОР № ___
@@ -71,8 +89,9 @@ function ScoreRing({ score }: { score: number }) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 24, fontWeight: 600, color, lineHeight: 1 }}>{score}</span>
-        <span className="text-[10px] text-[var(--ink-4)] mt-[2px]">/ 100</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color, lineHeight: 1 }}>
+          <span style={{ fontSize: 22 }}>{score}</span><span style={{ fontSize: 12, color: 'var(--ink-4)' }}>/100</span>
+        </span>
       </div>
     </div>
   )
@@ -230,6 +249,11 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
                   {result.okCount} OK
                 </span>
               )}
+              {(result.spellCount ?? 0) > 0 && (
+                <span className="text-[11px] font-medium px-[8px] py-[2px] rounded-full" style={{ background: 'var(--surface-inset)', color: 'var(--ink-3)', border: '1px solid var(--line-2)' }}>
+                  {result.spellCount} орф. ошибк{result.spellCount === 1 ? 'а' : (result.spellCount ?? 0) < 5 ? 'и' : ''}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -242,7 +266,9 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
         {/* Список замечаний */}
         <div className="flex flex-col gap-[8px]">
           {result.issues.map((issue) => {
-            const cfg = SEVERITY_CONFIG[issue.severity]
+            const cfg = SEVERITY_CONFIG[issue.severity] ?? SEVERITY_CONFIG.neutral
+            const imp = issue.importance ? IMPORTANCE_CONFIG[issue.importance] : null
+            const catLabel = issue.category ? CATEGORY_LABELS[issue.category] : null
             const isSelected = selectedIssue === issue.id
             return (
               <button
@@ -263,12 +289,31 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
                     {cfg.icon}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-[4px] mb-[2px]">
-                      <p className="text-[12px] font-medium text-[var(--ink)] truncate">{issue.title}</p>
-                      <span className="shrink-0 text-[10px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>{issue.clause}</span>
+                    {/* Теги: категория + значимость + пункт */}
+                    <div className="flex items-center gap-[4px] mb-[2px] flex-wrap">
+                      {catLabel && (
+                        <span className="text-[9px] px-[5px] py-[1px] rounded-full" style={{ background: 'var(--line)', color: 'var(--ink-4)' }}>{catLabel}</span>
+                      )}
+                      {imp && issue.importance !== 'low' && (
+                        <span className="text-[9px] font-medium px-[5px] py-[1px] rounded-full" style={{ background: imp.bg, color: imp.color }}>{imp.label}</span>
+                      )}
+                      {issue.clause && issue.clause !== 'нет' && (
+                        <span className="text-[10px] text-[var(--ink-4)] ml-auto shrink-0" style={{ fontFamily: 'var(--font-mono)' }}>{issue.clause}</span>
+                      )}
                     </div>
+                    <p className="text-[12px] font-medium text-[var(--ink)]">{issue.title}</p>
                     {isSelected && (
-                      <p className="text-[11px] text-[var(--ink-3)] leading-[1.5] mt-[4px]">{issue.description}</p>
+                      <>
+                        <p className="text-[11px] text-[var(--ink-3)] leading-[1.5] mt-[4px]">{issue.description}</p>
+                        {issue.recommendation && (
+                          <span className="inline-block mt-[6px] text-[10px] font-semibold px-[6px] py-[1px] rounded-full"
+                            style={{
+                              background: issue.recommendation === 'Оставить' || issue.recommendation === 'Усилить' ? 'oklch(0.93 0.03 145)' : issue.recommendation === 'Исправить' || issue.recommendation === 'Добавить' ? 'oklch(0.92 0.03 20)' : 'var(--line)',
+                              color: issue.recommendation === 'Оставить' || issue.recommendation === 'Усилить' ? 'oklch(0.4 0.12 145)' : issue.recommendation === 'Исправить' || issue.recommendation === 'Добавить' ? 'oklch(0.5 0.16 20)' : 'var(--ink-4)',
+                            }}
+                          >→ {issue.recommendation}</span>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

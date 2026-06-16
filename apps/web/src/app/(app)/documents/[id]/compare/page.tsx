@@ -100,17 +100,18 @@ function diffDocuments(textA: string, textB: string): DiffLine[] {
       ops.unshift({ type: 'same', a: linesA[i - 1], b: linesB[j - 1] })
       i--; j--
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      // Смотрим можно ли смерджить с предыдущим removed → changed
-      const last = ops[0]
-      if (last?.type === 'removed' && last.a !== undefined) {
-        ops[0] = { type: 'changed', a: last.a, b: linesB[j - 1] }
-      } else {
-        ops.unshift({ type: 'added', b: linesB[j - 1] })
-      }
+      ops.unshift({ type: 'added', b: linesB[j - 1] })
       j--
     } else {
       ops.unshift({ type: 'removed', a: linesA[i - 1] })
       i--
+    }
+  }
+
+  // Пост-обработка: смерджить пары removed+added → changed
+  for (let k = 0; k < ops.length - 1; k++) {
+    if (ops[k].type === 'removed' && ops[k + 1].type === 'added') {
+      ops.splice(k, 2, { type: 'changed', a: ops[k].a, b: ops[k + 1].b })
     }
   }
 
@@ -350,26 +351,6 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
       {/* Основная область */}
       <div className="flex-1 overflow-y-auto" style={{ background: 'var(--bg-soft)', padding: '24px 40px' }}>
 
-        {/* Заголовки версий */}
-        <div className="max-w-[860px] mx-auto mb-[12px] flex gap-[12px]">
-          <div className="flex-1">
-            <p className="text-[12px] font-medium text-[var(--ink-3)]">
-              v.{leftVer?.number} — {leftVer ? relDate(leftVer.createdAt) : ''}
-            </p>
-            {leftVer?.aiSettings?.description && (
-              <p className="text-[11px] text-[var(--ink-4)]">{leftVer.aiSettings.description}</p>
-            )}
-          </div>
-          <div className="text-[12px] text-[var(--ink-4)]">→</div>
-          <div className="flex-1">
-            <p className="text-[12px] font-medium text-[var(--ink-3)]">
-              v.{rightVer?.number} — {rightVer ? relDate(rightVer.createdAt) : ''}
-            </p>
-            {rightVer?.aiSettings?.description && (
-              <p className="text-[11px] text-[var(--ink-4)]">{rightVer.aiSettings.description}</p>
-            )}
-          </div>
-        </div>
 
         {/* Нет версий */}
         {versions.length < 2 ? (
@@ -410,18 +391,18 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
         ) : (
           <div className="max-w-[860px] mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm overflow-hidden">
             {/* Легенда */}
-            <div className="flex items-center gap-[16px] px-[32px] py-[12px]" style={{ borderBottom: '1px solid var(--line)', background: 'var(--surface-inset)' }}>
-              <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Обозначения:</p>
+            <div className="flex items-center gap-[16px] px-[32px] py-[12px]" style={{ borderBottom: '1.5px solid var(--line-2)', background: 'oklch(0.94 0.01 80)' }}>
+              <p className="text-[11px] font-semibold text-[var(--ink-3)] uppercase tracking-[0.08em]">Обозначения:</p>
               <span className="flex items-center gap-[5px] text-[11px]">
-                <span className="inline-block w-[10px] h-[10px] rounded-sm" style={{ background: 'oklch(0.93 0.05 145)' }} />
-                <span style={{ color: 'oklch(0.35 0.12 145)' }}>добавлено</span>
+                <span className="inline-block w-[10px] h-[10px] rounded-sm" style={{ background: 'oklch(0.82 0.1 145)', border: '1px solid oklch(0.65 0.12 145)' }} />
+                <span style={{ color: 'oklch(0.30 0.12 145)', fontWeight: 500 }}>добавлено</span>
               </span>
               <span className="flex items-center gap-[5px] text-[11px]">
-                <span className="inline-block w-[10px] h-[10px] rounded-sm" style={{ background: 'oklch(0.93 0.05 20)' }} />
-                <span style={{ color: 'oklch(0.45 0.15 20)' }}>удалено</span>
+                <span className="inline-block w-[10px] h-[10px] rounded-sm" style={{ background: 'oklch(0.85 0.08 20)', border: '1px solid oklch(0.65 0.12 20)' }} />
+                <span style={{ color: 'oklch(0.38 0.15 20)', fontWeight: 500 }}>удалено</span>
               </span>
               <span className="flex items-center gap-[5px] text-[11px]">
-                <span style={{ color: 'var(--ink-4)' }}>~ строка изменена</span>
+                <span style={{ color: 'var(--ink-3)', fontWeight: 500 }}>~ строка изменена</span>
               </span>
             </div>
 

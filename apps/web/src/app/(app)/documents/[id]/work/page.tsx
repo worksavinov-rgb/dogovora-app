@@ -3,6 +3,10 @@
 import { useState, useEffect, useRef, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { calcVersionPrice } from '@/lib/pricing'
+import { DocumentViewer } from '@/components/document-viewer'
+// marked нужен для LEGACY DocumentRenderer_LEGACY (старые markdown-документы)
+import { marked } from 'marked'
+marked.setOptions({ gfm: true, breaks: false })
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -72,89 +76,233 @@ function ChatBubble({ msg }: { msg: { role: string; content: string; id: string 
         'max-w-[85%] px-[12px] py-[9px] rounded-[var(--radius-lg)] text-[13px] leading-[1.55]',
         isUser ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-[var(--surface-inset)] text-[var(--ink)]',
       ].join(' ')}>
-        {msg.content}
+        {isUser ? msg.content : stripMarkdown(msg.content)}
       </div>
     </div>
   )
 }
 
-// ─── Красивый рендер текста договора ─────────────────────────────────────────
-
-function renderInline(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = []
-  const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g
-  let last = 0
-  let match: RegExpExecArray | null
-  let key = 0
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index))
-    if (match[1] !== undefined) parts.push(<strong key={key++}>{match[1]}</strong>)
-    else if (match[2] !== undefined) parts.push(<em key={key++}>{match[2]}</em>)
-    last = match.index + match[0].length
-  }
-  if (last < text.length) parts.push(text.slice(last))
-  return parts
+// ─── Экран генерации (пока документ создаётся) ───────────────────────────────
+// Убирает markdown-разметку, оставляя чистый текст (используется в чате)
+function stripMarkdown(s: string): string {
+  return s
+    .replace(/^#{1,6}\s+/gm, '')      // ## заголовки
+    .replace(/\*\*(.+?)\*\*/g, '$1')  // **жирный**
+    .replace(/\*(.+?)\*/g, '$1')      // *курсив*
+    .replace(/^[-*]\s+/gm, '')        // маркеры списка
+    .trim()
 }
 
-function DocumentRenderer({ text, canCopy }: { text: string; canCopy: boolean }) {
-  const lines = text.split('\n')
+// ─── Legacy: двухколоночный блок реквизитов (для обратной совместимости) ─────
 
-  const isAllCaps = (s: string) =>
-    s.length > 3 && s === s.toUpperCase() && /[А-ЯA-Z]/.test(s)
+function parseReqsParty(lines: string[]) {
+  let role = '', name = '', signTitle = '', signName = ''
+  const details: string[] = []
+  for (const line of lines) {
+    if (line.startsWith('ROLE:')) { role = line.slice(5); continue }
+    if (line.startsWith('NAME:')) { name = line.slice(5); continue }
+    if (line.startsWith('SIGN_TITLE:')) { signTitle = line.slice(11); continue }
+    if (line.startsWith('SIGN_NAME:')) { signName = line.slice(10); continue }
+    if (line.trim()) details.push(line.trim())
+  }
+  return { role, name, signTitle, signName, details }
+}
 
-  const clauseLevel = (s: string): number => {
-    const m = s.match(/^(\d+(?:\.\d+)*)\.?\s/)
-    if (!m) return -1
-    return m[1].split('.').length - 1
+function RequisitesColumn({ role, name, signTitle, signName, details }: { role: string; name: string; signTitle: string; signName: string; details: string[] }) {
+  return (
+    <div className="flex flex-col gap-[4px]">
+      <p className="text-[13px] text-[var(--ink)] mb-[6px]" style={{ fontWeight: 600 }}>{role}:</p>
+      <p className="text-[13px] text-[var(--ink)]" style={{ fontWeight: 600 }}>{name}</p>
+      {details.map((d, i) => (
+        <p key={i} className="text-[12.5px] text-[var(--ink)] leading-[1.7]"
+          style={{ fontFamily: 'var(--font-mono)' }}>{d}</p>
+      ))}
+      {/* Строка подписи */}
+      <div className="mt-[24px]">
+        {signTitle && <p className="text-[12.5px] text-[var(--ink)]">{signTitle}</p>}
+        <div className="flex items-end gap-[8px] mt-[4px]">
+          <p className="text-[12.5px] text-[var(--ink)]">{signName}</p>
+          <div className="flex-1 border-b border-[var(--ink)] mb-[2px]" style={{ minWidth: 80, maxWidth: 140 }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Парсит одну сторону из текстового блока реквизитов
+function parseLegacyPartyBlock(blockLines: string[]) {
+  const role = blockLines[0]?.replace(/:$/, '').trim() ?? ''
+  const rest = blockLines.slice(1)
+
+  // Найти последнюю строку с подписью (___)
+  let signIdx = -1
+  for (let i = rest.length - 1; i >= 0; i--) {
+    if (rest[i].includes('___')) { signIdx = i; break }
+  }
+  const signLine = signIdx >= 0 ? rest[signIdx] : ''
+  const bodyLines = rest.filter((_, i) => i !== signIdx)
+
+  // Первые строки до «Адрес:» — это название стороны
+  const firstDetailIdx = bodyLines.findIndex(l => /^(Адрес|ИНН|КПП|ОГРН|Р\/|К\/|Банк|БИК|E-mail)/i.test(l))
+  const name = firstDetailIdx > 0 ? bodyLines.slice(0, firstDetailIdx).join(' ') : (bodyLines[0] ?? '')
+  const details = firstDetailIdx >= 0 ? bodyLines.slice(firstDetailIdx) : bodyLines.slice(1)
+
+  // Разбиваем строку подписи: «Индивидуальный предприниматель Савинов П.А. ___»
+  const signClean = signLine.replace(/_{3,}/g, '').trim()
+  // Ищем имя в конце (Фамилия И.О. или Фамилия Имя Отчество)
+  const nameAtEnd = signClean.match(/([А-ЯЁ][а-яё]+(?: [А-ЯЁ][а-яё.]+){1,2})\s*$/)
+  const signName = nameAtEnd ? nameAtEnd[1].trim() : signClean
+  const signTitle = nameAtEnd ? signClean.slice(0, signClean.lastIndexOf(signName)).trim() : ''
+
+  return { role, name, signTitle, signName, details }
+}
+
+// Парсит старый текстовый блок реквизитов (две стороны подряд)
+function parseLegacyReqs(block: string): { col1: ReturnType<typeof parseLegacyPartyBlock>; col2: ReturnType<typeof parseLegacyPartyBlock> } | null {
+  const ROLES = ['Исполнитель', 'Заказчик', 'Арендодатель', 'Арендатор', 'Продавец', 'Покупатель', 'Подрядчик', 'Лицензиар', 'Лицензиат']
+  const roleRx = new RegExp(`^(${ROLES.join('|')}):?\\s*$`, 'i')
+
+  const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
+  // Ищем начало второго блока
+  let splitIdx = -1
+  for (let i = 1; i < lines.length; i++) {
+    if (roleRx.test(lines[i])) { splitIdx = i; break }
+  }
+  if (splitIdx < 1) return null
+
+  return {
+    col1: parseLegacyPartyBlock(lines.slice(0, splitIdx)),
+    col2: parseLegacyPartyBlock(lines.slice(splitIdx)),
+  }
+}
+
+// Разворачивает layout-таблицы Word (1-3 строки, 2-4 колонки с длинным текстом) в блоки.
+// Применяется при рендере HTML-документов (загруженных из Word).
+// Ключевые слова реквизитов — если хотя бы 2 ячейки из 2-колоночной таблицы
+// содержат такие слова, это блок подписей/реквизитов, а не таблица данных
+const REQUISITES_KEYWORDS = /\b(ИНН|КПП|ОГРН|ОГРНИП|Р\/счет|р\/сч|БИК|К\/счет|к\/сч|расчётный счет|корр\. счет|e-mail|E-mail|Исполнитель:|Заказчик:)/i
+
+function isRequisitesTable(table: HTMLTableElement): boolean {
+  // Только двух-колоночные таблицы — кандидаты на блок реквизитов
+  const allCells = Array.from(table.querySelectorAll('td, th'))
+  if (allCells.length === 0) return false
+  const matchCount = allCells.filter(c => REQUISITES_KEYWORDS.test(c.textContent ?? '')).length
+  // Если больше половины ячеек содержат ключевые слова реквизитов → это подписной блок
+  return matchCount >= 2
+}
+
+function fixLayoutTables(html: string): string {
+  if (typeof window === 'undefined') return html
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+
+  doc.querySelectorAll('table').forEach((table) => {
+    if (table.closest('td, th')) return // пропускаем вложенные
+
+    const directRows = Array.from(table.children)
+      .flatMap(el => (el.tagName === 'TBODY' || el.tagName === 'THEAD')
+        ? Array.from(el.children) : [el])
+      .filter(el => el.tagName === 'TR') as HTMLTableRowElement[]
+
+    if (directRows.length === 0) return
+
+    const directCells = directRows.flatMap(row =>
+      Array.from(row.children).filter(el => el.tagName === 'TD' || el.tagName === 'TH')
+    )
+    if (directCells.length === 0) return
+
+    const cols = Math.max(...directRows.map(r =>
+      Array.from(r.children).filter(el => el.tagName === 'TD' || el.tagName === 'TH').length
+    ))
+    const avgLen = directCells.reduce((s, c) => s + (c.textContent?.length ?? 0), 0) / directCells.length
+
+    // Таблица — layout если:
+    // A) ≤3 строк, 2-4 колонки, средний текст > 300 символов (широкая layout-таблица)
+    // B) 2 колонки и содержит ключевые слова реквизитов (высокий блок подписей)
+    const isLayoutBySize = directRows.length <= 3 && cols >= 2 && cols <= 4 && avgLen > 300
+    const isLayoutByContent = cols === 2 && isRequisitesTable(table)
+
+    if (isLayoutBySize || isLayoutByContent) {
+      const wrapper = document.createElement('div')
+      wrapper.className = 'doc-layout-table'
+      directCells.forEach((cell) => {
+        const div = document.createElement('div')
+        div.className = 'doc-layout-cell'
+        div.innerHTML = cell.innerHTML
+        wrapper.appendChild(div)
+      })
+      table.replaceWith(wrapper)
+    }
+  })
+
+  return doc.body.innerHTML
+}
+
+
+// DocumentRenderer оставлен для совместимости — теперь заменён на DocumentViewer
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function DocumentRenderer_LEGACY({ text, canCopy }: { text: string; canCopy: boolean }) {
+  const isHtml = /<(p|h[1-6]|strong|em|ul|ol|li|table|br|div)\b/i.test(text.slice(0, 500))
+  if (isHtml) {
+    // Применяем post-processing к уже сохранённым документам (старые версии в БД)
+    const processedHtml = fixLayoutTables(text)
+    return (
+      <div
+        className="uploaded-doc-html"
+        style={{ userSelect: canCopy ? 'text' : 'none' }}
+        onCopy={!canCopy ? (e) => e.preventDefault() : undefined}
+        dangerouslySetInnerHTML={{ __html: processedHtml }}
+      />
+    )
   }
 
-  // Убираем markdown-звёздочки из строки для определения структуры
-  const clean = (s: string) => s.replace(/\*\*/g, '').replace(/\*/g, '').trim()
+  // AI-генерированный markdown — вырезаем блок реквизитов для отдельного рендера
+  const reqsMatch = text.match(/%%REQS_TABLE%%\n([\s\S]*?)%%COL_SEP%%\n([\s\S]*?)%%END_REQS%%/)
+  let mainText = text
+  let reqsHeading: string | null = null
+  type PartyData = { role: string; name: string; signTitle: string; signName: string; details: string[] }
+  let col1: PartyData | null = null
+  let col2: PartyData | null = null
+
+  if (reqsMatch) {
+    mainText = text.slice(0, text.indexOf('%%REQS_TABLE%%')).trim()
+    reqsHeading = text.slice(text.lastIndexOf('\n', text.indexOf('%%REQS_TABLE%%')), text.indexOf('%%REQS_TABLE%%')).trim() || null
+    col1 = parseReqsParty(reqsMatch[1].trim().split('\n'))
+    col2 = parseReqsParty(reqsMatch[2].trim().split('\n'))
+  } else {
+    const legacyMatch = text.match(/\n(\*{0,2}(?:\d+\.\s+)?РЕКВИЗИТЫ[^\n]*\*{0,2})\n([\s\S]+)$/i)
+    if (legacyMatch) {
+      mainText = text.slice(0, text.indexOf(legacyMatch[0])).trim()
+      reqsHeading = legacyMatch[1].replace(/\*\*/g, '').trim()
+      const parsed = parseLegacyReqs(legacyMatch[2])
+      if (parsed) { col1 = parsed.col1; col2 = parsed.col2 }
+    }
+  }
+
+  // Конвертируем markdown → HTML через marked (поддержка таблиц, списков, жирного)
+  const html = marked.parse(mainText) as string
 
   return (
     <div
       style={{ userSelect: canCopy ? 'text' : 'none' }}
       onCopy={!canCopy ? (e) => e.preventDefault() : undefined}
     >
-      {lines.map((line, i) => {
-        const t = line.trim()
-        const c = clean(t)
+      <div className="doc-content" dangerouslySetInnerHTML={{ __html: html }} />
 
-        if (!c) return <div key={i} className="h-[6px]" />
-
-        if (isAllCaps(c)) {
-          return (
-            <p key={i} className="text-[13px] font-bold text-[var(--ink)] uppercase tracking-[0.06em] mt-[24px] mb-[8px]">
-              {renderInline(t)}
+      {/* Блок реквизитов — двухколоночная таблица */}
+      {col1 && col2 && (
+        <div className="mt-[32px]" style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
+          {reqsHeading && (
+            <p className="text-[13px] text-[var(--ink)] uppercase tracking-[0.06em] mb-[20px]">
+              {reqsHeading.replace(/\*\*/g, '')}
             </p>
-          )
-        }
-
-        const level = clauseLevel(c)
-
-        if (level === 0) {
-          return (
-            <p key={i} className="text-[14px] font-semibold text-[var(--ink)] leading-[1.6] mt-[18px] mb-[5px]">
-              {renderInline(t)}
-            </p>
-          )
-        }
-
-        if (level > 0) {
-          return (
-            <p key={i} className="text-[13.5px] text-[var(--ink)] leading-[1.75] mb-[4px]"
-              style={{ paddingLeft: 20 * level }}>
-              {renderInline(t)}
-            </p>
-          )
-        }
-
-        return (
-          <p key={i} className="text-[14px] text-[var(--ink)] leading-[1.8] mb-[5px]">
-            {renderInline(t)}
-          </p>
-        )
-      })}
+          )}
+          <div className="grid gap-[32px]" style={{ gridTemplateColumns: '1fr 1fr' }}>
+            <RequisitesColumn {...col1} />
+            <RequisitesColumn {...col2} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -202,12 +350,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [docContent, setDocContent] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState(0)
-  const [docView, setDocView] = useState<'text' | 'formatted'>('formatted')
   const [mobileTab, setMobileTab] = useState<'doc' | 'chat'>('doc')
-
-  // A.5: HTML из DOCX (через mammoth) для режима "Вид"
-  const [docHtml, setDocHtml] = useState<string | null>(null)
-  const [loadingHtml, setLoadingHtml] = useState(false)
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -218,12 +361,16 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false) // есть правки, не зафиксированные как версия
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle') // статус автосохранения
+  const [maxVersionNumber, setMaxVersionNumber] = useState<number>(1) // максимальный номер версии по документу
   const [downloading, setDownloading] = useState(false)
   const [purchasing, setPurchasing] = useState(false)
   const [purchased, setPurchased] = useState(false)
   const [statusChanging, setStatusChanging] = useState(false)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
+
+  const [canUndo, setCanUndo] = useState(false)
+  const undoStackRef = useRef<string[]>([])
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -293,6 +440,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           document: { id: doc.id, title: doc.title, type: doc.type, counterparty: doc.counterparty },
         }
         setVersion(versionWithDoc)
+
+        // Запоминаем максимальный номер версии по всему документу
+        const allVersions = doc.versions as Array<{ number: number }>
+        setMaxVersionNumber(allVersions.reduce((m, v) => Math.max(m, v.number), 0))
 
         // Автосейв включаем только для последней (редактируемой) версии
         const isLatest = ver.id === doc.versions[0]?.id
@@ -419,26 +570,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     return () => document.removeEventListener('mousedown', handler)
   }, [statusDropdownOpen])
 
-  // A.5: загружаем DOCX→HTML когда форматирование применено и нет несохранённых правок
-  useEffect(() => {
-    if (!version?.formattingApplied || !version?.id) return
-    if (hasUnsavedEdits) return // есть несохранённые правки — показываем DocumentRenderer
-    if (docHtml) return // уже загружен
-    setLoadingHtml(true)
-    fetch(`/api/versions/${version.id}/formatted-html`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data: { html: string } | null) => {
-        if (data?.html) setDocHtml(data.html)
-      })
-      .catch(() => {})
-      .finally(() => setLoadingHtml(false))
-  }, [version?.id, version?.formattingApplied, hasUnsavedEdits, docHtml])
-
   // Отправка сообщения в чат (режим edit — ИИ меняет документ)
-  async function sendMessage() {
-    if (!input.trim() || streaming || !version) return
+  async function sendMessage(overrideText?: string, mode: 'edit' | 'chat' = 'edit') {
+    const userText = (overrideText ?? input).trim()
+    if (!userText || streaming || generating || !version) return
 
-    const userText = input.trim()
     setInput('')
     setStreaming(true)
     setStreamingContent('')
@@ -458,7 +594,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: userText,
-          mode: 'edit',
+          mode,
           currentDocument: streamingDoc ?? docContent ?? '',
         }),
       })
@@ -530,6 +666,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       // Применяем обновлённый документ
       if (aiDocText.trim()) {
         const updatedDoc = aiDocText.trim()
+        // Сохраняем снапшот для отмены
+        const snapshot = streamingDoc ?? docContent ?? ''
+        if (snapshot) {
+          undoStackRef.current = [...undoStackRef.current.slice(-4), snapshot]
+          setCanUndo(true)
+        }
         setDocContent(updatedDoc)
         setHasUnsavedEdits(true)
         scheduleAutosave(updatedDoc) // автосохранение рабочей копии
@@ -576,7 +718,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             customInstruction: version.aiSettings?.customInstruction ?? '',
             description: 'Сохранено из рабочего экрана',
           },
-          status: 'IN_PROGRESS',
+          status: version.status,
           // Передаём текущий (отредактированный) текст документа
           content: docContent ?? undefined,
         }),
@@ -679,13 +821,15 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const versionPrice = calcVersionPrice(docType, charCount)
 
   const STATUS_OPTIONS = [
-    { value: 'DRAFT', label: 'Черновик' },
-    { value: 'IN_PROGRESS', label: 'В работе' },
-    { value: 'REVIEW', label: 'На проверке' },
-    { value: 'APPROVED', label: 'Утверждено' },
-    { value: 'PAID', label: 'Оплачено' },
+    { value: 'DRAFT', label: 'Черновик', color: 'var(--ink-3)' },
+    { value: 'IN_PROGRESS', label: 'В работе', color: 'oklch(0.45 0.10 235)' },
+    { value: 'REVIEW', label: 'На проверке', color: 'oklch(0.45 0.10 75)' },
+    { value: 'APPROVED', label: 'Утверждено', color: 'var(--ok)' },
+    { value: 'PAID', label: 'Оплачено', color: 'oklch(0.25 0.10 145)' },
   ]
-  const currentStatusLabel = STATUS_OPTIONS.find(s => s.value === version.status)?.label ?? version.status
+  const currentStatus = STATUS_OPTIONS.find(s => s.value === version.status)
+  const currentStatusLabel = currentStatus?.label ?? version.status
+  const currentStatusColor = currentStatus?.color ?? 'var(--ink-3)'
   return (
     <>
     <style>{`
@@ -717,7 +861,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* ── Левая колонка — документ ─────────────────────────────────── */}
-      <div className={['flex-1 flex flex-col min-w-0', mobileTab === 'chat' ? 'hidden md:flex' : 'flex'].join(' ')} style={{ borderRight: '1px solid var(--line)' }}>
+      <div className={['flex-1 flex flex-col', mobileTab === 'chat' ? 'hidden md:flex' : 'flex'].join(' ')} style={{ borderRight: '1px solid var(--line)', minWidth: 0, overflow: 'hidden' }}>
 
         {/* Toolbar */}
         <div className="shrink-0 flex items-center gap-[6px] px-[12px]"
@@ -733,7 +877,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           </button>
 
           <span className="shrink-0 text-[12px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-mono)' }}>
-            v.{version.number}{charCount > 0 ? ` · ${charCount.toLocaleString('ru')} зн. / ${wordCount.toLocaleString('ru')} сл.` : ''}
+            v.{version.number}{charCount > 0 ? ` · ~${charCount.toLocaleString('ru')} зн. / ~${wordCount.toLocaleString('ru')} сл.` : ''}
           </span>
           {saveStatus === 'saving' && (
             <span className="hidden md:flex shrink-0 items-center gap-[4px] text-[11px] text-[var(--ink-4)]">
@@ -764,30 +908,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
           {/* ── ИИ-функции ── */}
           <div className="hidden md:flex items-center gap-[4px]">
-            {/* Вид / Текст */}
-            {!generating && (
-              <div className="flex shrink-0 rounded-[var(--radius-md)] overflow-hidden" style={{ border: '1px solid var(--line)' }}>
-                {([
-                  { key: 'formatted' as const, label: 'Вид' },
-                  { key: 'text' as const, label: 'Текст' },
-                ]).map((tab) => (
-                  <button key={tab.key} onClick={() => setDocView(tab.key)}
-                    className={['px-[8px] h-[26px] text-[11px] font-medium transition-colors cursor-pointer',
-                      docView === tab.key ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-[var(--bg)] text-[var(--ink-3)] hover:text-[var(--ink)]',
-                    ].join(' ')}>
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
           </div>
 
           {/* Разделитель */}
           <div className="hidden md:block w-px h-[24px] bg-[var(--line)] mx-[4px] shrink-0" />
 
           {/* ── Документ-функции ── */}
-          <div className="flex items-center gap-[4px]">
+          <div className="flex items-center gap-[8px]">
 
             {/* Сохранить как новую версию */}
             <div className="relative">
@@ -816,10 +943,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                   style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '16px' }}
                 >
                   <p className="text-[12px] font-medium text-[var(--ink)] mb-[4px]">
-                    Сохранить как версию v.{version.number + 1}?
+                    Сохранить как версию v.{maxVersionNumber + 1}?
                   </p>
                   <p className="text-[11px] text-[var(--ink-4)] mb-[14px] leading-[1.5]">
-                    Текущий текст будет сохранён как новая версия. Предыдущая v.{version.number} останется в истории.
+                    Текущий текст будет сохранён как новая версия. В истории уже {maxVersionNumber} {maxVersionNumber === 1 ? 'версия' : maxVersionNumber < 5 ? 'версии' : 'версий'}.
                   </p>
                   <div className="flex gap-[6px]">
                     <button
@@ -832,7 +959,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                       onClick={saveAsNewVersion}
                       className="flex-1 h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
                     >
-                      Сохранить v.{version.number + 1}
+                      Сохранить v.{maxVersionNumber + 1}
                     </button>
                   </div>
                 </div>
@@ -845,10 +972,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 <button
                   onClick={() => setStatusDropdownOpen(v => !v)}
                   disabled={statusChanging || isPurchased}
-                  className="h-[30px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium border transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-[4px]"
+                  className="h-[30px] w-[120px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium border transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-between gap-[4px]"
                   style={{ background: 'transparent', borderColor: 'var(--line-2)', color: 'var(--ink-3)' }}
                 >
-                  {currentStatusLabel}
+                  <span className="flex items-center gap-[6px] truncate">
+                    <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: currentStatusColor }} />
+                    <span className="truncate">{currentStatusLabel}</span>
+                  </span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 {statusDropdownOpen && (
@@ -856,8 +986,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                     style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
                     {STATUS_OPTIONS.map(opt => (
                       <button key={opt.value} onClick={() => changeStatus(opt.value)}
-                        className="w-full text-left px-[12px] py-[8px] text-[12px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+                        className="w-full text-left px-[12px] py-[8px] text-[12px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer flex items-center gap-[8px]"
                         style={{ color: opt.value === version.status ? 'var(--ink)' : 'var(--ink-3)', fontWeight: opt.value === version.status ? 600 : 400 }}>
+                        <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: opt.color }} />
                         {opt.label}
                         {opt.value === version.status && ' ✓'}
                       </button>
@@ -872,7 +1003,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               <button
                 onClick={purchaseVersion}
                 disabled={purchasing}
-                className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 flex items-center gap-[5px]"
+                className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 flex items-center gap-[5px]"
+                style={{ background: 'var(--ok)' }}
               >
                 {purchasing ? 'Покупаю…' : `Купить · ${versionPrice} ₽`}
               </button>
@@ -916,87 +1048,57 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         {generating ? (
           <GeneratingScreen progress={genProgress} docTitle={docTitle} />
         ) : (
-          <div className="flex-1 overflow-y-auto relative" style={{ background: 'var(--bg-soft)', padding: '32px 40px 48px' }}>
-            {/* Индикатор обновления документа ИИ */}
-            {streamingDoc !== null && (
+          <div className="flex-1 overflow-y-auto relative" style={{ background: '#DEDAD3', padding: '0' }}>
+            {/* Индикатор обновления документа ИИ — всё время генерации */}
+            {streaming && (
               <div
-                className="absolute top-[16px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-[8px] px-[14px] py-[7px] rounded-full shadow-md"
+                className="sticky top-[16px] z-10 flex items-center gap-[8px] px-[14px] py-[7px] rounded-full shadow-md mx-auto w-fit"
                 style={{ background: 'var(--ink)', color: 'var(--bg)' }}
               >
                 <div className="w-[10px] h-[10px] rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                <span className="text-[12px] font-medium">ИИ обновляет документ…</span>
+                <span className="text-[12px] font-medium">ИИ работает над документом…</span>
               </div>
             )}
 
+            {/* Единый лист — бумажный вид */}
             <div
-              className="mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm relative overflow-hidden"
-              style={{ maxWidth: 720, padding: '48px 56px', minHeight: 600 }}
+              className="mx-auto relative overflow-hidden"
+              style={{
+                width: 'calc(100% - 48px)',
+                maxWidth: 794,
+                minHeight: 1123,
+                background: 'white',
+                padding: '96px 8% 80px',
+                marginTop: 32,
+                marginBottom: 48,
+                boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 20px rgba(0,0,0,0.13)',
+              }}
             >
-              {/* Ватермарк для неоплаченных версий */}
+              {/* Ватермарк */}
               {!isPurchased && docContent && (
-                <div
-                  className="absolute inset-0 pointer-events-none select-none z-[1]"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='IBM Plex Sans, sans-serif' font-size='22' font-weight='600' fill='rgba(0,0,0,0.06)' transform='rotate(-35 150 100)'%3EЧЕРНОВИК%3C/text%3E%3C/svg%3E")`,
-                    backgroundRepeat: 'repeat',
-                    backgroundSize: '300px 200px',
-                  }}
-                />
+                <div className="absolute inset-0 pointer-events-none select-none z-[1]" style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='IBM Plex Sans, sans-serif' font-size='22' font-weight='600' fill='rgba(0,0,0,0.06)' transform='rotate(-35 150 100)'%3EЧЕРНОВИК%3C/text%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'repeat',
+                  backgroundSize: '300px 200px',
+                }} />
               )}
 
-              {/* Содержимое: streamingDoc во время обновления, иначе docContent */}
               {(() => {
                 const displayText = streamingDoc !== null ? streamingDoc : docContent
-                const isUpdating = streamingDoc !== null
+                const isUpdating = streaming
 
                 if (!displayText) {
                   return (
                     <div className="flex flex-col items-center justify-center h-[400px] gap-[12px] relative z-[2]">
-                      <p className="text-[14px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-serif)' }}>
-                        Документ пуст
-                      </p>
+                      <p className="text-[14px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-serif)' }}>Документ пуст</p>
                       <p className="text-[12px] text-[var(--ink-4)]">Попросите ИИ создать или отредактировать договор</p>
                     </div>
                   )
                 }
 
-                // A.5: показываем DOCX HTML если: форматирование применено + нет live-стриминга + не в текстовом режиме
-                const showDocxHtml = docView === 'formatted' && !isUpdating && docHtml && !hasUnsavedEdits
-
                 return (
                   <div className="relative z-[2]" style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s' }}>
-                    {docView === 'formatted' && loadingHtml && !docHtml ? (
-                      // Индикатор загрузки HTML из DOCX
-                      <div className="flex items-center justify-center py-[40px] gap-[8px] text-[var(--ink-4)]">
-                        <div className="w-[14px] h-[14px] rounded-full border-2 border-[var(--line)] border-t-[var(--ink-3)] animate-spin" />
-                        <span className="text-[12px]">Загружаю форматированный вид…</span>
-                      </div>
-                    ) : showDocxHtml ? (
-                      // DOCX → HTML через mammoth (точное форматирование: таблицы, жирный, курсив)
-                      <div
-                        className="docx-rendered"
-                        style={{ userSelect: isPurchased ? 'text' : 'none' }}
-                        onCopy={!isPurchased ? (e) => e.preventDefault() : undefined}
-                        dangerouslySetInnerHTML={{ __html: docHtml }}
-                      />
-                    ) : docView === 'formatted' ? (
-                      // Режим "Вид" без DOCX: структурированный рендер из plain text
-                      <DocumentRenderer text={displayText} canCopy={isPurchased} />
-                    ) : (
-                      // Режим "Текст": pre-форматированный
-                      <pre
-                        className="whitespace-pre-wrap text-[14px] leading-[1.75]"
-                        style={{
-                          fontFamily: 'var(--font-serif)',
-                          letterSpacing: '0.01em',
-                          color: 'var(--ink)',
-                          userSelect: isPurchased ? 'text' : 'none',
-                        }}
-                        onCopy={!isPurchased ? (e) => e.preventDefault() : undefined}
-                      >
-                        {displayText}
-                      </pre>
-                    )}
+                    <DocumentViewer content={displayText} canCopy={isPurchased} />
                   </div>
                 )
               })()}
@@ -1020,10 +1122,35 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             <span className="text-[13px] font-medium text-[var(--ink)]">Чат с ИИ</span>
           </div>
           <div className="flex items-center gap-[4px]">
+            {canUndo && !streaming && !generating && (
+              <button
+                onClick={() => {
+                  const prev = undoStackRef.current.pop()
+                  if (prev) {
+                    setDocContent(prev)
+                    setHasUnsavedEdits(true)
+                    scheduleAutosave(prev)
+                    setMessages((msgs) => [...msgs, {
+                      id: `undo-${Date.now()}`,
+                      role: 'WARNING' as const,
+                      content: 'Изменения отменены. Документ восстановлен.',
+                      createdAt: new Date().toISOString(),
+                    }])
+                  }
+                  if (undoStackRef.current.length === 0) setCanUndo(false)
+                }}
+                className="h-[26px] px-[8px] rounded-[var(--radius-md)] text-[11px] font-medium text-[#DC2626] bg-[#FEE2E2] hover:bg-[#FECACA] transition-colors cursor-pointer flex items-center gap-[4px]"
+                title="Отменить последнее изменение ИИ"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+                Отменить
+              </button>
+            )}
             {docContent && !generating && (
               <button
-                onClick={() => { setInput('Проверь этот договор: укажи 3-5 конкретных слабых места и дай рекомендации по улучшению каждого пункта.'); textareaRef.current?.focus() }}
-                className="h-[26px] px-[8px] rounded-[var(--radius-md)] text-[11px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer flex items-center gap-[4px]"
+                onClick={() => sendMessage('Проверь этот договор: укажи 3-5 конкретных слабых места и дай рекомендации по улучшению каждого пункта.', 'chat')}
+                disabled={streaming}
+                className="h-[26px] px-[8px] rounded-[var(--radius-md)] text-[11px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer flex items-center gap-[4px] disabled:opacity-50"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{ color: 'var(--accent)' }}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 Анализ
@@ -1106,9 +1233,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             <textarea ref={textareaRef} value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Попросите внести правку…"
+              placeholder={generating ? 'Документ ещё генерируется…' : 'Попросите внести правку…'}
               rows={1}
-              disabled={streaming}
+              disabled={streaming || generating}
               className="flex-1 resize-none bg-transparent text-[13px] text-[var(--ink)] placeholder:text-[var(--ink-4)] outline-none leading-[1.5] disabled:opacity-50"
               style={{ maxHeight: 120, overflowY: 'auto' }}
               onInput={(e) => {
@@ -1118,7 +1245,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               }}
             />
 
-            <button onClick={sendMessage} disabled={!input.trim() || streaming}
+            <button onClick={() => sendMessage()} disabled={!input.trim() || streaming || generating}
               className="shrink-0 w-[32px] h-[32px] rounded-[var(--radius-md)] bg-[var(--ink)] text-[var(--bg)] flex items-center justify-center hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>

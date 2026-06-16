@@ -63,20 +63,32 @@ function getDateStr() {
 
 // ─── Quick action карточка ────────────────────────────────────────────────────
 
-function QuickAction({ icon, label, sub, onClick }: {
-  icon: string; label: string; sub: string; onClick: () => void
+function QuickAction({ icon, label, sub, onClick, highlight }: {
+  icon: string; label: string; sub: string; onClick: () => void; highlight?: boolean
 }) {
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-[var(--radius-lg)] p-[16px] transition-all cursor-pointer group"
-      style={{ background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--ink-3)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)' }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--line-2)'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)' }}
+      className="relative w-full text-left rounded-[var(--radius-lg)] p-[16px] transition-all cursor-pointer group"
+      style={
+        highlight
+          ? { background: 'var(--accent-soft)', border: '1px solid var(--accent)', boxShadow: '0 1px 6px rgba(0,0,0,0.08)' }
+          : { background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }
+      }
+      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = highlight ? '0 3px 10px rgba(0,0,0,0.12)' : '0 2px 8px rgba(0,0,0,0.1)'; if (!highlight) e.currentTarget.style.borderColor = 'var(--ink-3)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = highlight ? '0 1px 6px rgba(0,0,0,0.08)' : '0 1px 4px rgba(0,0,0,0.06)'; if (!highlight) e.currentTarget.style.borderColor = 'var(--line-2)' }}
     >
+      {highlight && (
+        <span
+          className="absolute top-[10px] right-[10px] text-[9px] font-semibold uppercase tracking-[0.04em] px-[6px] py-[2px] rounded-full"
+          style={{ color: 'var(--accent)', background: '#ffffff', border: '1px solid var(--accent)' }}
+        >
+          Популярно
+        </span>
+      )}
       <div
         className="w-[32px] h-[32px] rounded-[var(--radius-md)] flex items-center justify-center mb-[12px] text-[16px]"
-        style={{ background: 'var(--surface-inset)' }}
+        style={{ background: highlight ? 'var(--accent)' : 'var(--surface-inset)', color: highlight ? '#fff' : 'inherit' }}
       >
         {icon}
       </div>
@@ -160,8 +172,8 @@ export default function HomePage() {
           <div className="grid grid-cols-3 gap-[12px]">
             <QuickAction icon="+" label="Создать договор" sub="Новый документ с ИИ"
               onClick={() => router.push('/documents/new')} />
-            <QuickAction icon="↑" label="Загрузить документ" sub="DOCX, DOC или TXT"
-              onClick={() => router.push('/documents/new?tab=upload')} />
+            <QuickAction icon="↑" label="Загрузить документ" sub="Анализ и проверка ИИ"
+              onClick={() => router.push('/documents/upload')} highlight />
             <QuickAction icon="☰" label="Все документы" sub={docs.length > 0 ? `${docs.length} в архиве` : 'Архив договоров'}
               onClick={() => router.push('/documents')} />
           </div>

@@ -226,3 +226,325 @@ button { font-family: inherit; }
   border: none;
   margin: 24px 0;
 }
+
+/* ─── AI-документ через marked (markdown→html) ───────────────────────────── */
+.doc-content {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--color-ink);
+}
+.doc-content h1, .doc-content h2, .doc-content h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 24px 0 10px;
+}
+.doc-content h1 { text-align: center; margin-top: 0; }
+.doc-content p { margin: 0 0 6px; }
+.doc-content strong { font-weight: 600; }
+.doc-content em { font-style: italic; }
+.doc-content ul, .doc-content ol { padding-left: 24px; margin: 6px 0 10px; }
+.doc-content li { margin-bottom: 4px; }
+
+/* Таблицы в doc-content (AI-generated и из Word) */
+.doc-content table, .doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.doc-content table th, .doc-content table td,
+.doc-table th, .doc-table td {
+  border: 1px solid #c8c5bc;
+  padding: 8px 12px;
+  vertical-align: top;
+  text-align: left;
+}
+.doc-content table th, .doc-table th {
+  background: #f6f3ec;
+  font-weight: 600;
+}
+.doc-content table tr:nth-child(even) { background: #faf8f3; }
+
+/* ─── HTML из загруженного Word (mammoth) ─────────────────────────────────── */
+.uploaded-doc-html {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.8;
+  color: var(--color-ink);
+}
+.uploaded-doc-html h1 {
+  font-size: 15px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 28px 0 12px;
+  text-align: center;
+  line-height: 1.4;
+}
+.uploaded-doc-html h2 {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 24px 0 8px;
+  line-height: 1.5;
+}
+.uploaded-doc-html h3,
+.uploaded-doc-html h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 18px 0 6px;
+  line-height: 1.5;
+}
+.uploaded-doc-html p {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+/* Нумерованные пункты (1. 1.1. 8.1. и т.д.) — чуть больше отступ сверху */
+.uploaded-doc-html p[data-num],
+.uploaded-doc-html p:where([class*="MsoListParagraph"]) {
+  margin-top: 4px;
+}
+/* Параграф где единственный дочерний элемент — strong/b (заголовок раздела из Word) */
+.uploaded-doc-html p:has(> strong:only-child),
+.uploaded-doc-html p:has(> b:only-child) {
+  margin-top: 16px;
+  margin-bottom: 6px;
+}
+.uploaded-doc-html strong,
+.uploaded-doc-html b {
+  font-weight: 600;
+}
+.uploaded-doc-html em,
+.uploaded-doc-html i {
+  font-style: italic;
+}
+.uploaded-doc-html ul,
+.uploaded-doc-html ol {
+  padding-left: 24px;
+  margin: 6px 0 10px;
+}
+.uploaded-doc-html li {
+  margin-bottom: 4px;
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+.uploaded-doc-html table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.uploaded-doc-html td,
+.uploaded-doc-html th {
+  border: 1px solid #c8c5bc;
+  padding: 8px 12px;
+  vertical-align: top;
+  text-align: left;
+}
+.uploaded-doc-html th {
+  background: #f6f3ec;
+  font-weight: 600;
+}
+.uploaded-doc-html tr:nth-child(even) td {
+  background: #faf8f3;
+}
+.uploaded-doc-html br {
+  display: block;
+  margin: 2px 0;
+}
+/* Форматировочные таблицы Word (ячейки с большим текстом) → линейные блоки */
+.uploaded-doc-html .doc-layout-table {
+  display: block;
+}
+.uploaded-doc-html .doc-layout-cell {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.uploaded-doc-html .doc-layout-cell p {
+  margin: 0 0 6px;
+}
+
+/* Центрированные параграфы (title, реквизиты в центре) */
+.uploaded-doc-html p[style*="text-align: center"],
+.uploaded-doc-html p[style*="text-align:center"] {
+  text-align: center;
+}
+.uploaded-doc-html p[style*="text-align: right"],
+.uploaded-doc-html p[style*="text-align:right"] {
+  text-align: right;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DOCUMENT VIEWER — единый стиль для всех документов (TipTap + legacy HTML)
+   ИИ отвечает за содержание. Система задаёт оформление.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Обёртка документа */
+.document-viewer {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.85;
+  color: #18181B;
+}
+
+/* TipTap сбрасывает outline */
+.document-viewer .ProseMirror {
+  outline: none;
+  caret-color: transparent;
+}
+
+/* ── Заголовки разделов ────────────────────────────────────────────────────── */
+.document-viewer h1,
+.document-viewer .ProseMirror h1 {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: center;
+  margin: 0 0 20px;
+  line-height: 1.4;
+}
+.document-viewer h2,
+.document-viewer .ProseMirror h2 {
+  font-size: 13.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 28px 0 10px;
+  line-height: 1.5;
+}
+.document-viewer h3,
+.document-viewer .ProseMirror h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 18px 0 6px;
+}
+.document-viewer h4,
+.document-viewer .ProseMirror h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 14px 0 4px;
+}
+
+/* ── Параграфы ─────────────────────────────────────────────────────────────── */
+.document-viewer p,
+.document-viewer .ProseMirror p {
+  margin: 0 0 7px;
+  font-size: 13.5px;
+  line-height: 1.85;
+}
+.document-viewer p:has(> strong:only-child),
+.document-viewer .ProseMirror p:has(> strong:only-child) {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+/* ── Текст ─────────────────────────────────────────────────────────────────── */
+.document-viewer strong,
+.document-viewer .ProseMirror strong { font-weight: 700; }
+.document-viewer em,
+.document-viewer .ProseMirror em { font-style: italic; }
+
+/* ── Списки ────────────────────────────────────────────────────────────────── */
+.document-viewer ul,
+.document-viewer ol,
+.document-viewer .ProseMirror ul,
+.document-viewer .ProseMirror ol {
+  padding-left: 22px;
+  margin: 4px 0 8px;
+}
+.document-viewer li,
+.document-viewer .ProseMirror li {
+  margin-bottom: 4px;
+  font-size: 13.5px;
+  line-height: 1.8;
+}
+
+/* ── Таблицы ───────────────────────────────────────────────────────────────── */
+.document-viewer table,
+.document-viewer .ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 13px;
+}
+.document-viewer td,
+.document-viewer th,
+.document-viewer .ProseMirror td,
+.document-viewer .ProseMirror th {
+  border: 1px solid #c8c5bc;
+  padding: 7px 11px;
+  vertical-align: top;
+  text-align: left;
+  line-height: 1.7;
+}
+.document-viewer th,
+.document-viewer .ProseMirror th {
+  background: #f6f3ec;
+  font-weight: 600;
+}
+.document-viewer tr:nth-child(even) td,
+.document-viewer .ProseMirror tr:nth-child(even) td {
+  background: #faf8f3;
+}
+
+/* ── Блок реквизитов сторон ────────────────────────────────────────────────── */
+.document-viewer .doc-requisites,
+.document-viewer .ProseMirror .doc-requisites {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 2px solid #c8c5bc;
+}
+.document-viewer .doc-requisites-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+.document-viewer .doc-requisites-party {
+  display: flex;
+  flex-direction: column;
+}
+.document-viewer .doc-requisites-party p {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.document-viewer .doc-signature-line {
+  margin-top: 20px !important;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: #888;
+  letter-spacing: 0.02em;
+}
+
+/* ── Старые layout-таблицы из Word (обратная совместимость) ────────────────── */
+.document-viewer .doc-layout-table {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+.document-viewer .doc-layout-cell {
+  display: block;
+}
+.document-viewer .doc-layout-cell p {
+  margin: 0 0 5px;
+}
+
+/* ── Преамбула ─────────────────────────────────────────────────────────────── */
+.document-viewer .doc-preamble,
+.document-viewer .ProseMirror .doc-preamble {
+  margin-bottom: 24px;
+  font-style: italic;
+}

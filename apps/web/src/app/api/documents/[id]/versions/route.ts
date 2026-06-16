@@ -67,5 +67,6 @@ export async function POST(req: NextRequest, { params }: Params) {
   // Обновляем updatedAt документа
   await prisma.document.update({ where: { id }, data: { updatedAt: new Date() } })
 
-  return NextResponse.json(version, { status: 201 })
+  const safe = JSON.parse(JSON.stringify(version, (_k, v) => typeof v === 'bigint' ? Number(v) : v))
+  return NextResponse.json(safe, { status: 201 })
 }

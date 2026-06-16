@@ -63,7 +63,7 @@ export class DocumentParser {
   static async parseDocxBuffer(buffer: Buffer): Promise<DocumentStructure> {
     try {
       const result = await mammoth.convertToHtml({
-        arrayBuffer: buffer,
+        arrayBuffer: buffer.buffer as ArrayBuffer,
       });
 
       const structure: DocumentStructure = {
@@ -111,8 +111,8 @@ export class DocumentParser {
 
     // Извлекаем заголовки
     while ((match = headingRegex.exec(html)) !== null) {
-      const level = parseInt(match[1]);
-      const text = DocumentParser.stripHtmlTags(match[2]);
+      const level = parseInt(match[1]!);
+      const text = DocumentParser.stripHtmlTags(match[2]!);
 
       sections.push({
         type: level === 1 ? 'title' : 'heading',
@@ -127,7 +127,7 @@ export class DocumentParser {
 
     // Извлекаем параграфы
     while ((match = paragraphRegex.exec(html)) !== null) {
-      const text = DocumentParser.stripHtmlTags(match[1]);
+      const text = DocumentParser.stripHtmlTags(match[1]!);
       if (text.trim().length > 0) {
         sections.push({
           type: 'paragraph',
@@ -168,12 +168,12 @@ export class DocumentParser {
 
     let rowMatch;
     while ((rowMatch = rowRegex.exec(tableHtml)) !== null) {
-      const rowHtml = rowMatch[1];
+      const rowHtml = rowMatch[1]!;
       const cells: DocumentCell[] = [];
 
       let cellMatch;
       while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-        const cellText = DocumentParser.stripHtmlTags(cellMatch[1]);
+        const cellText = DocumentParser.stripHtmlTags(cellMatch[1]!);
         cells.push({
           text: cellText.trim(),
           style: {

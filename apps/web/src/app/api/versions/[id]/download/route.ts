@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { readFile, saveFile, versionFileKey } from '@/lib/storage'
-import { DocumentFormatter } from '@shared/formatting/document-formatter'
+import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -18,7 +18,15 @@ export async function GET(req: NextRequest, { params }: Params) {
     where: { id, document: { userId } },
     include: {
       document: {
-        select: { title: true, number: true },
+        select: {
+          title: true,
+          number: true,
+          type: true,
+          userRole: true,
+          profileId: true,
+          counterpartyId: true,
+          parentDocumentId: true,
+        },
       },
       purchase: true,
     },
@@ -37,27 +45,88 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   let docxBuffer: Buffer | null = null
 
-  // 1. Файл уже лежит в хранилище — читаем по пути
-  if (version.formattedFilePath) {
+  // Всегда генерируем заново — чтобы реквизиты были актуальными
+  {
     try {
-      docxBuffer = await readFile(version.formattedFilePath)
-    } catch (err) {
-      console.warn('[download] Файл не найден в хранилище, перегенерирую:', err)
-    }
-  }
+      // Загружаем реквизиты для блока подписей
+      // Для APPENDIX/AMENDMENT берём userRole из родительского документа
+      const docId = version.document.parentDocumentId ?? null
+      const rootDoc = docId
+        ? await prisma.document.findFirst({
+            where: { id: docId, userId },
+            select: { userRole: true, profileId: true, counterpartyId: true },
+          })
+        : null
 
-  // 2. Legacy: старые версии хранят base64 в БД
-  if (!docxBuffer && version.formattedContent) {
-    docxBuffer = Buffer.from(version.formattedContent, 'base64')
-  }
+      const profileId = version.document.profileId
+      const counterpartyId = version.document.counterpartyId
+      const userRole = rootDoc?.userRole ?? version.document.userRole ?? 'EXECUTOR'
 
-  // 3. Нет файла — генерируем на лету и сохраняем в хранилище
-  if (!docxBuffer) {
-    try {
-      docxBuffer = await DocumentFormatter.formatDocument(version.content, {
-        contractNumber: version.document.number ?? undefined,
-        contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
-        city: 'Москва',
+      const [profile, counterparty] = await Promise.all([
+        // Если профиль не выбран на документе — берём первый профиль пользователя
+        prisma.profile.findFirst({
+          where: profileId ? { id: profileId, userId } : { userId },
+          include: { bankDetails: { take: 1 } },
+        }),
+        prisma.counterparty.findFirst({
+          where: { id: counterpartyId, userId },
+          include: {
+            bankDetails: { take: 1 },
+            signatories: { where: { isDefault: true }, take: 1 },
+          },
+        }),
+      ])
+
+      const makeParty = (
+        type: string,
+        name: string | undefined | null,
+        inn: string | null | undefined,
+        kpp: string | null | undefined,
+        ogrn: string | null | undefined,
+        addr: string | null | undefined,
+        email: string | null | undefined,
+        sigName: string | null | undefined,
+        sigPos: string | null | undefined,
+        bank: { bankName: string; bik: string; checkingAccount: string; correspondentAccount: string } | null | undefined,
+      ): RequisitesParty => ({
+        type, name, inn, kpp, ogrn, legalAddress: addr, email,
+        signatorName: sigName, signatorPosition: sigPos,
+        bankName: bank?.bankName, bik: bank?.bik,
+        checkingAccount: bank?.checkingAccount,
+        correspondentAccount: bank?.correspondentAccount,
+      })
+
+      const myParty: RequisitesParty = makeParty(
+        profile?.type ?? 'COMPANY',
+        profile?.name,
+        profile?.inn, profile?.kpp, profile?.ogrn,
+        profile?.legalAddress, profile?.email,
+        profile?.signatorName, profile?.signatorPosition,
+        profile?.bankDetails[0],
+      )
+
+      const cpSignatory = counterparty?.signatories[0] ?? null
+      const cpParty: RequisitesParty = makeParty(
+        counterparty?.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR',
+        counterparty?.name,
+        counterparty?.inn, counterparty?.kpp, counterparty?.ogrn,
+        counterparty?.legalAddress, counterparty?.email,
+        cpSignatory?.fullName, cpSignatory?.position,
+        counterparty?.bankDetails[0],
+      )
+
+      const isCustomer = userRole === 'CUSTOMER'
+      const isContract = version.document.type === 'CONTRACT'
+      const requisites = isContract && (profile || counterparty) ? {
+        left: isCustomer ? myParty : cpParty,
+        right: isCustomer ? cpParty : myParty,
+        leftTitle: isCustomer ? 'Заказчик' : 'Исполнитель',
+        rightTitle: isCustomer ? 'Исполнитель' : 'Заказчик',
+      } : undefined
+
+      docxBuffer = await convertToDocx(version.content, {
+        title: version.document.title,
+        requisites,
       })
 
       const formattedKey = versionFileKey(id, 'formatted.docx')

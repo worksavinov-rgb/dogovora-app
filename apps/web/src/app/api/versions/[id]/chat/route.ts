@@ -72,10 +72,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
   const aiProvider = getAIProvider()
-  // Если контент — HTML (загружен из DOCX через mammoth), конвертируем в структурированный plain text.
-  // ИИ работает с plain text; таблицы сохраняются как tab-separated строки.
   const rawDoc = data.currentDocument?.trim() || version.content || ''
-  const documentText = isHtmlString(rawDoc) ? htmlToPlainText(rawDoc) : rawDoc
+  // Для edit-режима передаём HTML как есть — editDocument умеет работать с HTML.
+  // Для chat-режима конвертируем в plain text чтобы AI не отвлекался на теги.
+  const documentText = rawDoc
+  const documentTextForChat = isHtmlString(rawDoc) ? htmlToPlainText(rawDoc) : rawDoc
   const encoder = new TextEncoder()
 
   // ─── Режим EDIT: ИИ возвращает обновлённый документ ─────────────────────────
@@ -86,48 +87,35 @@ export async function POST(req: NextRequest, { params }: Params) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
 
         try {
-          // 1. Стримим обновлённый документ
           let updatedDoc = ''
+          let failed = false
           console.log('[chat/edit] starting editDocument, docLength=', documentText.length, 'instruction=', data.content.slice(0, 80))
           const docGen = aiProvider.editDocument(documentText, data.content, settings)
           for await (const chunk of docGen) {
-            updatedDoc += chunk
-            send({ type: 'doc', chunk })
+            if (chunk === '__EDIT_FAILED__') {
+              failed = true
+            } else {
+              updatedDoc += chunk
+              send({ type: 'doc', chunk })
+            }
           }
-          console.log('[chat/edit] editDocument done, updatedDocLength=', updatedDoc.length)
+          console.log('[chat/edit] editDocument done, updatedDocLength=', updatedDoc.length, 'failed=', failed)
 
-          // Если ИИ вернул пустой документ или очень короткий — предупреждаем, но не обновляем
-          if (!updatedDoc.trim()) {
-            send({ type: 'chat', chunk: 'Не удалось применить изменение — ИИ вернул пустой ответ. Попробуйте перефразировать запрос.' })
+          if (failed || !updatedDoc.trim()) {
+            const msg = 'Не удалось применить изменение — не нашёл точный фрагмент в документе. Попробуйте уточнить запрос: укажите номер пункта или процитируйте часть текста который нужно изменить.'
+            send({ type: 'chat', chunk: msg })
             await prisma.chatMessage.create({
-              data: { versionId: id, role: 'AI', content: 'Не удалось применить изменение — ИИ вернул пустой ответ. Попробуйте перефразировать запрос.' },
+              data: { versionId: id, role: 'AI', content: msg },
             })
             controller.enqueue(encoder.encode('data: [DONE]\n\n'))
             controller.close()
             return
           }
 
-          // 2. Генерируем краткое объяснение только по ТЕКУЩЕЙ правке
-          let explanation = ''
-          const messages = [{
-            role: 'user' as const,
-            content: [
-              `Инструкция пользователя: ${data.content}`,
-              '',
-              'Я уже применил эту инструкцию к документу.',
-              'Напиши краткое пояснение (2-4 предложения), что именно изменилось по ЭТОЙ инструкции.',
-              'Не упоминай старые правки из истории, если они не относятся к текущей инструкции.',
-              'Не цитируй полный текст договора.',
-            ].join('\n'),
-          }]
+          // Простое подтверждение без лишнего AI-запроса
+          const explanation = 'Готово — изменения внесены в документ.'
+          send({ type: 'chat', chunk: explanation })
 
-          const chatGen = aiProvider.chat(messages, settings, updatedDoc)
-          for await (const chunk of chatGen) {
-            explanation += chunk
-            send({ type: 'chat', chunk })
-          }
-
-          // 3. Сохраняем объяснение в историю чата
           await prisma.chatMessage.create({
             data: { versionId: id, role: 'AI', content: explanation.trim() || 'Документ обновлён.' },
           })
@@ -175,7 +163,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       const send = (payload: Record<string, unknown>) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       try {
-        const generator = aiProvider.chat(messages, settings, documentText)
+        const generator = aiProvider.chat(messages, settings, documentTextForChat)
         for await (const chunk of generator) {
           fullResponse += chunk
           send({ type: 'chat', chunk })

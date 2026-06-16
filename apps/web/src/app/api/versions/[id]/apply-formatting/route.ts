@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { saveFile, versionFileKey } from '@/lib/storage'
-import { DocumentFormatter } from '@shared/formatting/document-formatter'
-import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
+import { convertToDocx } from '@shared/formatting/html-docx-converter'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -29,23 +28,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!version.content) return NextResponse.json({ error: 'Версия не содержит текста' }, { status: 400 })
   if (version.formattingApplied) return NextResponse.json({ message: 'Форматирование уже применено' }, { status: 200 })
 
-  // Берём город из профиля пользователя
-  const profiles = await prisma.profile.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'asc' },
-    take: 1,
-  })
-  const legalAddress = profiles[0]?.legalAddress ?? ''
-  const cityFromProfile = legalAddress.match(/(?:г\.|город)\s+([А-Яа-яЁё\-]+)/i)?.[1] ?? null
-  const city = cityFromProfile ?? 'Москва'
-
   try {
-    const plainContent = isHtmlString(version.content) ? htmlToPlainText(version.content) : version.content
-
-    const formattedBuffer = await DocumentFormatter.formatDocument(plainContent, {
-      contractNumber: version.document.number ?? undefined,
-      contractDate: new Date(version.createdAt).toLocaleDateString('ru-RU'),
-      city,
+    // HTML-aware конвертер: сохраняет таблицы, объединённые ячейки, жирность,
+    // нумерацию и блок реквизитов. Тот же, что использует download route.
+    const formattedBuffer = await convertToDocx(version.content, {
+      title: version.document.title ?? undefined,
     })
 
     const formattedKey = versionFileKey(id, 'formatted.docx')

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
+import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
 
 // GigaChat использует самоподписанный сертификат Сбера
 // Устанавливаем переменную окружения до первого запроса
@@ -10,19 +11,27 @@ if (typeof process !== 'undefined') {
 const GIGACHAT_AUTH_URL = process.env['GIGACHAT_AUTH_URL'] ?? 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth'
 const GIGACHAT_BASE_URL = (process.env['GIGACHAT_BASE_URL'] ?? 'https://gigachat.devices.sberbank.ru/api/v1').replace(/\/+$/, '')
 const GIGACHAT_SCOPE = process.env['GIGACHAT_SCOPE'] ?? 'GIGACHAT_API_PERS'
-const GIGACHAT_MODEL = process.env['GIGACHAT_MODEL'] ?? 'GigaChat-2'
+// Max — для генерации, редактирования и анализа (мягче фильтры безопасности).
+// GigaChat-2 — быстрые задачи с высоким RPM (орфография, реквизиты).
+const GIGACHAT_MODEL = process.env['GIGACHAT_MODEL'] ?? 'GigaChat-2-Max'
+const GIGACHAT_REVIEW_MODEL = process.env['GIGACHAT_REVIEW_MODEL'] ?? 'GigaChat-2-Max'
+const GIGACHAT_FAST_MODEL = process.env['GIGACHAT_FAST_MODEL'] ?? 'GigaChat-2'
 const GIGACHAT_AUTH_KEY = process.env['GIGACHAT_AUTH_KEY'] ?? ''
 
 const reviewSchema = z.object({
   score: z.number().min(0).max(100),
   summary: z.string().min(1),
+  spellCount: z.number().int().min(0).default(0),
   issues: z.array(
     z.object({
       id: z.union([z.string(), z.number()]),
-      severity: z.enum(['risk', 'warning', 'ok']),
+      severity: z.enum(['risk', 'warning', 'ok', 'neutral']),
+      importance: z.enum(['high', 'medium', 'low']).default('medium'),
       title: z.string().min(1),
       description: z.string().min(1),
       clause: z.string().min(1),
+      recommendation: z.string().optional(),
+      category: z.string().optional(),
     }),
   ),
 })
@@ -100,10 +109,8 @@ function buildSystemPrompt(settings: AISettings): string {
     'Ты опытный юрист-практик с 15-летним стажем в договорной работе. Специализация — защита интересов ИП и малого бизнеса.',
     'Отвечаешь чётко, конкретно, по делу. Даёшь практичные советы, а не общие фразы.',
     'Если видишь риск — называешь его прямо и объясняешь как устранить. Ссылаешься на нормы ГК РФ где это уместно.',
-    'Никогда не пишешь «согласно законодательству» или «см. нормативные акты» — только конкретику.',
-    `Уровень защиты интересов пользователя: ${settings.protectionLevel}/90. Чем выше — тем агрессивнее защищаешь его позицию: больше неустоек, гарантий, ограничений ответственности.`,
-    settings.customInstruction ? `Особые требования клиента: ${settings.customInstruction}` : '',
-    'ВАЖНО: Реквизиты сторон (ИНН, КПП, ОГРН, банковские счета, адреса, подписи), а также номер и дата договора управляются системой автоматически — они берутся из профиля пользователя и карточки контрагента. Если пользователь просит изменить реквизиты или шапку через чат — вежливо объясни: «Реквизиты и шапка договора подставляются автоматически из вашего профиля и карточки контрагента. Чтобы изменить их, обновите данные в разделе «Мои реквизиты» или в карточке контрагента.» Не пытайся изменить или добавить реквизиты в текст договора.',
+    `Уровень защиты интересов пользователя: ${settings.protectionLevel}/90. Чем выше — тем агрессивнее защищаешь его позицию.`,
+    settings.customInstruction ? `Особые требования: ${settings.customInstruction}` : '',
   ].filter(Boolean).join('\n')
 }
 
@@ -123,8 +130,19 @@ function toGigachatMessages(messages: AIMessage[], settings: AISettings, documen
   ]
 }
 
-async function* streamText(payload: Record<string, unknown>): AsyncGenerator<string> {
-  const response = await chatCompletions({ ...payload, stream: true }, true)
+async function* streamText(payload: Record<string, unknown>, retries = 4): AsyncGenerator<string> {
+  let response = await chatCompletions({ ...payload, stream: true }, true)
+
+  // Retry при 429 с экспоненциальной задержкой: 5s, 10s, 20s, 40s
+  let attemptsLeft = retries
+  while (response.status === 429 && attemptsLeft > 0) {
+    const delay = Math.pow(2, retries - attemptsLeft) * 5000
+    console.warn(`[GigaChat] stream 429 rate limit, retry in ${delay / 1000}s (${attemptsLeft} left)`)
+    await new Promise((r) => setTimeout(r, delay))
+    attemptsLeft--
+    response = await chatCompletions({ ...payload, stream: true }, true)
+  }
+
   if (!response.ok || !response.body) {
     const details = await response.text()
     throw new Error(`GigaChat stream failed: ${response.status} ${details}`)
@@ -171,8 +189,17 @@ async function* streamText(payload: Record<string, unknown>): AsyncGenerator<str
   }
 }
 
-async function completeText(payload: Record<string, unknown>): Promise<string> {
+async function completeText(payload: Record<string, unknown>, retries = 4): Promise<string> {
   const response = await chatCompletions({ ...payload, stream: false })
+
+  // Retry при 429 с экспоненциальной задержкой: 5s, 10s, 20s, 40s
+  if (response.status === 429 && retries > 0) {
+    const delay = Math.pow(2, 4 - retries) * 5000
+    console.warn(`[GigaChat] 429 rate limit, retry in ${delay / 1000}s (${retries} left)`)
+    await new Promise((r) => setTimeout(r, delay))
+    return completeText(payload, retries - 1)
+  }
+
   if (!response.ok) {
     const details = await response.text()
     throw new Error(`GigaChat completion failed: ${response.status} ${details}`)
@@ -201,14 +228,18 @@ function normalizeReview(raw: unknown): ReviewResult {
   const issues = parsed.issues.map((issue) => ({
     id: String(issue.id),
     severity: issue.severity,
+    importance: issue.importance ?? 'medium',
     title: issue.title,
     description: issue.description,
     clause: issue.clause,
+    recommendation: issue.recommendation,
+    category: issue.category,
   }))
 
   return {
     score: Math.round(parsed.score),
     summary: parsed.summary,
+    spellCount: parsed.spellCount ?? 0,
     issues,
     riskCount: issues.filter((i) => i.severity === 'risk').length,
     warningCount: issues.filter((i) => i.severity === 'warning').length,
@@ -302,44 +333,482 @@ function buildContractHeader(
   return `${cityLine}\t\t\t\t\t${dateLine}\n\n` + lines.join('\n')
 }
 
-function buildRequisitesBlock(userProfile: UserProfileData, counterparty: CounterpartyData, role1: string, role2: string): string {
-  const p1Lines: string[] = []
-  const p2Lines: string[] = []
-
+export function buildRequisitesBlock(userProfile: UserProfileData, counterparty: CounterpartyData, role1: string, role2: string): string {
   // Сторона 1 (пользователь)
-  p1Lines.push(`${role1}: ${partyFullName(userProfile.name, userProfile.type)}`)
+  const p1Lines: string[] = []
+  p1Lines.push(`ROLE:${role1}`)
+  p1Lines.push(`NAME:${partyFullName(userProfile.name, userProfile.type)}`)
   if (userProfile.legalAddress) p1Lines.push(`Адрес: ${userProfile.legalAddress}`)
   if (userProfile.inn) p1Lines.push(`ИНН: ${userProfile.inn}`)
   if (userProfile.kpp) p1Lines.push(`КПП: ${userProfile.kpp}`)
   if (userProfile.ogrn) p1Lines.push(`ОГРН: ${userProfile.ogrn}`)
-  if (userProfile.checkingAccount) p1Lines.push(`Р/счет: ${userProfile.checkingAccount}`)
-  if (userProfile.correspondentAccount) p1Lines.push(`К/счет: ${userProfile.correspondentAccount}`)
+  if (userProfile.checkingAccount) p1Lines.push(`Р/счёт: ${userProfile.checkingAccount}`)
+  if (userProfile.correspondentAccount) p1Lines.push(`К/счёт: ${userProfile.correspondentAccount}`)
   if (userProfile.bankName) p1Lines.push(`Банк: ${userProfile.bankName}`)
   if (userProfile.bik) p1Lines.push(`БИК: ${userProfile.bik}`)
   if (userProfile.email) p1Lines.push(`E-mail: ${userProfile.email}`)
-  const p1SignLine = userProfile.signatorName
-    ? `${userProfile.signatorPosition ?? ''} ${userProfile.signatorName}`.trim()
-    : userProfile.name
-  p1Lines.push(`${p1SignLine} _________________`)
+  const p1SignatorTitle = userProfile.signatorPosition ?? (userProfile.type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель' : '')
+  const p1SignatorName = userProfile.signatorName ?? userProfile.name
+  p1Lines.push(`SIGN_TITLE:${p1SignatorTitle}`)
+  p1Lines.push(`SIGN_NAME:${p1SignatorName}`)
 
   // Сторона 2 (контрагент)
+  const p2Lines: string[] = []
   const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
-  p2Lines.push(`${role2}: ${partyFullName(counterparty.name, p2Type)}`)
+  p2Lines.push(`ROLE:${role2}`)
+  p2Lines.push(`NAME:${partyFullName(counterparty.name, p2Type)}`)
   if (counterparty.legalAddress) p2Lines.push(`Адрес: ${counterparty.legalAddress}`)
   if (counterparty.inn) p2Lines.push(`ИНН: ${counterparty.inn}`)
   if (counterparty.kpp) p2Lines.push(`КПП: ${counterparty.kpp}`)
   if (counterparty.ogrn) p2Lines.push(`ОГРН: ${counterparty.ogrn}`)
-  if (counterparty.checkingAccount) p2Lines.push(`Р/счет: ${counterparty.checkingAccount}`)
-  if (counterparty.correspondentAccount) p2Lines.push(`К/счет: ${counterparty.correspondentAccount}`)
+  if (counterparty.checkingAccount) p2Lines.push(`Р/счёт: ${counterparty.checkingAccount}`)
+  if (counterparty.correspondentAccount) p2Lines.push(`К/счёт: ${counterparty.correspondentAccount}`)
   if (counterparty.bankName) p2Lines.push(`Банк: ${counterparty.bankName}`)
   if (counterparty.bik) p2Lines.push(`БИК: ${counterparty.bik}`)
   if (counterparty.email) p2Lines.push(`E-mail: ${counterparty.email}`)
-  const p2SignLine = counterparty.signatorName
-    ? `${counterparty.signatorPosition ?? ''} ${counterparty.signatorName}`.trim()
-    : counterparty.name
-  p2Lines.push(`${p2SignLine} _________________`)
+  const p2SignatorTitle = counterparty.signatorPosition ?? (p2Type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель' : '')
+  const p2SignatorName = counterparty.signatorName ?? counterparty.name
+  p2Lines.push(`SIGN_TITLE:${p2SignatorTitle}`)
+  p2Lines.push(`SIGN_NAME:${p2SignatorName}`)
 
-  return [p1Lines.join('\n'), '', p2Lines.join('\n')].join('\n')
+  // Специальный маркер — DocumentRenderer рендерит это как двухколоночную таблицу
+  return `%%REQS_TABLE%%\n${p1Lines.join('\n')}\n%%COL_SEP%%\n${p2Lines.join('\n')}\n%%END_REQS%%`
+}
+
+// ─── Отдельная проверка орфографии ────────────────────────────────────────────
+// Выполняется отдельным запросом чтобы не «теряться» внутри большого промпта.
+// Текст бьётся на чанки по 4000 символов — ИИ читает каждый сегмент целиком.
+
+async function checkSpelling(documentText: string): Promise<number> {
+  if (!documentText || documentText.trim().length < 20) return 0
+
+  // Чанки по 6000 символов — баланс между внимательностью и количеством запросов.
+  // Для типичного договора (~30–70 КБ) это 5–12 чанков.
+  // GigaChat-2-Max — чанки побольше, ограничений по количеству нет
+  const CHUNK_SIZE = 8000
+  const chunks: string[] = []
+  let pos = 0
+  while (pos < documentText.length) {
+    chunks.push(documentText.slice(pos, pos + CHUNK_SIZE))
+    pos += CHUNK_SIZE
+  }
+
+  const systemContent = [
+    'Ты корректор. Твоя единственная задача — найти орфографические ошибки в тексте.',
+    'Возвращай ТОЛЬКО целое число — количество найденных ошибок. Никакого текста, только цифра.',
+    '',
+    'ЧТО СЧИТАТЬ ОШИБКОЙ (считай каждую отдельно):',
+    '  1. Орфографические ошибки — неправильное написание слова: «направлиемые» → ошибка',
+    '  2. Обрезанные слова — слово явно не дописано до конца: «настоя» вместо «настоящего», «осаществ» вместо «осуществляется» → каждое считается отдельной ошибкой',
+    '  3. Опечатки — буквы переставлены, пропущены или лишние',
+    '  4. Слитное написание двух слов: «вдоговоре» → ошибка',
+    '',
+    'ЧТО НЕ СЧИТАТЬ:',
+    '  - Пунктуация, стиль, заголовки без точки',
+    '  - Сокращения: п., ст., т.д., и/или, №, разд.',
+    '  - Иностранные слова, бренды, аббревиатуры (YouTube, TikTok, instagram, УСН, НДС)',
+    '  - Числа, даты, ИНН, ОГРНИП, БИК, расчётные счета',
+    '',
+    'Формат ответа — ТОЛЬКО цифра: 0',
+  ].join('\n')
+
+  // Батчи по 2 с паузой 1.5 сек между ними — не перегружаем GigaChat rate limit
+  const BATCH_SIZE = 2
+  let totalErrors = 0
+
+  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+    if (i > 0) {
+      // Пауза между батчами — GigaChat-2-Max имеет более строгий rate limit
+      await new Promise((r) => setTimeout(r, 4000))
+    }
+
+    const batch = chunks.slice(i, i + BATCH_SIZE)
+    const batchResults = await Promise.all(
+      batch.map((chunk) =>
+        completeText({
+          model: GIGACHAT_FAST_MODEL,  // GigaChat-2 — быстрее, выше RPM лимит
+          messages: [
+            { role: 'system', content: systemContent },
+            { role: 'user', content: `Текст:\n\n${chunk}` },
+          ],
+          max_tokens: 8,
+          repetition_penalty: 1,
+          temperature: 0,
+        }).then((res) => {
+          const match = res.trim().match(/\d+/)
+          return match ? parseInt(match[0], 10) : 0
+        }).catch(() => 0),
+      ),
+    )
+    totalErrors += batchResults.reduce((sum, n) => sum + n, 0)
+  }
+
+  return totalErrors
+}
+
+/**
+ * Конвертирует HTML договора в упрощённый Markdown для передачи AI.
+ * Плейсхолдеры [TABLE_N] сохраняются как есть.
+ * AI работает с чистым текстом — быстрее и лучше понимает смысл.
+ */
+function htmlToEditMarkdown(html: string): string {
+  return html
+    // Плейсхолдеры таблиц — сохраняем
+    // Заголовки
+    .replace(/<h[1-2][^>]*>([\s\S]*?)<\/h[1-2]>/gi, (_, t) => `\n**${stripTags(t).trim()}**\n`)
+    .replace(/<h[3-4][^>]*>([\s\S]*?)<\/h[3-4]>/gi, (_, t) => `\n### ${stripTags(t).trim()}\n`)
+    // Жирный / курсив
+    .replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, (_, t) => `**${stripTags(t)}**`)
+    .replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, (_, t) => `**${stripTags(t)}**`)
+    .replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, (_, t) => `*${stripTags(t)}*`)
+    .replace(/<i[^>]*>([\s\S]*?)<\/i>/gi, (_, t) => `*${stripTags(t)}*`)
+    // Списки
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, t) => `- ${stripTags(t).trim()}\n`)
+    .replace(/<\/[uo]l>/gi, '\n')
+    .replace(/<[uo]l[^>]*>/gi, '\n')
+    // Параграфы
+    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (_, t) => `${stripTags(t).trim()}\n`)
+    .replace(/<br\s*\/?>/gi, '\n')
+    // Убираем оставшиеся теги
+    .replace(/<[^>]+>/g, '')
+    // Нормализуем пустые строки
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function stripTags(html: string): string {
+  return html.replace(/<[^>]+>/g, '')
+}
+
+/**
+ * Конвертирует Markdown (ответ AI) обратно в HTML.
+ * Используется после editDocument когда AI вернул Markdown.
+ */
+function editMarkdownToHtml(md: string): string {
+  return md
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>(\n|$))+/g, m => `<ul>${m}</ul>`)
+    .split('\n\n')
+    .map(block => {
+      const t = block.trim()
+      if (!t) return ''
+      if (/^<(h[1-4]|ul|ol|li|table|\[TABLE)/.test(t)) return t
+      // Многострочный блок → несколько <p>
+      return t.split('\n').filter(l => l.trim()).map(l => {
+        const lt = l.trim()
+        if (/^<(h[1-4]|ul|li|\[TABLE)/.test(lt)) return lt
+        return `<p>${lt}</p>`
+      }).join('\n')
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+// ─── SEARCH/REPLACE движок (паттерн Aider) ───────────────────────────────────
+// ИИ возвращает только блоки изменений, мы применяем их к документу.
+// Всё что не попало в блок — остаётся нетронутым (таблицы, реквизиты, форматирование).
+
+interface EditBlock {
+  search: string
+  replace: string
+}
+
+/**
+ * Парсит ответ ИИ на блоки SEARCH/REPLACE.
+ * Формат:
+ *   <<<<<<< SEARCH
+ *   старый текст
+ *   =======
+ *   новый текст
+ *   >>>>>>> REPLACE
+ */
+function parseEditBlocks(aiResponse: string): EditBlock[] {
+  const blocks: EditBlock[] = []
+  const re = /<{5,9}\s*SEARCH\s*\n([\s\S]*?)\n?={5,9}\s*\n([\s\S]*?)\n?>{5,9}\s*REPLACE/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(aiResponse)) !== null) {
+    blocks.push({ search: m[1] ?? '', replace: m[2] ?? '' })
+  }
+  return blocks
+}
+
+/**
+ * Нормализует строку (схлопывает пробелы) и строит карту индексов
+ * норм-символ → оригинальный индекс. Для устойчивого нечёткого матчинга.
+ */
+function normalizeWithMap(str: string): { norm: string; map: number[] } {
+  let norm = ''
+  const map: number[] = []
+  let prevSpace = false
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i]!
+    if (/\s/.test(ch)) {
+      if (!prevSpace && norm.length > 0) {
+        norm += ' '
+        map.push(i)
+      }
+      prevSpace = true
+    } else {
+      norm += ch
+      map.push(i)
+      prevSpace = false
+    }
+  }
+  return { norm, map }
+}
+
+/**
+ * Применяет один блок SEARCH/REPLACE к документу.
+ * Многоуровневый матчинг: точный → без учёта пробелов.
+ * Возвращает обновлённый документ или null если фрагмент не найден.
+ */
+function applyOneBlock(doc: string, block: EditBlock): string | null {
+  const { search, replace } = block
+  if (!search.trim()) return null
+
+  // 1. Точное совпадение
+  const exactIdx = doc.indexOf(search)
+  if (exactIdx !== -1) {
+    return doc.slice(0, exactIdx) + replace + doc.slice(exactIdx + search.length)
+  }
+
+  // 2. Нечёткое: без учёта различий в пробелах/переносах
+  const { norm: docNorm, map: docMap } = normalizeWithMap(doc)
+  const searchNorm = search.replace(/\s+/g, ' ').trim()
+  if (!searchNorm) return null
+
+  const normIdx = docNorm.indexOf(searchNorm)
+  if (normIdx !== -1) {
+    const origStart = docMap[normIdx]!
+    const origEnd = docMap[normIdx + searchNorm.length - 1]! + 1
+    return doc.slice(0, origStart) + replace + doc.slice(origEnd)
+  }
+
+  return null
+}
+
+/**
+ * Применяет все блоки SEARCH/REPLACE к документу по очереди.
+ * Возвращает результат + статистику применения.
+ */
+function applyEditBlocks(doc: string, aiResponse: string): {
+  result: string
+  applied: number
+  failed: number
+  failedSearches: string[]
+} {
+  const blocks = parseEditBlocks(aiResponse)
+  let result = doc
+  let applied = 0
+  let failed = 0
+  const failedSearches: string[] = []
+
+  for (const block of blocks) {
+    const updated = applyOneBlock(result, block)
+    if (updated !== null) {
+      result = updated
+      applied++
+    } else {
+      failed++
+      failedSearches.push(block.search.slice(0, 80))
+    }
+  }
+
+  return { result, applied, failed, failedSearches }
+}
+
+/**
+ * Для HTML-документов (загруженных из Word): вырезает блок реквизитов/подписей
+ * перед отправкой ИИ и возвращает его отдельно — чтобы ИИ его не трогал.
+ *
+ * Детектируем блок реквизитов по двум признакам:
+ * A) Последний <table> содержащий ключевые слова реквизитов (ИНН, ОГРН, Р/счет и т.д.)
+ * B) Последний <div class="doc-layout-table"> (уже обработанный postProcessMammothHtml)
+ */
+function stripHtmlRequisitesBlock(html: string): { content: string; reqsHtml: string | null } {
+  const REQS_RE = /ИНН|Р\/счет|р\/сч|ОГРН|ОГРНИП|БИК|К\/счет|к\/сч/i
+
+  // ── Вариант A: последний <table> с реквизитами ────────────────────────────
+  const tableMatches = [...html.matchAll(/<table[\s>]/gi)]
+  if (tableMatches.length > 0) {
+    const lastMatch = tableMatches[tableMatches.length - 1]
+    const tableStart = lastMatch.index!
+    const tableEndIdx = html.lastIndexOf('</table>')
+    if (tableEndIdx > tableStart) {
+      const tableEnd = tableEndIdx + '</table>'.length
+      const tableHtml = html.slice(tableStart, tableEnd)
+      if (REQS_RE.test(tableHtml)) {
+        return {
+          content: html.slice(0, tableStart).trimEnd(),
+          reqsHtml: html.slice(tableStart).trimEnd(),
+        }
+      }
+    }
+  }
+
+  // ── Вариант B: последний <div class="doc-requisites"> или "doc-layout-table" ─
+  const layoutMatches = [...html.matchAll(/<div[^>]*class="(?:doc-requisites|doc-layout-table)"[^>]*>/gi)]
+  if (layoutMatches.length > 0) {
+    const lastLayout = layoutMatches[layoutMatches.length - 1]
+    const divStart = lastLayout.index!
+    const tailHtml = html.slice(divStart)
+    return {
+      content: html.slice(0, divStart).trimEnd(),
+      reqsHtml: tailHtml.trimEnd(),
+    }
+  }
+
+  return { content: html, reqsHtml: null }
+}
+
+// ─── Защита таблиц при AI-редактировании ─────────────────────────────────────
+
+/**
+ * Извлекает <table>...</table> из HTML и заменяет плейсхолдерами [TABLE_1] и т.д.
+ * Возвращает: HTML с плейсхолдерами + массив исходных таблиц.
+ *
+ * Умеет определять вложенность: обрабатывает только таблицы верхнего уровня.
+ */
+function extractTables(html: string): { html: string; tables: string[] } {
+  const tables: string[] = []
+  let result = html
+  let startIdx = 0
+
+  // Ищем все <table> верхнего уровня (не вложенные)
+  while (true) {
+    const openIdx = result.indexOf('<table', startIdx)
+    if (openIdx === -1) break
+
+    // Находим конец этой таблицы, учитывая вложенность
+    let depth = 0
+    let i = openIdx
+    let closeIdx = -1
+    while (i < result.length) {
+      if (result.slice(i, i + 6).toLowerCase() === '<table') {
+        depth++
+        i += 6
+      } else if (result.slice(i, i + 8).toLowerCase() === '</table>') {
+        depth--
+        if (depth === 0) {
+          closeIdx = i + 8
+          break
+        }
+        i += 8
+      } else {
+        i++
+      }
+    }
+
+    if (closeIdx === -1) break
+
+    const tableHtml = result.slice(openIdx, closeIdx)
+    const placeholder = `[TABLE_${tables.length + 1}]`
+    tables.push(tableHtml)
+
+    result = result.slice(0, openIdx) + placeholder + result.slice(closeIdx)
+    startIdx = openIdx + placeholder.length
+  }
+
+  return { html: result, tables }
+}
+
+/**
+ * Восстанавливает таблицы из плейсхолдеров [TABLE_N].
+ */
+function restoreTables(html: string, tables: string[]): string {
+  let result = html
+  tables.forEach((table, idx) => {
+    const placeholder = `[TABLE_${idx + 1}]`
+    // AI может изменить регистр или добавить пробелы — ищем по паттерну
+    const re = new RegExp(`\\[TABLE_${idx + 1}\\]`, 'gi')
+    result = result.replace(re, table)
+  })
+  return result
+}
+
+/**
+ * Определяет, хочет ли пользователь изменить содержимое таблицы.
+ */
+function isTableEditInstruction(instruction: string): boolean {
+  return /таблиц|прайс|цену?|стоимост|сумм|строк|колонк|ячейк|позиц/i.test(instruction)
+}
+
+/**
+ * Конвертирует HTML-таблицу в текстовое представление для AI.
+ * Формат: | ячейка1 | ячейка2 | ... |
+ */
+function tableToText(tableHtml: string): string {
+  const rows: string[] = []
+  const rowRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
+  let rowMatch: RegExpExecArray | null
+  while ((rowMatch = rowRe.exec(tableHtml)) !== null) {
+    const cells: string[] = []
+    const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi
+    let cellMatch: RegExpExecArray | null
+    while ((cellMatch = cellRe.exec(rowMatch[1])) !== null) {
+      // Убираем вложенные теги, оставляем текст
+      const text = cellMatch[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+      cells.push(text)
+    }
+    if (cells.length > 0) rows.push('| ' + cells.join(' | ') + ' |')
+  }
+  return rows.join('\n')
+}
+
+/**
+ * Конвертирует текстовую таблицу (pipe-формат) обратно в HTML,
+ * сохраняя структуру исходной HTML-таблицы.
+ */
+function textToTable(text: string, originalTableHtml: string): string {
+  // Парсим текстовые строки
+  const textRows = text.split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('|'))
+    .map(line =>
+      line.slice(1, -1).split('|').map(cell => cell.trim())
+    )
+
+  if (textRows.length === 0) return originalTableHtml
+
+  // Парсим структуру исходной таблицы (атрибуты ячеек, thead/tbody)
+  const hasHead = /<thead/i.test(originalTableHtml)
+  const origRows: Array<{ tag: string; cells: Array<{ tag: string; attrs: string }> }> = []
+  const rowRe = /<(tr)([^>]*)>([\s\S]*?)<\/tr>/gi
+  let rowMatch: RegExpExecArray | null
+  while ((rowMatch = rowRe.exec(originalTableHtml)) !== null) {
+    const cells: Array<{ tag: string; attrs: string }> = []
+    const cellRe = /<(t[dh])([^>]*)>/gi
+    let cellMatch: RegExpExecArray | null
+    while ((cellMatch = cellRe.exec(rowMatch[3])) !== null) {
+      cells.push({ tag: cellMatch[1].toLowerCase(), attrs: cellMatch[2] })
+    }
+    origRows.push({ tag: rowMatch[1], cells })
+  }
+
+  // Получаем атрибуты <table>
+  const tableAttrsMatch = originalTableHtml.match(/^<table([^>]*)>/i)
+  const tableAttrs = tableAttrsMatch ? tableAttrsMatch[1] : ''
+
+  // Собираем новую таблицу
+  const htmlRows = textRows.map((cells, rowIdx) => {
+    const origRow = origRows[rowIdx]
+    return '<tr>' + cells.map((cellText, cellIdx) => {
+      const origCell = origRow?.cells[cellIdx]
+      const tag = origCell?.tag ?? 'td'
+      const attrs = origCell?.attrs ?? ''
+      return `<${tag}${attrs}>${cellText}</${tag}>`
+    }).join('') + '</tr>'
+  })
+
+  if (hasHead && htmlRows.length > 0) {
+    return `<table${tableAttrs}><thead>${htmlRows[0]}</thead><tbody>${htmlRows.slice(1).join('')}</tbody></table>`
+  }
+  return `<table${tableAttrs}><tbody>${htmlRows.join('')}</tbody></table>`
 }
 
 export const gigachatProvider: AIProvider = {
@@ -356,31 +825,76 @@ export const gigachatProvider: AIProvider = {
   },
 
   async *editDocument(documentText: string, instruction: string, settings: AISettings) {
+    const doc = documentText
+    const allBlocks = splitHtmlBlocks(doc)
+
+    // Для больших документов отправляем только релевантные блоки.
+    // Находим блоки, содержащие ключевые слова из инструкции (топ-N слов ≥4 букв),
+    // плюс 3 блока контекста вокруг каждого совпадения.
+    const MAX_PROMPT_CHARS = 30000
+    let blocks = allBlocks
+    const fullText = blocksToPromptText(allBlocks)
+    if (fullText.length > MAX_PROMPT_CHARS) {
+      const keywords = instruction
+        .toLowerCase()
+        .replace(/[^\wА-яЁё\s]/g, ' ')
+        .split(/\s+/)
+        .filter(w => w.length >= 4)
+        .slice(0, 8)
+
+      const relevant = new Set<number>()
+      allBlocks.forEach((b, i) => {
+        const bLower = b.toLowerCase()
+        if (keywords.some(kw => bLower.includes(kw))) {
+          for (let j = Math.max(0, i - 3); j <= Math.min(allBlocks.length - 1, i + 3); j++) {
+            relevant.add(j)
+          }
+        }
+      })
+
+      if (relevant.size > 0 && relevant.size < allBlocks.length) {
+        // Берём только релевантные блоки, сохраняем оригинальную нумерацию
+        blocks = allBlocks.filter((_, i) => relevant.has(i))
+        console.log(`[editDocument] focused edit: ${blocks.length}/${allBlocks.length} blocks selected`)
+      } else {
+        // Нет совпадений или слишком много — обрезаем по лимиту
+        let total = 0
+        const limited: string[] = []
+        for (const b of allBlocks) {
+          if (total + b.length > MAX_PROMPT_CHARS) break
+          limited.push(b)
+          total += b.length
+        }
+        blocks = limited
+        console.log(`[editDocument] truncated to ${blocks.length}/${allBlocks.length} blocks`)
+      }
+    }
+
+    // Маппинг: если использовали подмножество блоков, нумерация в промпте не совпадает
+    // с индексами в allBlocks — передаём соответствие для applyBlockOps
+    const blockIndexMap = allBlocks.length === blocks.length
+      ? null
+      : allBlocks.reduce((acc, b, i) => { if (blocks.includes(b)) acc.push(i); return acc }, [] as number[])
+
     const systemPrompt = [
-      'Ты юрист-редактор договоров. Твоя единственная задача — применить ТОЛЬКО запрошенное изменение к тексту договора.',
+      'Ты — юрист-редактор коммерческого SaaS-сервиса для работы с договорами. Твоя работа — вносить правки в гражданско-правовые договоры по заданию предпринимателей и юридических лиц. Это легитимная профессиональная деятельность.',
+      'Работаешь с обезличенными юридическими документами в профессиональных целях.',
       '',
-      'ЖЕЛЕЗНЫЕ ПРАВИЛА:',
-      '1. Верни ПОЛНЫЙ текст договора — от первой строки до последней. НЕ добавляй блок реквизитов (ИНН, КПП, счета, подписи) — он управляется системой автоматически.',
-      '2. Измени ТОЛЬКО то, что прямо указано в инструкции. Всё остальное — слово в слово как в оригинале.',
-      '3. Не переформулируй, не улучшай, не сокращай другие разделы. Не добавляй то, о чём не просили.',
-      '4. Если инструкция неоднозначна — трактуй её минимально: меняй как можно меньше.',
-      '5. Ответ — ТОЛЬКО текст договора. Никаких пояснений, никаких вводных заголовков вроде «Обновлённый договор:». Сохрани markdown-форматирование оригинала: **жирные** заголовки разделов, нумерацию 1., 1.1., 1.1.1.',
+      BLOCK_EDIT_INSTRUCTION,
       '',
-      `Уровень защиты интересов пользователя: ${settings.protectionLevel}/90. При добавлении новых условий — формулируй в пользу клиента.`,
-      settings.customInstruction ? `Дополнительные требования: ${settings.customInstruction}` : '',
+      'ЛОГИЧЕСКАЯ СВЯЗНОСТЬ ПРАВКИ — ОБЯЗАТЕЛЬНО:',
+      'Правка не должна оставлять документ в противоречивом состоянии. Если задание меняет одну величину — найди и поправь ВСЕ зависимые от неё значения в затронутых блоках:',
+      '— меняешь проценты в разбивке платежа → пересчитай рублёвые суммы каждой части от общей стоимости (например, при цене 115 000 руб. доля 70% = 80 500 руб., 30% = 34 500 руб.); сумма всех частей должна равняться общей стоимости;',
+      '— удаляешь или добавляешь пункт в нумерованном списке → пересчитай нумерацию всех последующих пунктов подряд (3.2.1, 3.2.2, 3.2.3 без пропусков), верни их через REPLACE;',
+      '— меняешь срок/дату в одном месте → проверь, не упомянут ли этот же срок в связанных пунктах;',
+      '— меняешь роль/название стороны → поправь во всех затронутых пунктах.',
+      'Прежде чем вернуть операции, перечитай задание и убедись, что результат внутренне непротиворечив (суммы сходятся, нумерация сплошная, формулировки согласованы).',
+      '',
+      `Уровень защиты интересов пользователя: ${settings.protectionLevel}/90.`,
+      settings.customInstruction ? `Особые требования: ${settings.customInstruction}` : '',
     ].filter(Boolean).join('\n')
 
-    const userMessage = [
-      `ИНСТРУКЦИЯ (применить только это): ${instruction}`,
-      '',
-      'ТЕКУЩИЙ ТЕКСТ ДОГОВОРА (вернуть его полностью с применённым изменением):',
-      documentText || '(документ пуст — создай новый договор согласно инструкции)',
-    ].join('\n')
-
-    // Динамически считаем max_tokens: нужно вернуть как минимум столько же, сколько входящий документ
-    // ~1.5 символа на токен для русского текста + 30% запас на добавленный контент
-    const docTokensEstimate = Math.ceil((documentText.length || 1000) / 1.5)
-    const maxTokens = Math.max(docTokensEstimate + 2000, 8000)
+    const userMessage = `Задание: ${instruction}\n\nДокумент (пронумерованные блоки):\n${blocksToPromptText(blocks) || '(документ пуст)'}`
 
     const payload = {
       model: GIGACHAT_MODEL,
@@ -388,68 +902,330 @@ export const gigachatProvider: AIProvider = {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
       ],
-      max_tokens: maxTokens,
+      max_tokens: 16384,
       repetition_penalty: 1,
-      temperature: 0.3,
+      temperature: 0.25,
     }
 
-    yield* streamText(payload)
+    let aiResponse = ''
+    for await (const chunk of streamText(payload)) {
+      aiResponse += chunk
+    }
+
+    console.log('[editDocument] raw AI response length:', aiResponse.length, 'first 200:', aiResponse.slice(0, 200))
+
+    // Предохранитель от разрушительных правок: если результат внезапно стал
+    // кардинально короче оригинала — это почти наверняка ошибка модели
+    // (спутала диапазон блоков и стёрла полдоговора), а не настоящая команда
+    // «удали половину текста». Такую правку отклоняем, документ не трогаем.
+    // Текстовая длина (без HTML-тегов) — теги могут раздувать разницу.
+    const plainLen = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length
+    const originalLen = plainLen(doc)
+    const looksDestructive = (resultHtml: string): boolean => {
+      if (originalLen < 400) return false // короткие документы не проверяем
+      return plainLen(resultHtml) < originalLen * 0.5
+    }
+
+    // ── Основной путь: блочные операции ──
+    // Если ИИ процитировал anchor — applyBlockOps найдёт блок по содержимому
+    // сам, независимо от номера. Если anchor нет (или не нашёлся) — нужен
+    // номер именно в системе координат allBlocks, поэтому переводим номера
+    // из промпта (1-based в subset) обратно в полный массив заранее.
+    const ops = parseBlockOps(aiResponse)
+    if (ops.length > 0) {
+      const opsForAllBlocks = blockIndexMap
+        ? ops.map(op => ({
+            ...op,
+            from: blockIndexMap[op.from - 1] !== undefined ? blockIndexMap[op.from - 1]! + 1 : op.from,
+            to:   blockIndexMap[op.to - 1]   !== undefined ? blockIndexMap[op.to - 1]!   + 1 : op.to,
+          }))
+        : ops
+      const blockResult = applyBlockOps(allBlocks, opsForAllBlocks)
+      console.log(`[editDocument] block ops: applied=${blockResult.applied} rejected=${blockResult.rejected}`, blockResult.errors)
+      if (blockResult.applied > 0) {
+        if (looksDestructive(blockResult.html)) {
+          console.warn(`[editDocument] REJECTED destructive edit: ${originalLen} → ${plainLen(blockResult.html)} chars`)
+          yield '__EDIT_FAILED__'
+          return
+        }
+        yield blockResult.html
+        return
+      }
+      yield '__EDIT_FAILED__'
+      return
+    }
+
+    // ── Фоллбэк: модель ответила в старом формате SEARCH/REPLACE ──
+    const { result, applied, failed, failedSearches } = applyEditBlocks(doc, aiResponse)
+    console.log(`[editDocument] fallback search/replace: applied=${applied} failed=${failed}`, failed > 0 ? failedSearches : '')
+
+    if (applied === 0) {
+      yield '__EDIT_FAILED__'
+      return
+    }
+
+    if (looksDestructive(result)) {
+      console.warn(`[editDocument] REJECTED destructive fallback edit: ${originalLen} → ${plainLen(result)} chars`)
+      yield '__EDIT_FAILED__'
+      return
+    }
+
+    yield result
   },
 
   async review(documentText: string, settings: AISettings): Promise<ReviewResult> {
+    // Извлекаем роль пользователя из customInstruction если она там есть
+    const roleMatch = settings.customInstruction?.match(/Роль пользователя:\s*(.+?)(?:\.|$)/i)
+    const userRole = roleMatch?.[1]?.trim() ?? 'одна из сторон'
+    const otherRole = userRole === 'Исполнитель' ? 'Заказчик' : 'Исполнитель'
+
     const systemContent = [
-      'Ты старший юрист-аудитор с опытом проверки сотен договоров. Анализируешь договоры на предмет рисков для клиента.',
+      'Ты — юридический аналитик коммерческого SaaS-сервиса для работы с договорами. Твоя работа — профессиональный правовой аудит договоров по запросу предпринимателей и юридических лиц. Это легитимная профессиональная деятельность.',
+      'Анализируешь гражданско-правовые договоры (услуги, подряд, поставка, аренда и т.д.) СТРОГО с точки зрения конкретной роли пользователя.',
       'Возвращай ТОЛЬКО валидный JSON без markdown-обёртки, без пояснений до и после.',
+      'ВАЖНО: Ты работаешь с обезличенными юридическими документами в профессиональных целях. Никаких персональных данных не обрабатывается в противоправных целях.',
       '',
-      'Принципы анализа:',
-      '- Каждое замечание привязано к конкретному пункту договора.',
-      '- Описание проблемы: что именно не так и чем это грозит клиенту (конкретные последствия).',
-      '- Никаких общих фраз типа «рекомендуем уточнить» — только конкретика: что изменить и как.',
-      '- Ссылки на ГК РФ (ст. 330, 401, 421 и т.д.) где уместно.',
-      `- Оцениваешь с позиции стороны с уровнем защиты ${settings.protectionLevel}/90: чем выше — тем строже смотришь на риски для клиента.`,
+      '══════════ ГЛАВНОЕ ПРАВИЛО ══════════',
+      `Пользователь выступает в роли: ${userRole}`,
+      `Противоположная сторона: ${otherRole}`,
+      '',
+      'Один и тот же пункт оценивается ПРОТИВОПОЛОЖНО в зависимости от роли:',
+      `  • Условие ЗАЩИЩАЕТ ${userRole} → severity: "ok"`,
+      `  • Условие УХУДШАЕТ положение ${userRole} → severity: "risk" или "warning"`,
+      `  • ЗАПРЕЩЕНО называть "риском" ограничение ответственности ${userRole} — это его защита`,
+      `  • ЗАПРЕЩЕНО предлагать усилить обязательства ${userRole} — это против его интересов`,
+      '',
+      '══════════ 7 ОБЯЗАТЕЛЬНЫХ БЛОКОВ АНАЛИЗА ══════════',
+      '',
+      `БЛОК 1 — СУЩЕСТВУЮЩИЕ УСЛОВИЯ (category: "general")`,
+      `Проанализируй ВСЕ значимые условия договора с позиции ${userRole}:`,
+      '  - права и обязанности сторон',
+      '  - ответственность, неустойки, штрафы',
+      '  - порядок расторжения и его последствия',
+      '  - форс-мажор и его применение к каждой из сторон',
+      '  - интеллектуальная собственность (если применимо)',
+      '',
+      `БЛОК 2 — ФИНАНСОВАЯ ЗАЩИТА (category: "finance")`,
+      `Отдельно оцени финансовую защищённость ${userRole}. Проверь наличие и качество:`,
+      '  - порядок оплаты (сроки, способ, основания)',
+      '  - предоплата — есть ли, в каком размере',
+      '  - постоплата — условия и сроки',
+      '  - ответственность за просрочку оплаты (неустойка, % за каждый день)',
+      '  - механизм взыскания задолженности',
+      `  Если условие защищает финансовые интересы ${userRole} → severity: "ok"`,
+      `  Если финансовый риск для ${userRole} → severity: "risk"`,
+      `  Если финансовое условие отсутствует и его нужно добавить → severity: "warning", clause: "нет"`,
+      '',
+      `БЛОК 3 — СУДЕБНАЯ ПЕРСПЕКТИВА (category: "litigation")`,
+      `Оцени насколько договор позволит ${userRole} выиграть спор в суде. Проверь:`,
+      '  - наличие актов сдачи-приёмки',
+      '  - условие об автоматической приёмке (через N дней без замечаний)',
+      '  - юридически значимая переписка (email, ЭДО, какой канал)',
+      '  - доказуемость выполнения обязательств',
+      '  - подсудность (в каком суде рассматриваются споры, договорная подсудность)',
+      '  - претензионный порядок (срок ответа на претензию)',
+      `  Если условие помогает ${userRole} в суде → severity: "ok"`,
+      `  Если отсутствует важный для суда пункт → severity: "warning" или "risk", clause: "нет"`,
+      '',
+      `БЛОК 4 — ВОЗМОЖНОСТЬ ЗЛОУПОТРЕБЛЕНИЙ (category: "abuse")`,
+      `Проверь может ли ${otherRole} злоупотребить условиями договора. Ищи:`,
+      '  - бесконечные правки без ограничений по количеству и срокам',
+      '  - необоснованный отказ от приёмки без чётких критериев',
+      '  - право отказаться от оплаты при спорных основаниях',
+      '  - право в одностороннем порядке изменять ТЗ, объём, условия',
+      '  - право на одностороннее расторжение без компенсации',
+      `  Если злоупотребление возможно и это невыгодно ${userRole} → severity: "risk", importance: "high"`,
+      `  Если есть ограничители злоупотреблений → severity: "ok"`,
+      '',
+      `БЛОК 5 — ОТСУТСТВУЮЩИЕ УСЛОВИЯ (category: "missing")`,
+      `Выяви важные ОТСУТСТВУЮЩИЕ условия, которые усилили бы защиту ${userRole}:`,
+      '  Для каждого отсутствующего условия:',
+      '    clause: "нет"',
+      '    severity: "warning" или "risk" (в зависимости от критичности)',
+      '    recommendation: "Добавить"',
+      `    description: "Условие отсутствует. Рекомендуется добавить: [конкретная формулировка]"`,
+      '  Примеры типичных пропусков: ограничение кол-ва правок, автоматическая приёмка,',
+      '  юридически значимая переписка, порядок передачи результата, запрет переуступки,',
+      '  ответственность за разглашение конфиденциальных данных.',
+      '',
+      `БЛОК 6 — ПРОТИВОРЕЧИЯ (category: "general")`,
+      'Проверь наличие внутренних противоречий в договоре:',
+      '  - противоречия между разделами (например, срок в разд.2 vs срок в разд.4)',
+      '  - условия, которые нивелируют друг друга',
+      '  - ссылки на несуществующие приложения или пункты',
+      `  Противоречие, вредящее ${userRole} → severity: "risk"`,
+      `  Противоречие нейтральное → severity: "warning"`,
+      '',
+      `БЛОК 7 — БАЛАНС ИНТЕРЕСОВ (category: "general")`,
+      'Оцени в целом: в чьих интересах составлен договор.',
+      `  Условие явно защищает ${otherRole} → severity: "warning", укажи это прямо`,
+      `  Условие явно защищает ${userRole} → severity: "ok"`,
+      '',
+      // Орфография теперь считается отдельным запросом — здесь не нужна
+
+      '══════════ УРОВЕНЬ ЗНАЧИМОСТИ (importance) ══════════',
+      'high   — критично для финансов, репутации или судебной перспективы',
+      'medium — важно, но не критично',
+      'low    — рекомендация по улучшению',
+      '',
+      '══════════ ЗАПРЕЩЕНО ══════════',
+      `  ✗ Предлагать усилить ответственность ${userRole}`,
+      `  ✗ Называть "риском" защитные клаузулы ${userRole}`,
+      '  ✗ Общие фразы без конкретики ("рекомендуем уточнить")',
+      '  ✗ Игнорировать отсутствующие условия',
+      '',
+      'Ссылки на ГК РФ (ст. 330, 401, 421, 450, 723 и т.д.) где уместно.',
     ].join('\n')
 
     const prompt = [
       'Проверь договор и верни JSON строго в следующем формате:',
       '{',
-      '  "score": 72,',
-      '  "summary": "2-3 предложения: тип договора, общая оценка, главный риск",',
+      '  "score": 58,',
+      `  "summary": "3-4 предложения: (1) тип договора; (2) в чьих интересах составлен — прямо назови сторону; (3) насколько хорошо защищает ${userRole} — конкретно; (4) главные условия которые нужно усилить или добавить.",`,
+      '  "spellCount": 3,',
       '  "issues": [',
       '    {',
       '      "id": "1",',
       '      "severity": "risk",',
-      '      "title": "Короткое название проблемы (до 60 символов)",',
-      '      "description": "Конкретная проблема + последствия для клиента + как исправить. Минимум 2 предложения.",',
-      '      "clause": "п. 3.2"',
+      '      "importance": "high",',
+      '      "category": "abuse",',
+      `      "title": "Заказчик может требовать правки бесконечно",`,
+      `      "description": "П. 4.3 не ограничивает количество итераций правок и срок их внесения. На практике это позволяет Заказчику затягивать приёмку неограниченно долго и уклоняться от оплаты. Рекомендуется: добавить '…не более 3 итераций правок в течение 5 рабочих дней каждая'.",`,
+      '      "clause": "п. 4.3",',
+      '      "recommendation": "Исправить"',
+      '    },',
+      '    {',
+      '      "id": "2",',
+      '      "severity": "warning",',
+      '      "importance": "high",',
+      '      "category": "missing",',
+      '      "title": "Отсутствует автоматическая приёмка",',
+      `      "description": "Условие об автоматической приёмке отсутствует. Без него Заказчик может молчать и не подписывать акт — Исполнитель не получит оплату и не докажет факт сдачи работ. Рекомендуется добавить: 'Если в течение 5 рабочих дней после передачи результата Заказчик не подписал акт и не направил письменный мотивированный отказ, работы считаются принятыми'.",`,
+      '      "clause": "нет",',
+      '      "recommendation": "Добавить"',
       '    }',
       '  ]',
       '}',
       '',
-      'Правила:',
-      '- score: 0..100 (100 = идеальный договор, 0 = нельзя подписывать)',
-      '- issues: от 4 до 12 замечаний',
-      '- severity: risk (серьёзный риск — красный), warning (замечание — жёлтый), ok (плюс — зелёный)',
-      '- Минимум 1 пункт ok (что сделано хорошо в договоре)',
-      '- clause: точный номер пункта из договора или «нет» если пункт отсутствует',
+      '═══ ПРАВИЛА ═══',
+      `score: 0..100 — оценка ИМЕННО с позиции ${userRole} (100 = максимально выгоден ${userRole})`,
+      'spellCount: число ошибок из отдельной проверки орфографии (подставляется программно, пиши 0)',
+      'issues: от 10 до 18 пунктов — охватывай ВСЕ 7 блоков анализа, не только общие условия',
+      'severity: risk / warning / ok / neutral',
+      'importance: high / medium / low',
+      'category: "general" | "finance" | "litigation" | "abuse" | "missing"',
+      'recommendation: "Оставить" | "Усилить" | "Исправить" | "Добавить" | "Нейтрально"',
+      `Минимум 3 пункта severity:"ok" — реальные защитные условия ${userRole}`,
+      `Минимум 2 пункта category:"missing" — отсутствующие условия которых нет в тексте`,
+      `Минимум 1 пункт category:"finance" и минимум 1 пункт category:"litigation"`,
+      `Минимум 1 пункт category:"abuse" — возможность злоупотребления со стороны ${otherRole}`,
+      `clause: точный номер ("п. 3.2") или "нет" если пункт отсутствует`,
       '',
-      settings.customInstruction ? `Особые требования при проверке: ${settings.customInstruction}\n` : '',
+      settings.customInstruction ? `Дополнительный контекст: ${settings.customInstruction}\n` : '',
       'Текст договора:',
       documentText || '(пустой текст — укажи в summary что документ пуст, score=0, 1 issue severity=risk)',
     ].filter(Boolean).join('\n')
 
+    // GigaChat-2 для review: контекст ~32К токенов ≈ 40К символов текста документа.
+    // Для больших документов умно обрезаем: сохраняем основной договор,
+    // отсекаем типовые приложения/регламенты которые обычно идут в конце.
+    const MAX_DOC_CHARS = 40_000
+    let docForReview = documentText
+    if (documentText.length > MAX_DOC_CHARS) {
+      // Пробуем найти конец основного договора (начало приложений)
+      const appendixStart = documentText.search(
+        /\n(ПРИЛОЖЕНИЕ|Приложение|ПРИЛОЖЕНИЕ\s*№|Приложение\s*№|РЕГЛАМЕНТ|Регламент)\s*[№\d]/
+      )
+      if (appendixStart > 10_000 && appendixStart < MAX_DOC_CHARS) {
+        // Берём основной договор + уведомление об обрезке
+        docForReview = documentText.slice(0, appendixStart) +
+          '\n\n[Приложения к договору не включены в анализ — анализируется основной текст договора]'
+      } else {
+        // Просто берём первые 40К
+        docForReview = documentText.slice(0, MAX_DOC_CHARS) +
+          '\n\n[Текст обрезан — показаны первые 40 000 символов]'
+      }
+    }
+    const finalPrompt = prompt.replace(
+      documentText || '(пустой текст — укажи в summary что документ пуст, score=0, 1 issue severity=risk)',
+      docForReview || '(пустой текст — укажи в summary что документ пуст, score=0, 1 issue severity=risk)',
+    )
+
+    // Сначала основной юридический анализ, потом орфография
+    // (параллельный запуск давал 429 — слишком много одновременных запросов)
     const content = await completeText({
-      model: GIGACHAT_MODEL,
+      model: GIGACHAT_REVIEW_MODEL,
       messages: [
         { role: 'system', content: systemContent },
-        { role: 'user', content: prompt },
+        { role: 'user', content: finalPrompt },
       ],
-      max_tokens: 2500,
+      max_tokens: 6000,
       repetition_penalty: 1,
-      temperature: 0.15,
+      temperature: 0.1,
     })
 
-    const parsedJson = JSON.parse(extractJson(content))
-    return normalizeReview(parsedJson)
+    // Пауза перед орфографией — даём GigaChat-2-Max «отдышаться» после большого запроса
+    await new Promise((r) => setTimeout(r, 5000))
+    const spellCount = await checkSpelling(documentText).catch(() => 0)
+
+    // Определяем отказ фильтра безопасности GigaChat
+    const isSafetyRefusal = (text: string) =>
+      text.includes('генеративные языковые модели') ||
+      text.includes('чувствите') ||
+      text.includes('не могу выполнить') ||
+      text.includes('не могу помочь') ||
+      text.includes('К сожалению, я не') ||
+      text.includes('отказываюсь') ||
+      (!text.includes('{') && text.length > 50)
+
+    // Если сработал фильтр — повторяем с более нейтральным промптом
+    let finalContent = content
+    if (isSafetyRefusal(content)) {
+      await new Promise((r) => setTimeout(r, 2000))
+      const fallbackPrompt = [
+        `Выполни юридический аудит гражданско-правового договора. Роль клиента: ${userRole}.`,
+        'Верни JSON:',
+        `{"score":0,"summary":"","spellCount":0,"issues":[{"id":"1","severity":"warning","importance":"medium","category":"general","title":"","description":"","clause":"п. 1","recommendation":"Проверить"}]}`,
+        '',
+        'Поля: score 0-100, summary 2-3 предложения об условиях договора, issues — список замечаний.',
+        'severity: risk/warning/ok/neutral, importance: high/medium/low, category: general/finance/litigation/abuse/missing',
+        '',
+        'Текст договора для анализа:',
+        documentText.slice(0, 30_000),
+      ].join('\n')
+
+      finalContent = await completeText({
+        model: GIGACHAT_FAST_MODEL,  // GigaChat-2 — менее строгий фильтр, подходит для fallback
+        messages: [
+          { role: 'system', content: 'Ты юридический аналитик. Анализируй гражданско-правовые договоры. Отвечай только JSON.' },
+          { role: 'user', content: fallbackPrompt },
+        ],
+        max_tokens: 5000,
+        repetition_penalty: 1,
+        temperature: 0.1,
+      })
+    }
+
+    // Защищённый парсинг — если JSON обрезан, пробуем починить
+    let parsedJson: unknown
+    try {
+      parsedJson = JSON.parse(extractJson(finalContent))
+    } catch {
+      const raw = extractJson(finalContent)
+      const fixed = raw.trimEnd()
+        .replace(/,\s*$/, '')
+        + (raw.includes('"issues"') && !raw.trimEnd().endsWith(']') ? ']' : '')
+        + '}'
+      try {
+        parsedJson = JSON.parse(fixed)
+      } catch {
+        throw new Error(`Не удалось проанализировать документ. GigaChat ответил: ${finalContent.slice(0, 150)}`)
+      }
+    }
+
+    const result = normalizeReview(parsedJson)
+    result.spellCount = spellCount
+    return result
   },
 
   async *generate(
@@ -477,9 +1253,10 @@ export const gigachatProvider: AIProvider = {
       headerBlock = `Стороны: Пользователь («${role1}») и ${counterpartyData.name} («${role2}»)`
     }
 
-    // Для русского текста ~1.5 символа на токен + 50% запас сверху
-    const estimatedTokens = Math.ceil((settings.targetSize / 1.5) * 1.5)
-    const maxTokens = Math.max(estimatedTokens, 8000)
+    // Для русского текста ~1.5 символа на токен + 20% запас
+    // GigaChat-2-Max: максимум 32 768 токенов на вывод
+    const estimatedTokens = Math.ceil(settings.targetSize / 1.5 * 1.2)
+    const maxTokens = Math.min(Math.max(estimatedTokens, 8000), 32768)
 
     const isChildDoc = parentDocContent && parentDocContent.trim().length > 0
     const parentSnippet = isChildDoc ? parentDocContent!.slice(0, 10000) : null
@@ -514,7 +1291,7 @@ export const gigachatProvider: AIProvider = {
         '3. НЕ добавляй новые разделы, НЕ удаляй существующие, НЕ переформулируй условия бланка.',
         '4. Заменяй ВСЕ заполнители: [Исполнитель], [Заказчик], «____», «№ ___», «__.__.__», «{дата}», «[сумма]» и подобные — реальными данными из задания.',
         '5. Если в задании нет конкретной даты — поставь «___ ____________ 202__ г.». Если нет суммы — поставь «__________ руб. 00 коп.».',
-        '6. Верни ТОЛЬКО текст заполненного договора — без пояснений, без вводных слов. Используй markdown: **Заголовки разделов** жирным, нумерацию 1., 1.1., 1.1.1.',
+        '6. Верни ТОЛЬКО HTML-текст заполненного договора — без пояснений. Заголовки разделов: <h2>, пункты: <p>, таблицы: <table>. ЗАПРЕЩЕНО markdown.',
       ].join('\n')
 
       const userPrompt = [
@@ -569,21 +1346,21 @@ export const gigachatProvider: AIProvider = {
           '11. Заключительные положения (изменения только письменно, количество экземпляров)',
           '12. Реквизиты и подписи сторон',
           '',
-          'ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ К НУМЕРАЦИИ:',
-          'Каждый раздел состоит из нумерованных подпунктов. Пример правильной структуры:',
-          '**1. ПРЕДМЕТ ДОГОВОРА**',
-          '1.1. Исполнитель обязуется...',
-          '1.2. Результатом оказания услуг является...',
-          '1.3. Услуги оказываются по адресу...',
+          'ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ К НУМЕРАЦИИ И ФОРМАТУ HTML:',
+          'Каждый раздел — тег <h2> + пункты в тегах <p>. Пример:',
+          '<h2>1. ПРЕДМЕТ ДОГОВОРА</h2>',
+          '<p>1.1. Исполнитель обязуется оказать услуги.</p>',
+          '<p>1.2. Результатом оказания услуг является...</p>',
+          '<p>1.3. Услуги оказываются по адресу...</p>',
           '',
-          '**2. ПРАВА И ОБЯЗАННОСТИ СТОРОН**',
-          '2.1. Исполнитель обязан:',
-          '2.1.1. выполнить...',
-          '2.1.2. предоставить...',
-          '2.2. Заказчик обязан:',
-          '2.2.1. оплатить...',
+          '<h2>2. ПРАВА И ОБЯЗАННОСТИ СТОРОН</h2>',
+          '<p>2.1. Исполнитель обязан:</p>',
+          '<p>2.1.1. выполнить работу в срок;</p>',
+          '<p>2.1.2. предоставить результат.</p>',
+          '<p>2.2. Заказчик обязан:</p>',
+          '<p>2.2.1. оплатить услуги;</p>',
           '',
-          'ЗАПРЕЩЕНО писать текст внутри раздела без нумерации подпунктов. Каждое условие — отдельный пронумерованный подпункт.',
+          'ЗАПРЕЩЕНО: markdown-символы (**, *, #). Каждый пункт — отдельный <p>.',
         ].join('\n')
 
     const systemPrompt = isChildDoc
@@ -599,15 +1376,18 @@ export const gigachatProvider: AIProvider = {
           '',
           `ОБЯЗАТЕЛЬНЫЙ МИНИМАЛЬНЫЙ ОБЪЁМ: НЕ МЕНЕЕ ${settings.targetSize} знаков.`,
           'Верни ТОЛЬКО текст документа — без пояснений, без комментариев.',
-          'ФОРМАТИРОВАНИЕ: используй markdown — заголовки разделов выдели **жирным**, нумерацию строй через 1., 1.1., 1.1.1. Названия разделов пиши заглавными буквами и **жирно**.',
+          'ФОРМАТИРОВАНИЕ — СТРОГО HTML: заголовки разделов в <h2>, пункты в <p>, таблицы в <table>. Нумерация 1.1. 1.2. в тексте <p>. ЗАПРЕЩЕНО использовать markdown-символы. ЗАПРЕЩЕНО inline-стили.',
         ].join('\n')
       : [
-          '=== ФОРМАТ ВЫВОДА — СОБЛЮДАТЬ СТРОГО ===',
-          'Договор состоит из разделов. Каждый раздел — это заголовок + нумерованные подпункты.',
-          'Подпункты нумеруются через точку: 1.1. 1.2. 1.3. — для раздела 1; 2.1. 2.2. — для раздела 2; и т.д.',
-          'ЗАПРЕЩЕНО писать обычные абзацы внутри раздела. Каждое условие — отдельный подпункт с номером.',
-          'ЗАПРЕЩЕНО использовать маркированные списки (- или *).',
-          'ЗАПРЕЩЕНО нумеровать подпункты с нуля (1., 2., 3.) внутри раздела — только 2.1., 2.2., 2.3.',
+          '=== ФОРМАТ ВЫВОДА — HTML, СОБЛЮДАТЬ СТРОГО ===',
+          'Договор состоит из разделов. Каждый раздел — это <h2>заголовок</h2> + пункты в <p>.',
+          'Подпункты нумеруются через точку: 1.1. 1.2. 1.3. — для раздела 1; 2.1. 2.2. — для раздела 2.',
+          'Каждый пункт и подпункт — отдельный тег <p>. ЗАПРЕЩЕНО несколько пунктов в одном <p>.',
+          'ЗАПРЕЩЕНО: markdown-символы (**, *, #, -, >), маркированные списки.',
+          'ЗАПРЕЩЕНО: нумеровать подпункты как (1., 2., 3.) внутри раздела — только 2.1., 2.2., 2.3.',
+          'ЗАПРЕЩЕНО: римские цифры (I., II., III.) — ТОЛЬКО арабские: 1., 2., 3.',
+          'ЗАПРЕЩЕНО: выделять преамбулу как раздел. Преамбула — вводный <p> перед первым <h2>.',
+          'ЗАПРЕЩЕНО: блоки ```html и ```. Возвращай ТОЛЬКО HTML-код.',
           '',
           'Пример ПРАВИЛЬНОГО формата:',
           '**1. ПРЕДМЕТ ДОГОВОРА**',
@@ -677,7 +1457,7 @@ export const gigachatProvider: AIProvider = {
           '',
           `ОБЯЗАТЕЛЬНЫЙ МИНИМАЛЬНЫЙ ОБЪЁМ: НЕ МЕНЕЕ ${settings.targetSize} знаков.`,
           'Верни ТОЛЬКО текст документа — без пояснений, без комментариев.',
-          'ФОРМАТИРОВАНИЕ: используй markdown — заголовки разделов выдели **жирным**, нумерацию строй через 1., 1.1., 1.1.1. Названия разделов пиши заглавными буквами и **жирно**.',
+          'ФОРМАТИРОВАНИЕ — СТРОГО HTML: заголовки разделов в <h2>, пункты в <p>, таблицы в <table>. Нумерация (1.1., 1.2.) пишется в тексте внутри <p>. ЗАПРЕЩЕНО markdown-символы (**, *, #). ЗАПРЕЩЕНО inline-стили. ЗАПРЕЩЕНО нумеровать разделы римскими цифрами.',
         ].join('\n')
 
     const protectionNote = settings.protectionLevel >= 60
@@ -697,26 +1477,23 @@ export const gigachatProvider: AIProvider = {
       protectionNote,
       `МИНИМАЛЬНЫЙ ОБЪЁМ: ${settings.targetSize} знаков.`,
       settings.customInstruction ? `\nОБЯЗАТЕЛЬНЫЕ ДОПОЛНИТЕЛЬНЫЕ УСЛОВИЯ (включить в текст договора):\n${settings.customInstruction}` : '',
-      'ВАЖНО: НЕ добавляй в конец договора раздел с реквизитами сторон (ИНН, КПП, банковские счета, подписи). Система добавит его автоматически из базы данных. Заканчивай текст договора заключительными положениями.',
+      '\n⛔ СТОП — КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО: добавлять раздел «Реквизиты сторон», «Место нахождения», «Банковские реквизиты», «Подписи сторон» или любой аналог. НЕ пиши ИНН, КПП, ОГРН, расчётные счета, БИК, адреса в конце договора. Система автоматически добавит реквизиты при скачивании. Последний раздел договора — «Заключительные положения» или «Прочие условия». После него ничего.',
       '\nЯзык: только русский.',
-      '\n=== ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ВЫВОДА ===',
-      'СТРУКТУРА НУМЕРАЦИИ — строго как в юридическом договоре:',
-      '**1. ПРЕДМЕТ ДОГОВОРА**',
-      '1.1. Исполнитель обязуется...',
-      '1.2. Результатом является...',
-      '1.3. Услуги оказываются...',
+      '\n=== ОБЯЗАТЕЛЬНЫЙ ФОРМАТ — HTML ===',
+      'Возвращай ТОЛЬКО HTML. ЗАПРЕЩЕНО markdown-символы (**, *, #).',
+      '<h2>1. ПРЕДМЕТ ДОГОВОРА</h2>',
+      '<p>1.1. Исполнитель обязуется...</p>',
+      '<p>1.2. Результатом является...</p>',
       '',
-      '**2. ПРАВА И ОБЯЗАННОСТИ СТОРОН**',
-      '2.1. Исполнитель обязан:',
-      '2.1.1. выполнить...',
-      '2.1.2. предоставить...',
-      '2.2. Заказчик обязан:',
-      '2.2.1. оплатить...',
+      '<h2>2. ПРАВА И ОБЯЗАННОСТИ СТОРОН</h2>',
+      '<p>2.1. Исполнитель обязан:</p>',
+      '<p>2.1.1. выполнить...</p>',
+      '<p>2.2. Заказчик обязан:</p>',
+      '<p>2.2.1. оплатить...</p>',
       '',
-      'ЗАПРЕЩЕНО: писать подпункты как "1.", "2.", "3." — только "2.1.", "2.2.", "2.3."',
-      'ЗАПРЕЩЕНО: писать свободный текст внутри раздела без нумерации.',
-      'ЗАПРЕЩЕНО: использовать markdown-списки (- пункт, * пункт).',
-      'Минимум 5 подпунктов (X.1., X.2., ...) в каждом разделе.',
+      'ЗАПРЕЩЕНО: "1.", "2." как подпункты — только "2.1.", "2.2."',
+      'ЗАПРЕЩЕНО: markdown-списки, блоки ```.',
+      'Минимум 5 подпунктов <p> в каждом разделе.',
     ].filter(Boolean).join('\n')
 
     yield* streamText({
@@ -729,5 +1506,67 @@ export const gigachatProvider: AIProvider = {
       repetition_penalty: 1.05,
       temperature: 0.4,
     })
+  },
+
+  async extractParties(documentText: string) {
+    const systemContent = [
+      'Ты юридический парсер. Твоя задача — извлечь реквизиты сторон договора из текста.',
+      'Возвращай ТОЛЬКО валидный JSON без markdown-обёртки, без пояснений.',
+    ].join('\n')
+
+    const prompt = [
+      'Извлеки реквизиты обеих сторон договора и верни строго в формате:',
+      '{',
+      '  "docTitle": "Договор оказания услуг №1 от 01.01.2024",',
+      '  "party1": {',
+      '    "name": "ООО \\"Ромашка\\"",',
+      '    "type": "ООО",',
+      '    "role": "customer",',
+      '    "inn": "7712345678",',
+      '    "kpp": "771201001",',
+      '    "ogrn": "1027700000001",',
+      '    "legalAddress": "г. Москва, ул. Ленина, д. 1",',
+      '    "bankName": "ПАО Сбербанк",',
+      '    "bik": "044525225",',
+      '    "checkingAccount": "40702810000000000001",',
+      '    "correspondentAccount": "30101810400000000225",',
+      '    "signatorName": "Иванов Иван Иванович",',
+      '    "signatorPosition": "Генеральный директор",',
+      '    "signatorBasis": "Устав"',
+      '  },',
+      '  "party2": { /* аналогично, "role": "executor" */ }',
+      '}',
+      '',
+      'Правила:',
+      '- Если реквизит не найден — ставь null',
+      '- type: "ООО", "АО", "ПАО", "ЗАО", "ИП", "АНО" или "Физлицо"',
+      '- role: "customer" (Заказчик) или "executor" (Исполнитель/Подрядчик/Поставщик) — определяй по тексту договора. Кто платит — customer, кто выполняет — executor.',
+      '- Для ИП в поле name пиши полностью: "ИП Иванов Иван Иванович"',
+      '- docTitle: первое найденное название договора в документе, или null',
+      '- Не придумывай данные — только то что есть в тексте',
+      '',
+      'Текст договора:',
+      documentText.slice(0, 6000), // берём первые 6000 символов где обычно реквизиты
+    ].join('\n')
+
+    const content = await completeText({
+      model: GIGACHAT_FAST_MODEL,  // extractParties — лёгкая задача, не нужен Max
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 1500,
+      repetition_penalty: 1,
+      temperature: 0.1,
+    })
+
+    const raw = JSON.parse(extractJson(content))
+
+    // Нормализуем — гарантируем наличие party1 и party2
+    return {
+      docTitle: raw.docTitle ?? null,
+      party1: raw.party1 ?? { name: 'Сторона 1' },
+      party2: raw.party2 ?? { name: 'Сторона 2' },
+    }
   },
 }

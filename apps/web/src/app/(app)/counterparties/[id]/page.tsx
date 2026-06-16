@@ -11,6 +11,7 @@ import { Field, Input } from '@/components/ui/input'
 import { SignatoryModal, SignatoryData } from '@/components/counterparties/signatory-modal'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { validateInn, validateBik, validateCheckingAccount } from '@/lib/validation'
+import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -428,27 +429,23 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
         </Card>
 
         <Card>
-          <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Как в документе</p>
-          <div className="text-[11px] text-[var(--ink-2)] leading-[1.7]">
-            <p className="text-[10px] text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px] font-medium">ЗАКАЗЧИК</p>
-            <p className="font-medium">{cp.name}</p>
-            {cp.inn && <p>ИНН {cp.inn}{cp.kpp ? ` / КПП ${cp.kpp}` : ''}</p>}
-            {cp.legalAddress && <p>{cp.legalAddress}</p>}
-            {cp.bankDetails[0] && (
-              <>
-                <p className="mt-[6px]">р/с {cp.bankDetails[0].checkingAccount}</p>
-                <p>{cp.bankDetails[0].bankName}</p>
-                <p>БИК {cp.bankDetails[0].bik}</p>
-                {cp.bankDetails[0].correspondentAccount && <p>к/с {cp.bankDetails[0].correspondentAccount}</p>}
-              </>
-            )}
-            {cp.signatories[0] && (
-              <>
-                <div className="border-t border-dashed border-[var(--line)] mt-[6px] pt-[6px]" />
-                <p>{cp.signatories[0].position} {cp.signatories[0].signatureName}</p>
-              </>
-            )}
-          </div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-4)] mb-[12px]">Вид в договоре</p>
+          <RequisitesPreview
+            data={{
+              type: (editing ? form.kpp : cp.kpp) ? 'COMPANY' : 'SOLE_PROPRIETOR',
+              name: editing ? form.name : cp.name,
+              inn: editing ? form.inn : cp.inn,
+              kpp: editing ? form.kpp : cp.kpp,
+              ogrn: editing ? form.ogrn : cp.ogrn,
+              legalAddress: editing ? form.legalAddress : cp.legalAddress,
+              signatorName: cp.signatories[0]?.fullName ?? null,
+              signatorPosition: cp.signatories[0]?.position ?? null,
+              bankName: editing ? form.bankName : cp.bankDetails[0]?.bankName,
+              bik: editing ? form.bik : cp.bankDetails[0]?.bik,
+              checkingAccount: editing ? form.checkingAccount : cp.bankDetails[0]?.checkingAccount,
+              correspondentAccount: editing ? form.correspondentAccount : cp.bankDetails[0]?.correspondentAccount,
+            } satisfies RequisitesData}
+          />
         </Card>
 
         {cp.signatories.length > 1 && (

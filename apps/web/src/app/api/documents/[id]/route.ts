@@ -44,7 +44,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   })
 
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  return NextResponse.json(doc)
+  const safe = JSON.parse(JSON.stringify(doc, (_k, v) => typeof v === 'bigint' ? Number(v) : v))
+  return NextResponse.json(safe)
 }
 
 // PATCH /api/documents/:id — обновить название, номер, дату

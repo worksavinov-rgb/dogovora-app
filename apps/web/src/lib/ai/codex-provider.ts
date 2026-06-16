@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { sep } from 'node:path'
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, ReviewResult } from './types'
+import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
 
 const CODEX_CLI_COMMAND = process.env['CODEX_CLI_COMMAND'] ?? 'codex'
 const CODEX_MODEL = process.env['CODEX_MODEL'] ?? ''
@@ -135,14 +136,18 @@ function normalizeReview(raw: unknown): ReviewResult {
   const issues = parsed.issues.map((issue) => ({
     id: String(issue.id),
     severity: issue.severity,
+    importance: (issue as { importance?: 'high' | 'medium' | 'low' }).importance ?? 'medium' as const,
     title: issue.title,
     description: issue.description,
     clause: issue.clause,
+    recommendation: (issue as { recommendation?: string }).recommendation,
+    category: (issue as { category?: string }).category,
   }))
 
   return {
     score: Math.round(parsed.score),
     summary: parsed.summary,
+    spellCount: (parsed as { spellCount?: number }).spellCount ?? 0,
     issues,
     riskCount: issues.filter((issue) => issue.severity === 'risk').length,
     warningCount: issues.filter((issue) => issue.severity === 'warning').length,
@@ -173,22 +178,33 @@ export const codexProvider: AIProvider = {
   },
 
   async *editDocument(documentText: string, instruction: string, settings: AISettings) {
+    const blocks = splitHtmlBlocks(documentText)
+
     const prompt = [
       buildBaseInstruction(settings),
       '',
       'Задача: применить инструкцию пользователя к договору.',
-      'Верни ТОЛЬКО полный обновлённый текст договора.',
-      'Без markdown, без пояснений, без преамбулы и без списка изменений.',
-      'Сохрани структуру исходного договора и примени изменение во всех релевантных местах.',
       'Если инструкция просит заменить или указать сторону "везде", проверь преамбулу, реквизиты, подписи, приложения и все шаблонные плейсхолдеры.',
+      '',
+      BLOCK_EDIT_INSTRUCTION,
       '',
       `Инструкция пользователя: ${instruction}`,
       '',
-      'Текущий текст договора:',
-      documentText || '(документ пуст)',
+      'Документ (пронумерованные блоки):',
+      blocksToPromptText(blocks) || '(документ пуст)',
     ].join('\n')
 
-    yield* streamText(stripMarkdownFence(await runCodex(prompt)))
+    const aiResponse = stripMarkdownFence(await runCodex(prompt))
+    const ops = parseBlockOps(aiResponse)
+    const { html, applied, rejected, errors } = applyBlockOps(blocks, ops)
+    console.log(`[codex editDocument] ops=${ops.length} applied=${applied} rejected=${rejected}`, errors)
+
+    if (applied === 0) {
+      yield '__EDIT_FAILED__'
+      return
+    }
+
+    yield* streamText(html)
   },
 
   async review(documentText: string, settings: AISettings): Promise<ReviewResult> {
@@ -219,5 +235,24 @@ export const codexProvider: AIProvider = {
     ].join('\n')
 
     yield* streamText(stripMarkdownFence(await runCodex(prompt)))
+  },
+
+  async extractParties(documentText: string) {
+    const prompt = [
+      'Извлеки реквизиты обеих сторон договора и верни строго в формате JSON:',
+      '{"docTitle":null,"party1":{"name":"","type":null,"inn":null,"kpp":null,"ogrn":null,"legalAddress":null,"bankName":null,"bik":null,"checkingAccount":null,"correspondentAccount":null,"signatorName":null,"signatorPosition":null,"signatorBasis":null},"party2":{...}}',
+      'Если реквизит не найден — ставь null. Не придумывай данные.',
+      '',
+      'Текст договора:',
+      documentText.slice(0, 6000),
+    ].join('\n')
+
+    const content = await runCodex(prompt)
+    const raw = JSON.parse(extractJson(content))
+    return {
+      docTitle: raw.docTitle ?? null,
+      party1: raw.party1 ?? { name: 'Сторона 1' },
+      party2: raw.party2 ?? { name: 'Сторона 2' },
+    }
   },
 }

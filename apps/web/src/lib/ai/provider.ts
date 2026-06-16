@@ -22,6 +22,11 @@ const codexProviderProxy: AIProvider = {
     const { codexProvider } = await import('./codex-provider')
     yield* codexProvider.generate(description, counterpartyName, settings)
   },
+
+  async extractParties(documentText) {
+    const { codexProvider } = await import('./codex-provider')
+    return codexProvider.extractParties(documentText)
+  },
 }
 
 export function getAIProvider(): AIProvider {

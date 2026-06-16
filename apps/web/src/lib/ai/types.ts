@@ -51,10 +51,13 @@ export interface AIMessage {
 
 export interface ReviewIssue {
   id: string
-  severity: 'risk' | 'warning' | 'ok'
+  severity: 'risk' | 'warning' | 'ok' | 'neutral'
+  importance: 'high' | 'medium' | 'low'   // Высокий / Средний / Низкий
   title: string
   description: string
-  clause: string  // "п. 7.5" / "разд. 4"
+  clause: string        // "п. 7.5" / "разд. 4" / "нет" (если пункт отсутствует)
+  recommendation?: string  // "Оставить", "Усилить", "Исправить", "Добавить", "Нейтрально"
+  category?: string    // "finance" | "litigation" | "abuse" | "missing" | "general"
 }
 
 export interface ReviewResult {
@@ -62,6 +65,7 @@ export interface ReviewResult {
   riskCount: number
   warningCount: number
   okCount: number
+  spellCount: number      // орфографические + пунктуационные ошибки
   issues: ReviewIssue[]
   summary: string
 }
@@ -74,6 +78,30 @@ export interface ReviewResult {
 export interface EditResult {
   updatedDocument: string
   explanation: string
+}
+
+/** Данные стороны договора, извлечённые из текста */
+export interface ExtractedParty {
+  name: string
+  inn?: string | null
+  kpp?: string | null
+  ogrn?: string | null
+  legalAddress?: string | null
+  bankName?: string | null
+  bik?: string | null
+  checkingAccount?: string | null
+  correspondentAccount?: string | null
+  signatorName?: string | null
+  signatorPosition?: string | null
+  signatorBasis?: string | null  // «Устав», «Доверенность №...» и т.д.
+  type?: string | null           // «ООО» | «ИП» | «АО» | «Физлицо» и т.д.
+  role?: 'customer' | 'executor' | null  // роль в договоре по тексту документа
+}
+
+export interface ExtractPartiesResult {
+  party1: ExtractedParty   // первая сторона в договоре
+  party2: ExtractedParty   // вторая сторона в договоре
+  docTitle?: string | null // название договора, если найдено
 }
 
 export interface AIProvider {
@@ -97,6 +125,9 @@ export interface AIProvider {
 
   /** Проверка документа на риски */
   review(documentText: string, settings: AISettings): Promise<ReviewResult>
+
+  /** Извлечение реквизитов сторон из текста договора */
+  extractParties(documentText: string): Promise<ExtractPartiesResult>
 
   /** Генерация первого черновика */
   generate(

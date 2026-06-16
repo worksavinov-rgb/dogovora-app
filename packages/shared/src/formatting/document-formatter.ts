@@ -99,7 +99,7 @@ function stripAIRequisites(text: string): string {
     /^\d+\.\s*Место\s+нахождения/i,
   ]
   for (let i = 0; i < lines.length; i++) {
-    const c = lines[i].replace(/\*\*/g, '').replace(/\*/g, '').trim()
+    const c = lines[i]!.replace(/\*\*/g, '').replace(/\*/g, '').trim()
     if (cutPatterns.some(p => p.test(c))) {
       return lines.slice(0, i).join('\n').trimEnd()
     }
