@@ -225,14 +225,159 @@ function convertMdLines(md: string): string {
     .join('\n')
 }
 
-// ─── buildRequisitesHtml ──────────────────────────────────────────────────────
+// ─── buildContractPreambleHtml ─────────────────────────────────────────────────
 
 import type { CounterpartyData, UserProfileData } from './ai/types'
+
+const TYPE_RU: Record<string, string> = {
+  SOLE_PROPRIETOR: 'Индивидуальный предприниматель',
+  COMPANY: 'Общество с ограниченной ответственностью',
+  INDIVIDUAL: '',
+}
+
+function partyFullName(name: string, type: string): string {
+  const t = TYPE_RU[type] ?? type
+  if (/^(ИП|ООО|АО|ПАО|ЗАО|АНО|Общество|Индивидуальный|Акционерное|Публичное|Частное)\b/.test(name)) return name
+  if (type === 'SOLE_PROPRIETOR') return `Индивидуальный предприниматель ${name}`
+  if (!t) return name
+  return `${t} ${name}`
+}
+
+function buildBasisPhrase(
+  type: string,
+  ogrn: string | null | undefined,
+  signatorBasis: string | null | undefined,
+  ogrnDate?: string | null,
+): string {
+  if (signatorBasis && /^\d+$/.test(signatorBasis.trim())) {
+    if (type === 'SOLE_PROPRIETOR') return ogrnDate ? `ОГРНИП ${signatorBasis} от ${ogrnDate} г.` : `ОГРНИП ${signatorBasis}`
+    return `ОГРН ${signatorBasis}`
+  }
+  if (signatorBasis) return signatorBasis
+  if (type === 'SOLE_PROPRIETOR' && ogrn) return ogrnDate ? `ОГРНИП ${ogrn} от ${ogrnDate} г.` : `ОГРНИП ${ogrn}`
+  return 'Устава'
+}
+
+/**
+ * Генерирует HTML-преамбулу договора (шапка «г. Москва ... дата» + «ИП Иванов..., именуемый
+ * в дальнейшем «Заказчик», ... заключили настоящий договор о нижеследующем:»).
+ * Собирается детерминированно из данных профиля/контрагента — НЕ зависит от того,
+ * напишет ли её ИИ сам (промпт просит его не писать преамбулу, но это ненадёжно).
+ */
+export function buildContractPreambleHtml(
+  userProfile: UserProfileData,
+  counterparty: CounterpartyData,
+  role1: string,
+  role2: string,
+  city?: string,
+  signingDate?: string,
+): string {
+  const p1Type = userProfile.type
+  const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
+  const p1FullName = partyFullName(userProfile.name, p1Type)
+  const p2FullName = partyFullName(counterparty.name, p2Type)
+  const p1Basis = buildBasisPhrase(p1Type, userProfile.ogrn, userProfile.signatorBasis, userProfile.ogrnDate)
+  const p2Basis = buildBasisPhrase(p2Type, counterparty.ogrn, counterparty.signatorBasis)
+
+  const parts: string[] = []
+
+  if (p1Type === 'SOLE_PROPRIETOR') {
+    parts.push(`${esc(p1FullName)}, именуемый в дальнейшем «${esc(role1)}», действующий на основании ${esc(p1Basis)}, с одной стороны, и`)
+  } else {
+    const signatorPhrase = userProfile.signatorName
+      ? `в лице ${esc(userProfile.signatorPosition ?? 'директора')} ${esc(userProfile.signatorName)}, действующего на основании ${esc(p1Basis)},`
+      : ''
+    parts.push(`${esc(p1FullName)} ${signatorPhrase} именуемое в дальнейшем «${esc(role1)}», с одной стороны, и`)
+  }
+
+  if (p2Type === 'SOLE_PROPRIETOR') {
+    const signLine = counterparty.signatorName ? esc(counterparty.signatorName) : '____________'
+    const basisLine = counterparty.signatorName ? esc(p2Basis) : '_____________'
+    parts.push(`Индивидуальный предприниматель ${signLine}, именуемый в дальнейшем «${esc(role2)}», действующий на основании ${basisLine}, с другой стороны,`)
+  } else {
+    const signPhrase = counterparty.signatorName
+      ? `в лице ${esc(counterparty.signatorPosition ?? 'директора')} ${esc(counterparty.signatorName)}, действующего на основании ${esc(p2Basis)},`
+      : 'в лице _____________, действующего на основании _____________,'
+    parts.push(`${esc(p2FullName)} ${signPhrase} именуемое в дальнейшем «${esc(role2)}», с другой стороны,`)
+  }
+
+  parts.push('совместно именуемые «Стороны», заключили настоящий договор (далее — «Договор») о нижеследующем:')
+
+  const cityLine = `г. ${esc(city ?? 'Москва')}`
+  const dateLine = signingDate
+    ? esc(new Date(signingDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }))
+    : '«___» ____________ 202__ г.'
+
+  return [
+    `<p class="doc-preamble-meta">${cityLine}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${dateLine}</p>`,
+    `<p class="doc-preamble">${parts.join(' ')}</p>`,
+  ].join('\n')
+}
+
+/**
+ * Удаляет преамбулу, которую всё-таки написал сам ИИ (вопреки инструкции «не пиши сам»),
+ * перед тем как подставить детерминированную версию из buildContractPreambleHtml().
+ * Преамбула — это всё что идёт до первого заголовка <h1-4>. Если ИИ выполнил инструкцию
+ * и начал документ прямо с «1. ПРЕДМЕТ ДОГОВОРА» — функция ничего не меняет.
+ */
+export function stripAiPreamble(html: string): string {
+  const firstHeadingMatch = html.match(/<h[1-4][^>]*>/i)
+  if (!firstHeadingMatch || firstHeadingMatch.index === undefined || firstHeadingMatch.index === 0) return html
+  const before = html.slice(0, firstHeadingMatch.index)
+  const text = before.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+  if (!text) return html
+  return html.slice(firstHeadingMatch.index)
+}
 
 /**
  * Генерирует HTML-блок реквизитов и подписей сторон.
  * Заменяет старый buildRequisitesBlock() который возвращал Markdown.
  */
+/**
+ * Обрезает HTML-документ перед тем местом, где ИИ сам написал блок реквизитов/подписей
+ * (заголовок «Реквизиты», «Подписи сторон», абзац «Заказчик:» / «Исполнитель:» и т.п.).
+ * Ищет по РЕАЛЬНОМУ ТЕКСТУ абзаца (без тегов), а не по конкретной разметке —
+ * поэтому не зависит от того, обернул ли ИИ двоеточие в <strong> или вынес его наружу.
+ * Нужно, чтобы свой собственный блок (buildRequisitesHtml) не дублировался с тем,
+ * что ИИ иногда дописывает в конце документа.
+ */
+export function stripAiRequisitesBlock(html: string): string {
+  const blockRe = /<(h[1-4]|p)[^>]*>([\s\S]*?)<\/\1>/gi
+  let match: RegExpExecArray | null
+  while ((match = blockRe.exec(html))) {
+    const innerText = match[2]
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .trim()
+    const isRequisitesMarker =
+      /^(РЕКВИЗИТЫ|ПОДПИСИ(\s+СТОРОН)?|Реквизиты|Подписи(\s+сторон)?|Заказчик\s*:?\s*$|Исполнитель\s*:?\s*$|Банковские реквизиты|Место нахождения)/i.test(
+        innerText,
+      )
+    if (isRequisitesMarker) {
+      return html.slice(0, match.index).trimEnd()
+    }
+  }
+
+  // ИИ иногда оформляет блок реквизитов/подписей не абзацами, а таблицей
+  // (например, две колонки «Исполнитель:» / «Заказчик:» с данными и местом для
+  // подписи). Предыдущий цикл такие таблицы не видит — проверяем их отдельно
+  // по тем же маркерам и по характерным реквизитным реквизитам (ИНН, ОГРН и т.д.).
+  const REQS_RE = /ИНН|Р\/сч[её]т|ОГРНИП|ОГРН|БИК|К\/сч[её]т|Заказчик\s*:|Исполнитель\s*:/i
+  const tableMatches = [...html.matchAll(/<table[\s>]/gi)]
+  if (tableMatches.length > 0) {
+    const tableStart = tableMatches[tableMatches.length - 1].index!
+    const tableEndIdx = html.lastIndexOf('</table>')
+    if (tableEndIdx > tableStart) {
+      const tableHtml = html.slice(tableStart, tableEndIdx + '</table>'.length)
+      if (REQS_RE.test(tableHtml)) {
+        return html.slice(0, tableStart).trimEnd()
+      }
+    }
+  }
+
+  return html
+}
+
 export function buildRequisitesHtml(
   userProfile: UserProfileData,
   counterparty: CounterpartyData,
@@ -263,33 +408,26 @@ function buildPartyLines(party: UserProfileData | CounterpartyData, role: string
   lines.push(`<strong>${role}:</strong>`)
   lines.push(esc(party.name ?? ''))
 
-  if (party.inn) lines.push(`ИНН: ${esc(party.inn)}`)
-  if ('ogrn' in party && party.ogrn && typeof party.ogrn === 'string') lines.push(`ОГРН: ${esc(party.ogrn)}`)
-  if ('ogrnip' in party && party.ogrnip && typeof party.ogrnip === 'string') lines.push(`ОГРНИП: ${esc(party.ogrnip)}`)
   if (party.legalAddress) lines.push(`Адрес: ${esc(party.legalAddress)}`)
+  if (party.inn) lines.push(`ИНН: ${esc(party.inn)}`)
+  if (party.kpp) lines.push(`КПП: ${esc(party.kpp)}`)
+  // У контрагента нет явного типа (CounterpartyData.type не объявлен) — определяем
+  // ИП по наличию КПП так же, как в buildContractPreambleHtml: КПП есть только у юрлиц.
+  const isSoleProprietor = 'type' in party ? party.type === 'SOLE_PROPRIETOR' : !party.kpp
+  if (party.ogrn) lines.push(`${isSoleProprietor ? 'ОГРНИП' : 'ОГРН'}: ${esc(party.ogrn)}`)
 
   // Банковские реквизиты
-  const bank = 'bankDetails' in party && Array.isArray(party.bankDetails)
-    ? party.bankDetails[0]
-    : null
-  if (bank) {
-    if (bank.bankName)        lines.push(`Банк: ${esc(bank.bankName)}`)
-    if (bank.bic)             lines.push(`БИК: ${esc(bank.bic)}`)
-    if (bank.checkingAccount) lines.push(`Р/счет: ${esc(bank.checkingAccount)}`)
-    if (bank.corrAccount)     lines.push(`К/счет: ${esc(bank.corrAccount)}`)
-  }
+  if (party.bankName)             lines.push(`Банк: ${esc(party.bankName)}`)
+  if (party.bik)                  lines.push(`БИК: ${esc(party.bik)}`)
+  if (party.checkingAccount)      lines.push(`Р/счет: ${esc(party.checkingAccount)}`)
+  if (party.correspondentAccount) lines.push(`К/счет: ${esc(party.correspondentAccount)}`)
 
   if (party.email) lines.push(`E-mail: ${esc(party.email)}`)
 
-  // Подписант
-  const signatory = 'signatories' in party && Array.isArray(party.signatories)
-    ? party.signatories[0]
-    : null
-  if (signatory) {
-    const who = [signatory.lastName, signatory.firstName, signatory.middleName].filter(Boolean).join(' ')
-    if (who) lines.push(esc(who))
-    if (signatory.position) lines.push(esc(signatory.position))
-  }
+  // Подписант — берём напрямую из party.signatorName/signatorPosition
+  // (эти поля заполняются выбранным подписантом ещё на шаге настройки документа).
+  if (party.signatorName) lines.push(esc(party.signatorName))
+  if (party.signatorPosition) lines.push(esc(party.signatorPosition))
 
   return lines
 }

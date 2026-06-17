@@ -3,7 +3,7 @@ import { prisma } from './db'
 import { getAIProvider } from './ai/provider'
 import { saveFile, versionFileKey } from './storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
-import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent } from './html-document'
+import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, stripAiRequisitesBlock, buildContractPreambleHtml, stripAiPreamble } from './html-document'
 import type { CounterpartyData, UserProfileData } from './ai/types'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
@@ -50,6 +50,12 @@ export interface GenerateDocumentJobData {
   userRole?: 'customer' | 'executor'   // роль пользователя в договоре
   userProfile?: UserProfileData        // профиль пользователя (одна из сторон)
   counterpartyData?: CounterpartyData  // полные данные контрагента
+  // Замороженные на шаге настройки документа HTML-блоки (см. Document.preambleHtml/
+  // requisitesHtml) — если заданы, подставляются как есть вместо пересчёта из
+  // userProfile/counterpartyData. Это сохраняет шапку/реквизиты стабильными даже
+  // если пользователь позже изменит реквизиты в карточке профиля/контрагента.
+  preambleHtml?: string
+  requisitesHtml?: string
 }
 
 // ─── Очередь ─────────────────────────────────────────────────────────────────
@@ -83,6 +89,7 @@ export function startGenerateWorker() {
         versionId, description, counterpartyName, protectionLevel, targetSize, customInstruction,
         docType, docNumber, signingDate, documentNumber, parentDocTitle, parentDocNumber, parentDocContent,
         referenceContent, base, userRole, userProfile, counterpartyData,
+        preambleHtml: frozenPreambleHtml, requisitesHtml: frozenRequisitesHtml,
       } = job.data
 
       // Обновляем статус версии → IN_PROGRESS
@@ -150,21 +157,27 @@ export function startGenerateWorker() {
         const role1 = userRole === 'executor' ? 'Исполнитель' : 'Заказчик'
         const role2 = userRole === 'executor' ? 'Заказчик' : 'Исполнитель'
 
-        // Удаляем если ИИ всё-таки написал блок реквизитов сам (HTML или Markdown)
-        finalText = finalText
-          // Вариант 1: заголовок "Реквизиты" / "Подписи"
-          .replace(/<(?:h[1-4]|p)[^>]*>(?:РЕКВИЗИТЫ|Реквизиты|ПОДПИСИ|Подписи)[^<]*<\/(?:h[1-4]|p)>[\s\S]*$/i, '')
-          // Вариант 2: жирный "Заказчик:" или "Исполнитель:" в конце — ИИ вставил блок подписей
-          .replace(/<p[^>]*>\s*<(?:strong|b)>\s*(?:Заказчик|Исполнитель)\s*:\s*<\/(?:strong|b)>\s*<\/p>[\s\S]*$/i, '')
-          // Вариант 3: просто абзац "Заказчик:" или "13. Место нахождения"
-          .replace(/<(?:h[1-4]|p)[^>]*>\s*(?:Заказчик|Исполнитель)\s*:\s*<\/(?:h[1-4]|p)>[\s\S]*$/i, '')
-          .replace(/<(?:h[1-4]|p)[^>]*>[^<]*(?:Место нахождения|Банковские реквизиты)[^<]*<\/(?:h[1-4]|p)>[\s\S]*$/i, '')
-          // Вариант 4: Markdown
+        // Удаляем если ИИ всё-таки написал блок реквизитов сам (HTML или Markdown).
+        // stripAiRequisitesBlock ищет по реальному тексту абзаца, а не по конкретной
+        // разметке — надёжнее старой цепочки regex, которая ловила не все варианты
+        // оформления и приводила к дублированию реквизитов (старый блок ИИ + наш).
+        finalText = stripAiRequisitesBlock(finalText)
+          // Вариант: Markdown (на случай если ИИ вернул не HTML)
           .replace(/\n*\*{0,2}(?:РЕКВИЗИТЫ|Реквизиты|ПОДПИСИ СТОРОН|Подписи сторон|Заказчик\s*:|Исполнитель\s*:)[\s\S]*$/i, '')
           .trimEnd()
 
+        // Удаляем преамбулу, если ИИ всё-таки написал её сам (вопреки инструкции
+        // «преамбулу не пиши — вставляется системой») — и подставляем детерминированную,
+        // собранную из тех же данных профиля/контрагента, что и реквизиты в подвале.
+        finalText = stripAiPreamble(finalText)
+        // Если шапка/реквизиты были заморожены на шаге настройки документа — используем
+        // их как есть. Иначе (старые документы, созданные до этой фичи) — собираем
+        // на лету из текущих данных профиля/контрагента, как раньше.
+        const preambleHtml = frozenPreambleHtml ?? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, contractCity, signingDate)
+        finalText = `${preambleHtml}\n${finalText}`
+
         // Добавляем HTML-блок реквизитов
-        const reqsHtml = buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
+        const reqsHtml = frozenRequisitesHtml ?? buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
         finalText += `\n${reqsHtml}`
       }
 

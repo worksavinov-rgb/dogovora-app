@@ -66,7 +66,7 @@ export default function LoginPage() {
         >
           {/* Логотип */}
           <div className="font-[var(--font-display)] text-[20px] font-semibold text-[var(--ink)] tracking-[-0.02em]">
-            Договора
+            Догодок
           </div>
 
           {/* Центральный контент */}

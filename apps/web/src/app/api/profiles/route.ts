@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
 
   const profiles = await prisma.profile.findMany({
     where: { userId },
-    include: { bankDetails: true },
+    include: { bankDetails: true, signatories: { orderBy: { createdAt: 'asc' } } },
     orderBy: { createdAt: 'asc' },
   })
 

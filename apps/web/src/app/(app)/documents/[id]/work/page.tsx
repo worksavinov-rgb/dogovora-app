@@ -519,6 +519,19 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
+  // Префилл из страницы проверки рисков: «Исправить через ИИ-чат» кладёт
+  // готовое задание в sessionStorage — подставляем его в поле ввода один раз.
+  useEffect(() => {
+    try {
+      const prefill = sessionStorage.getItem('chatPrefill')
+      if (prefill) {
+        sessionStorage.removeItem('chatPrefill')
+        setInput(prefill)
+        setTimeout(() => textareaRef.current?.focus(), 100)
+      }
+    } catch { /* sessionStorage недоступен */ }
+  }, [])
+
   // ─── Автосохранение рабочей копии (черновика) ───────────────────────────────
   async function saveDraft(content: string) {
     try {
@@ -703,38 +716,51 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() }
   }
 
+  // Фиксирует текущие (возможно несохранённые) правки как новую версию документа.
+  // Возвращает id версии, которую нужно покупать/скачивать дальше.
+  async function persistEditsAsNewVersion(): Promise<string | null> {
+    if (!version) return null
+    // Оплата и подпись относятся к конкретной версии и не переносятся на новую —
+    // у свежей версии ещё нет Purchase, поэтому статус «Оплачено»/«Подписан»
+    // переносить нельзя (иначе версия будет помечена оплаченной без реальной оплаты).
+    const carryOverStatus = (version.status === 'PAID' || version.status === 'SIGNED')
+      ? 'IN_PROGRESS'
+      : version.status
+    const res = await fetch(`/api/documents/${id}/versions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        aiSettings: {
+          protectionLevel: version.aiSettings?.protectionLevel ?? 70,
+          targetSize: version.aiSettings?.targetSize ?? 8000,
+          customInstruction: version.aiSettings?.customInstruction ?? '',
+          description: 'Сохранено из рабочего экрана',
+        },
+        status: carryOverStatus,
+        // Передаём текущий (отредактированный) текст документа
+        content: docContent ?? undefined,
+      }),
+    })
+    if (!res.ok) return null
+    const newVersion = await res.json() as { id: string }
+    setHasUnsavedEdits(false)
+    // Правки зафиксированы как версия — рабочая копия больше не нужна
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
+    dirtyRef.current = false
+    draftRevisionRef.current = 0
+    await fetch(`/api/documents/${id}/draft`, { method: 'DELETE' }).catch(() => {})
+    // A.6: фоновое применение форматирования к новой версии (не блокирует переход)
+    fetch(`/api/versions/${newVersion.id}/apply-formatting`, { method: 'POST' }).catch(() => {})
+    return newVersion.id
+  }
+
   async function saveAsNewVersion() {
     if (!version || saving) return
     setSaveConfirmOpen(false)
     setSaving(true)
     try {
-      const res = await fetch(`/api/documents/${id}/versions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          aiSettings: {
-            protectionLevel: version.aiSettings?.protectionLevel ?? 70,
-            targetSize: version.aiSettings?.targetSize ?? 8000,
-            customInstruction: version.aiSettings?.customInstruction ?? '',
-            description: 'Сохранено из рабочего экрана',
-          },
-          status: version.status,
-          // Передаём текущий (отредактированный) текст документа
-          content: docContent ?? undefined,
-        }),
-      })
-      if (res.ok) {
-        const newVersion = await res.json() as { id: string }
-        setHasUnsavedEdits(false)
-        // Правки зафиксированы как версия — рабочая копия больше не нужна
-        if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
-        dirtyRef.current = false
-        draftRevisionRef.current = 0
-        await fetch(`/api/documents/${id}/draft`, { method: 'DELETE' }).catch(() => {})
-        // A.6: фоновое применение форматирования к новой версии (не блокирует переход)
-        fetch(`/api/versions/${newVersion.id}/apply-formatting`, { method: 'POST' }).catch(() => {})
-        router.push(`/documents/${id}`)
-      }
+      const newVersionId = await persistEditsAsNewVersion()
+      if (newVersionId) router.push(`/documents/${id}`)
     } finally {
       setSaving(false)
     }
@@ -744,10 +770,26 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     if (!version || purchasing) return
     setPurchasing(true)
     try {
-      const res = await fetch(`/api/versions/${version.id}/purchase`, { method: 'POST' })
+      // Если в чате/редакторе есть несохранённые правки — сначала фиксируем их
+      // как новую версию, иначе мы купим устаревший текст (version.content
+      // в БД не обновляется автосохранением рабочей копии).
+      let targetVersionId = version.id
+      if (hasUnsavedEdits) {
+        const newVersionId = await persistEditsAsNewVersion()
+        if (!newVersionId) return
+        targetVersionId = newVersionId
+      }
+
+      const res = await fetch(`/api/versions/${targetVersionId}/purchase`, { method: 'POST' })
       if (res.ok) {
         setPurchased(true)
-        setVersion((prev) => prev ? { ...prev, purchase: { id: 'done' }, status: 'PAID' } : prev)
+        setVersion((prev) => prev ? {
+          ...prev,
+          id: targetVersionId,
+          content: docContent ?? prev.content,
+          purchase: { id: 'done' },
+          status: 'PAID',
+        } : prev)
       }
     } finally {
       setPurchasing(false)
@@ -827,8 +869,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     { value: 'APPROVED', label: 'Утверждено', color: 'var(--ok)' },
     { value: 'PAID', label: 'Оплачено', color: 'oklch(0.25 0.10 145)' },
   ]
-  const currentStatus = STATUS_OPTIONS.find(s => s.value === version.status)
-  const currentStatusLabel = currentStatus?.label ?? version.status
+  // Источник правды для «оплачено» — наличие Purchase, а не сырое поле status:
+  // при сохранении новой версии статусы других версий документа сбрасываются
+  // на сервере, и оплаченная версия может временно не совпадать с purchase.
+  const effectiveStatusValue = isPurchased ? 'PAID' : version.status
+  const currentStatus = STATUS_OPTIONS.find(s => s.value === effectiveStatusValue)
+  const currentStatusLabel = currentStatus?.label ?? effectiveStatusValue
   const currentStatusColor = currentStatus?.color ?? 'var(--ink-3)'
   return (
     <>
@@ -987,10 +1033,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                     {STATUS_OPTIONS.map(opt => (
                       <button key={opt.value} onClick={() => changeStatus(opt.value)}
                         className="w-full text-left px-[12px] py-[8px] text-[12px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer flex items-center gap-[8px]"
-                        style={{ color: opt.value === version.status ? 'var(--ink)' : 'var(--ink-3)', fontWeight: opt.value === version.status ? 600 : 400 }}>
+                        style={{ color: opt.value === effectiveStatusValue ? 'var(--ink)' : 'var(--ink-3)', fontWeight: opt.value === effectiveStatusValue ? 600 : 400 }}>
                         <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: opt.color }} />
                         {opt.label}
-                        {opt.value === version.status && ' ✓'}
+                        {opt.value === effectiveStatusValue && ' ✓'}
                       </button>
                     ))}
                   </div>

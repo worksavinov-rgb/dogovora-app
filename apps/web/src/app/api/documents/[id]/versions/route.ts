@@ -43,9 +43,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   })
   const nextNumber = (lastVersion?.number ?? 0) + 1
 
-  // Все предыдущие версии → DRAFT (кроме SIGNED — они юридически зафиксированы)
+  // Все предыдущие версии → DRAFT (кроме SIGNED — они юридически зафиксированы,
+  // и кроме уже оплаченных — у купленной версии статус PAID не должен сбрасываться)
   await prisma.version.updateMany({
-    where: { documentId: id, status: { not: 'SIGNED' } },
+    where: { documentId: id, status: { notIn: ['SIGNED', 'PAID'] }, purchase: null },
     data: { status: 'DRAFT' },
   })
 

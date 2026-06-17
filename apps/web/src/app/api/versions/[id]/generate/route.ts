@@ -17,12 +17,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     include: {
       document: {
         include: {
-          counterparty: {
-            include: {
-              bankDetails: { take: 1 },
-              signatories: { where: { isDefault: true }, take: 1 },
-            },
-          },
+          counterparty: { include: { bankDetails: { take: 1 } } },
           parentDocument: { select: { id: true, title: true, number: true } },
         },
       },
@@ -48,17 +43,30 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const doc = version.document
 
-  // Берём профиль по выбранному profileId (или первый если не выбрано)
+  // Берём профиль по выбранному profileId (или первый если не выбрано).
+  // Источник истины — Document.profileId (верхнеуровневое поле, задаётся при создании
+  // документа и сохраняется надёжно). aiSettings?.profileId оставляем как fallback для
+  // старых документов — но он не может быть основным источником: zod-схема aiSettings
+  // в apps/web/src/app/api/documents/route.ts не объявляет это поле и тихо отбрасывает
+  // его при сохранении, поэтому в БД оно почти всегда отсутствует (та же причина,
+  // по которой ранее терялась выбранная роль userRole).
   const profiles = await prisma.profile.findMany({
     where: {
       userId,
-      ...(aiSettings?.profileId ? { id: aiSettings.profileId } : {}),
+      ...(doc.profileId ? { id: doc.profileId } : aiSettings?.profileId ? { id: aiSettings.profileId } : {}),
     },
-    include: { bankDetails: true },
+    include: {
+      bankDetails: true,
+      // Выбранный на шаге настройки подписант — если не выбран явно, берём дефолтного
+      signatories: doc.profileSignatoryId
+        ? { where: { id: doc.profileSignatoryId }, take: 1 }
+        : { where: { isDefault: true }, take: 1 },
+    },
     orderBy: { createdAt: 'asc' },
     take: 1,
   })
   const profile = profiles[0]
+  const profileSignatory = profile?.signatories[0]
   const userProfile = profile ? {
     type: profile.type,
     name: profile.name,
@@ -67,9 +75,17 @@ export async function POST(req: NextRequest, { params }: Params) {
     ogrn: profile.ogrn,
     ogrnDate: profile.ogrnDate ?? null,
     legalAddress: profile.legalAddress,
-    signatorName: profile.signatorName,
-    signatorPosition: profile.signatorPosition,
-    signatorBasis: profile.signatorBasis,
+    // Если выбран подписант из ProfileSignatory — используем его, иначе fallback
+    // на legacy одиночное поле profile.signatorName (старые профили без подписантов)
+    signatorName: profileSignatory?.fullName ?? profile.signatorName,
+    signatorPosition: profileSignatory?.position ?? profile.signatorPosition,
+    signatorBasis: profileSignatory
+      ? (profileSignatory.basisType === 'CHARTER'
+          ? 'Устава'
+          : profileSignatory.poaNumber
+            ? `Доверенности № ${profileSignatory.poaNumber}`
+            : 'Доверенности')
+      : profile.signatorBasis,
     bankName: profile.bankDetails[0]?.bankName ?? null,
     checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
     bik: profile.bankDetails[0]?.bik ?? null,
@@ -77,9 +93,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     email: null,
   } : undefined
 
-  // Полные данные контрагента для формирования шапки и реквизитов
+  // Полные данные контрагента для формирования шапки и реквизитов.
+  // Источник истины для подписанта — Document.counterpartySignatoryId, выбранный
+  // на шаге настройки; если не выбран — берём дефолтного подписанта контрагента.
   const cp = doc.counterparty
-  const cpSignatory = cp.signatories[0]
+  const [cpSignatory] = await prisma.signatory.findMany({
+    where: { counterpartyId: cp.id, ...(doc.counterpartySignatoryId ? { id: doc.counterpartySignatoryId } : { isDefault: true }) },
+    take: 1,
+  })
   const counterpartyData = {
     name: cp.name,
     inn: cp.inn,
@@ -136,9 +157,18 @@ export async function POST(req: NextRequest, { params }: Params) {
     parentDocTitle: doc.parentDocument?.title ?? undefined,
     parentDocNumber: doc.parentDocument?.number ?? undefined,
     parentDocContent,
-    userRole: aiSettings?.userRole ?? 'customer',
+    // Источник истины — Document.userRole (enum, задаётся один раз при создании документа).
+    // Раньше брали aiSettings?.userRole из JSON, но zod-схема при сохранении документа
+    // (apps/web/src/app/api/documents/route.ts) не объявляла это поле внутри aiSettings —
+    // оно тихо отбрасывалось при парсинге, и роль всегда падала в дефолт 'customer'
+    // независимо от того, что выбрал пользователь в мастере создания документа.
+    userRole: doc.userRole === 'EXECUTOR' ? 'executor' : 'customer',
     userProfile,
     counterpartyData,
+    // Замороженные на шаге настройки HTML-блоки — если есть, queue.ts подставляет их
+    // как есть вместо пересчёта из текущих (возможно уже изменённых) данных сторон.
+    preambleHtml: doc.preambleHtml ?? undefined,
+    requisitesHtml: doc.requisitesHtml ?? undefined,
   })
 
   return NextResponse.json({ jobId: job.id }, { status: 202 })

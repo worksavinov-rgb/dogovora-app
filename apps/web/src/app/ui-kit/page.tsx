@@ -34,7 +34,7 @@ export default function UIKitPage() {
           UI Kit
         </h1>
         <p className="text-[var(--ink-3)] text-[15px]">
-          Все компоненты дизайн-системы «Договора»
+          Все компоненты дизайн-системы «Догодок»
         </p>
       </div>
 

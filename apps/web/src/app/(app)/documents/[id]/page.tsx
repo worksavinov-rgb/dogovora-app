@@ -541,6 +541,10 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
 
   const currentVersion = doc.versions[0]
   const aiS = currentVersion?.aiSettings ?? {}
+  // Документ ещё не сгенерирован через ИИ (создан, но текста нет) — действия,
+  // которым нужен готовый текст (сравнение, проверка рисков, приложение к договору),
+  // должны быть недоступны, пока пользователь не сгенерирует документ в ИИ-чате.
+  const hasContent = Boolean(currentVersion?.content)
 
   return (
     <>
@@ -650,8 +654,8 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
               <div className="flex flex-col gap-[6px]">
                 {[
                   { icon: '✦', label: 'Открыть в ИИ-чате', primary: true, onClick: () => router.push(`/documents/${id}/work`) },
-                  { icon: '⇄', label: 'Сравнить', primary: false, onClick: () => router.push(`/documents/${id}/compare`) },
-                  { icon: '◎', label: 'Проверить риски', primary: false, onClick: () => router.push(`/documents/${id}/check`) },
+                  { icon: '⇄', label: 'Сравнить', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/${id}/compare`) },
+                  { icon: '◎', label: 'Проверить риски', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/${id}/check`) },
                   ...(currentVersion?.purchase ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
@@ -665,16 +669,22 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   ] : []),
                   // Для CONTRACT — добавить приложение или ДС
                   ...(doc.type === 'CONTRACT' ? [
-                    { icon: '+', label: 'Создать приложение', primary: false, onClick: () => router.push(`/documents/new?parentDocumentId=${id}&type=APPENDIX`) },
+                    { icon: '+', label: 'Создать приложение', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/new?parentDocumentId=${id}&type=APPENDIX`) },
                   ] : []),
                 ].map((action) => (
-                  <button key={action.label} onClick={action.onClick}
-                    className={['w-full text-left px-[12px] py-[9px] rounded-[var(--radius-md)] text-[13px] font-medium transition-colors cursor-pointer flex items-center gap-[8px]',
-                      action.primary
-                        ? 'bg-[var(--ink)] text-[var(--bg)] hover:opacity-90'
-                        : (action as { danger?: boolean }).danger
-                          ? 'bg-[oklch(0.97_0.015_20)] text-[var(--danger)] hover:bg-[oklch(0.94_0.02_20)]'
-                          : 'bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)]',
+                  <button
+                    key={action.label}
+                    onClick={action.disabled ? undefined : action.onClick}
+                    disabled={action.disabled}
+                    title={action.disabled ? action.disabledHint : undefined}
+                    className={['w-full text-left px-[12px] py-[9px] rounded-[var(--radius-md)] text-[13px] font-medium transition-colors flex items-center gap-[8px]',
+                      action.disabled
+                        ? 'bg-[var(--surface-inset)] text-[var(--ink-4)] opacity-50 cursor-not-allowed'
+                        : action.primary
+                          ? 'bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 cursor-pointer'
+                          : (action as { danger?: boolean }).danger
+                            ? 'bg-[oklch(0.97_0.015_20)] text-[var(--danger)] hover:bg-[oklch(0.94_0.02_20)] cursor-pointer'
+                            : 'bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] cursor-pointer',
                     ].join(' ')}>
                     <span className="text-[14px]">{action.icon}</span>
                     {action.label}

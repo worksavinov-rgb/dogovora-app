@@ -108,8 +108,8 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
     <>
       {/* Логотип */}
       <div className="h-[56px] flex items-center px-[20px] border-b border-[var(--line)] shrink-0">
-        <span className="font-[var(--font-display)] text-[18px] font-semibold text-[var(--ink)] tracking-[-0.02em]">
-          Договора
+        <span className="font-[var(--font-display)] text-[28px] font-semibold text-[var(--ink)] tracking-[-0.02em]">
+          Догодок
         </span>
       </div>
 

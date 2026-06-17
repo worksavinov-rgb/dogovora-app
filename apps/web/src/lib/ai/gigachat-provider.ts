@@ -333,48 +333,6 @@ function buildContractHeader(
   return `${cityLine}\t\t\t\t\t${dateLine}\n\n` + lines.join('\n')
 }
 
-export function buildRequisitesBlock(userProfile: UserProfileData, counterparty: CounterpartyData, role1: string, role2: string): string {
-  // Сторона 1 (пользователь)
-  const p1Lines: string[] = []
-  p1Lines.push(`ROLE:${role1}`)
-  p1Lines.push(`NAME:${partyFullName(userProfile.name, userProfile.type)}`)
-  if (userProfile.legalAddress) p1Lines.push(`Адрес: ${userProfile.legalAddress}`)
-  if (userProfile.inn) p1Lines.push(`ИНН: ${userProfile.inn}`)
-  if (userProfile.kpp) p1Lines.push(`КПП: ${userProfile.kpp}`)
-  if (userProfile.ogrn) p1Lines.push(`ОГРН: ${userProfile.ogrn}`)
-  if (userProfile.checkingAccount) p1Lines.push(`Р/счёт: ${userProfile.checkingAccount}`)
-  if (userProfile.correspondentAccount) p1Lines.push(`К/счёт: ${userProfile.correspondentAccount}`)
-  if (userProfile.bankName) p1Lines.push(`Банк: ${userProfile.bankName}`)
-  if (userProfile.bik) p1Lines.push(`БИК: ${userProfile.bik}`)
-  if (userProfile.email) p1Lines.push(`E-mail: ${userProfile.email}`)
-  const p1SignatorTitle = userProfile.signatorPosition ?? (userProfile.type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель' : '')
-  const p1SignatorName = userProfile.signatorName ?? userProfile.name
-  p1Lines.push(`SIGN_TITLE:${p1SignatorTitle}`)
-  p1Lines.push(`SIGN_NAME:${p1SignatorName}`)
-
-  // Сторона 2 (контрагент)
-  const p2Lines: string[] = []
-  const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
-  p2Lines.push(`ROLE:${role2}`)
-  p2Lines.push(`NAME:${partyFullName(counterparty.name, p2Type)}`)
-  if (counterparty.legalAddress) p2Lines.push(`Адрес: ${counterparty.legalAddress}`)
-  if (counterparty.inn) p2Lines.push(`ИНН: ${counterparty.inn}`)
-  if (counterparty.kpp) p2Lines.push(`КПП: ${counterparty.kpp}`)
-  if (counterparty.ogrn) p2Lines.push(`ОГРН: ${counterparty.ogrn}`)
-  if (counterparty.checkingAccount) p2Lines.push(`Р/счёт: ${counterparty.checkingAccount}`)
-  if (counterparty.correspondentAccount) p2Lines.push(`К/счёт: ${counterparty.correspondentAccount}`)
-  if (counterparty.bankName) p2Lines.push(`Банк: ${counterparty.bankName}`)
-  if (counterparty.bik) p2Lines.push(`БИК: ${counterparty.bik}`)
-  if (counterparty.email) p2Lines.push(`E-mail: ${counterparty.email}`)
-  const p2SignatorTitle = counterparty.signatorPosition ?? (p2Type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель' : '')
-  const p2SignatorName = counterparty.signatorName ?? counterparty.name
-  p2Lines.push(`SIGN_TITLE:${p2SignatorTitle}`)
-  p2Lines.push(`SIGN_NAME:${p2SignatorName}`)
-
-  // Специальный маркер — DocumentRenderer рендерит это как двухколоночную таблицу
-  return `%%REQS_TABLE%%\n${p1Lines.join('\n')}\n%%COL_SEP%%\n${p2Lines.join('\n')}\n%%END_REQS%%`
-}
-
 // ─── Отдельная проверка орфографии ────────────────────────────────────────────
 // Выполняется отдельным запросом чтобы не «теряться» внутри большого промпта.
 // Текст бьётся на чанки по 4000 символов — ИИ читает каждый сегмент целиком.
@@ -1469,7 +1427,13 @@ export const gigachatProvider: AIProvider = {
     const userPrompt = [
       parentSnippet ? `ОСНОВНОЙ ДОГОВОР (используй его условия, стороны и терминологию как базу — создаваемый документ является приложением/ДС к нему):\n---\n${parentSnippet}\n---\n` : '',
       referenceSnippet ? `ОБРАЗЕЦ ДОКУМЕНТА (изучи его тип, сферу, стиль защиты и логику условий — адаптируй под новое задание сохраняя эти принципы):\n---\n${referenceSnippet}\n---\n` : '',
-      headerBlock ? `ШАПКА ДОКУМЕНТА (используй ТОЧНО эти данные — не придумывай другие ФИО, ИНН, роли):\n${headerBlock}` : `Стороны: Пользователь («${role1}») и "${counterpartyName}" («${role2}»).`,
+      headerBlock
+        ? isChildDoc
+          // Для приложений/ДС преамбулы нет — но ИИ нужно знать точные ФИО/роли для ссылок на стороны в тексте.
+          ? `ДАННЫЕ СТОРОН (для контекста — точные ФИО, ИНН, роли; НЕ пиши их отдельным абзацем-преамбулой):\n${headerBlock}`
+          // Для основного договора преамбулу пишет система — ИИ передаём данные только для контекста.
+          : `ДАННЫЕ СТОРОН (для контекста — НЕ пиши преамбулу/вводный абзац сам, система вставит её автоматически из этих данных):\n${headerBlock}`
+        : `Стороны: Пользователь («${role1}») и "${counterpartyName}" («${role2}»).`,
       '',
       `ЗАДАЧА: ${description || 'составить договор между сторонами'}`,
       '',

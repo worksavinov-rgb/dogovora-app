@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
+import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 
 interface ReviewIssue {
   id: string
@@ -122,7 +123,9 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
         if (!ver.content) throw new Error('Документ пустой — сначала сгенерируйте его через ИИ-чат')
         resolvedVerId = ver.id
         setVersionId(ver.id)
-        setDocContent(ver.content)
+        // Контент хранится как HTML — для построчного просмотра с подсветкой
+        // рисков конвертируем в plain text, иначе теги <p>/<h2> видны буквально.
+        setDocContent(isHtmlString(ver.content) ? htmlToPlainText(ver.content) : ver.content)
         return fetch(`/api/versions/${ver.id}/review`)
       })
       .then((r) => r.ok ? r.json() : r.json().then((e: { error?: string }) => Promise.reject(new Error(e.error ?? 'Ошибка проверки'))))
@@ -325,7 +328,23 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
         {/* Кнопка — открыть чат */}
         <div className="mt-[20px] pt-[16px]" style={{ borderTop: '1px solid var(--line)' }}>
           <button
-            onClick={() => router.push(`/documents/${id}/work${versionId ? `?version=${versionId}` : ''}`)}
+            onClick={() => {
+              // Собираем задание для ИИ из найденных рисков и замечаний
+              // (пункты «OK» не включаем — их править не нужно).
+              const toFix = result.issues.filter((i) => i.severity === 'risk' || i.severity === 'warning')
+              if (toFix.length > 0) {
+                const lines = toFix.map((i) => {
+                  const clause = i.clause ? `${i.clause} — ` : ''
+                  const rec = i.recommendation ? ` Рекомендация: ${i.recommendation}` : ''
+                  return `• ${clause}${i.title}.${rec}`
+                })
+                const prefill =
+                  `Исправь в договоре следующие риски и замечания, выявленные при проверке:\n${lines.join('\n')}\n\n` +
+                  `Внеси правки аккуратно, сохрани нумерацию пунктов и логическую связность (пересчитай суммы и сроки, если они меняются).`
+                try { sessionStorage.setItem('chatPrefill', prefill) } catch { /* недоступно */ }
+              }
+              router.push(`/documents/${id}/work${versionId ? `?version=${versionId}` : ''}`)
+            }}
             className="w-full h-[38px] rounded-[var(--radius-md)] bg-[var(--ink)] text-[var(--bg)] text-[13px] font-medium hover:opacity-90 transition-opacity cursor-pointer"
           >
             ✦ Исправить через ИИ-чат

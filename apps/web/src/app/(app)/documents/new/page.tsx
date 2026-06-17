@@ -7,6 +7,8 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field, Textarea } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
+import { buildContractPreambleHtml, buildRequisitesHtml } from '@/lib/html-document'
+import type { UserProfileData, CounterpartyData } from '@/lib/ai/types'
 
 // Ключевые слова блока реквизитов/подписей
 const REQUISITES_KEYWORDS_NEW = /\b(ИНН|КПП|ОГРН|ОГРНИП|Р\/счет|р\/сч|БИК|К\/счет|к\/сч|расчётный счет|корр\. счет|e-mail|E-mail|Исполнитель:|Заказчик:)/i
@@ -98,14 +100,105 @@ async function parseDocxToText(file: File): Promise<string> {
 type DocType = 'CONTRACT' | 'APPENDIX' | 'AMENDMENT'
 type DocBase = 'scratch' | 'template' | 'upload'
 
-interface Counterparty { id: string; name: string; inn: string | null }
+interface BankDetailData {
+  bankName: string
+  bik: string
+  checkingAccount: string
+  correspondentAccount: string
+}
+interface ProfileSignatory {
+  id: string
+  fullName: string
+  position: string
+  basisType: 'CHARTER' | 'POA' | 'CERTIFICATE' | 'REGULATION' | 'OTHER'
+  poaNumber: string | null
+  isDefault: boolean
+}
+interface CounterpartySignatory {
+  id: string
+  fullName: string
+  position: string
+  basisType: 'CHARTER' | 'POA' | 'CERTIFICATE' | 'REGULATION' | 'OTHER'
+  poaNumber: string | null
+  isDefault: boolean
+}
+interface Counterparty {
+  id: string; name: string; inn: string | null
+  kpp?: string | null; ogrn?: string | null; legalAddress?: string | null; email?: string | null
+  bankDetails?: BankDetailData[]
+  signatories?: CounterpartySignatory[]
+}
 interface ParentDocument { id: string; title: string; number: string | null }
 interface Template { id: string; name: string; updatedAt: string }
-interface Profile { id: string; type: string; name: string; inn: string | null }
+interface Profile {
+  id: string; type: string; name: string; inn: string | null
+  kpp?: string | null; ogrn?: string | null; ogrnDate?: string | null; legalAddress?: string | null
+  signatorName?: string | null; signatorPosition?: string | null; signatorBasis?: string | null
+  bankDetails?: BankDetailData[]
+  signatories?: ProfileSignatory[]
+}
 
 const PROFILE_TYPE_LABELS: Record<string, string> = {
   SOLE_PROPRIETOR: 'ИП', COMPANY: 'ООО/АО', INDIVIDUAL: 'Физлицо',
   ANO: 'АНО', PAO: 'ПАО', ZAO: 'ЗАО',
+}
+
+const SIGNATORY_BASIS_LABELS: Record<string, string> = {
+  CHARTER: 'Устав', POA: 'Доверенность', CERTIFICATE: 'Свидетельство', REGULATION: 'Положение', OTHER: 'Иное',
+}
+
+function basisPhrase(sig: { basisType: string; poaNumber: string | null } | undefined): string | null {
+  if (!sig) return null
+  if (sig.basisType === 'CHARTER') return 'Устава'
+  if (sig.basisType === 'POA') return sig.poaNumber ? `Доверенности № ${sig.poaNumber}` : 'Доверенности'
+  return SIGNATORY_BASIS_LABELS[sig.basisType] ?? sig.basisType
+}
+
+// Преобразует профиль (мою компанию) + выбранного подписанта в формат, понятный
+// buildContractPreambleHtml/buildRequisitesHtml (см. apps/web/src/lib/html-document.ts)
+function profileToData(p: Profile | undefined, signatoryId: string | undefined): UserProfileData | undefined {
+  if (!p) return undefined
+  const sig = p.signatories?.find((s) => s.id === signatoryId) ?? p.signatories?.find((s) => s.isDefault) ?? p.signatories?.[0]
+  const bank = p.bankDetails?.[0]
+  return {
+    type: p.type,
+    name: p.name,
+    inn: p.inn,
+    kpp: p.kpp ?? null,
+    ogrn: p.ogrn ?? null,
+    ogrnDate: p.ogrnDate ?? null,
+    legalAddress: p.legalAddress ?? null,
+    signatorName: sig?.fullName ?? p.signatorName ?? null,
+    signatorPosition: sig?.position ?? p.signatorPosition ?? null,
+    signatorBasis: sig ? basisPhrase(sig) : (p.signatorBasis ?? null),
+    bankName: bank?.bankName ?? null,
+    checkingAccount: bank?.checkingAccount ?? null,
+    bik: bank?.bik ?? null,
+    correspondentAccount: bank?.correspondentAccount ?? null,
+    email: null,
+  }
+}
+
+// То же самое для контрагента
+function counterpartyToData(c: Counterparty | undefined, signatoryId: string | undefined): CounterpartyData | undefined {
+  if (!c) return undefined
+  const sig = c.signatories?.find((s) => s.id === signatoryId) ?? c.signatories?.find((s) => s.isDefault) ?? c.signatories?.[0]
+  const bank = c.bankDetails?.[0]
+  return {
+    name: c.name,
+    inn: c.inn,
+    kpp: c.kpp ?? null,
+    ogrn: c.ogrn ?? null,
+    legalAddress: c.legalAddress ?? null,
+    email: c.email ?? null,
+    bankName: bank?.bankName ?? null,
+    checkingAccount: bank?.checkingAccount ?? null,
+    bik: bank?.bik ?? null,
+    correspondentAccount: bank?.correspondentAccount ?? null,
+    signatorName: sig?.fullName ?? null,
+    signatorPosition: sig?.position ?? null,
+    signatorBasis: sig ? basisPhrase(sig) : null,
+  }
 }
 
 interface Step1Data {
@@ -124,6 +217,15 @@ interface Step1Data {
   parentDocumentId?: string  // для APPENDIX/AMENDMENT
   parentUploadFile?: File | null  // загруженный родительский договор (если нет в системе)
   parentUploadText?: string       // распарсенный текст родительского договора
+  // Подписанты сторон — фиксируются на этом шаге и замораживаются за документом
+  profileSignatoryId?: string
+  counterpartySignatoryId?: string
+  // Шапка договора (преамбула) и блок реквизитов/подписей — автозаполняются при выборе
+  // сторон/подписантов, доступны для ручной правки. Фиксируются за документом навсегда.
+  preambleHtml?: string
+  requisitesHtml?: string
+  preambleEdited?: boolean    // true — пользователь правил вручную, не перезатирать автозаполнением
+  requisitesEdited?: boolean
 }
 
 interface Step2Data {
@@ -351,6 +453,52 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
   const [parentDragOver, setParentDragOver] = useState(false)
   const needsParent = data.type === 'APPENDIX' || data.type === 'AMENDMENT'
 
+  const selectedProfile = profiles.find((p) => p.id === data.profileId)
+  const selectedCounterparty = counterparties.find((c) => c.id === data.counterpartyId)
+  const [editingPreamble, setEditingPreamble] = useState(false)
+  const [editingRequisites, setEditingRequisites] = useState(false)
+
+  // Автовыбор дефолтного подписанта при смене своей компании
+  useEffect(() => {
+    if (!selectedProfile) return
+    const stillValid = selectedProfile.signatories?.some((s) => s.id === data.profileSignatoryId)
+    if (stillValid) return
+    const def = selectedProfile.signatories?.find((s) => s.isDefault) ?? selectedProfile.signatories?.[0]
+    set('profileSignatoryId', def?.id ?? '')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProfile])
+
+  // Автовыбор дефолтного подписанта при смене контрагента
+  useEffect(() => {
+    if (!selectedCounterparty) return
+    const stillValid = selectedCounterparty.signatories?.some((s) => s.id === data.counterpartySignatoryId)
+    if (stillValid) return
+    const def = selectedCounterparty.signatories?.find((s) => s.isDefault) ?? selectedCounterparty.signatories?.[0]
+    set('counterpartySignatoryId', def?.id ?? '')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCounterparty])
+
+  // Автозаполнение шапки (преамбулы) и блока реквизитов при изменении сторон,
+  // подписантов или роли — но не перезатирает то, что пользователь уже отредактировал вручную.
+  useEffect(() => {
+    if (!selectedProfile || !selectedCounterparty) return
+    const role1 = data.userRole === 'executor' ? 'Исполнитель' : 'Заказчик'
+    const role2 = data.userRole === 'executor' ? 'Заказчик' : 'Исполнитель'
+    const userProfileData = profileToData(selectedProfile, data.profileSignatoryId)
+    const counterpartyData = counterpartyToData(selectedCounterparty, data.counterpartySignatoryId)
+    if (!userProfileData || !counterpartyData) return
+
+    const patch: Partial<Step1Data> = {}
+    if (!data.preambleEdited) {
+      patch.preambleHtml = buildContractPreambleHtml(userProfileData, counterpartyData, role1, role2, undefined, data.signingDate || undefined)
+    }
+    if (!data.requisitesEdited) {
+      patch.requisitesHtml = buildRequisitesHtml(userProfileData, counterpartyData, role1, role2)
+    }
+    if (Object.keys(patch).length > 0) onChange({ ...data, ...patch })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProfile, selectedCounterparty, data.userRole, data.profileSignatoryId, data.counterpartySignatoryId, data.signingDate, data.preambleEdited, data.requisitesEdited])
+
   const handleParentFile = async (file: File) => {
     const initial = { ...data, parentUploadFile: file, parentUploadText: '', parentDocumentId: undefined }
     onChange(initial)
@@ -527,8 +675,116 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
             )}
           </Field>
 
+          {/* Подписанты — у каждой стороны может быть несколько (директор, по доверенности и т.д.) */}
+          {(selectedProfile || selectedCounterparty) && (
+            <div className="grid grid-cols-2 gap-[8px]">
+              {selectedProfile && (
+                <Field label="Подписант от вас">
+                  {(selectedProfile.signatories?.length ?? 0) > 0 ? (
+                    <select
+                      value={data.profileSignatoryId ?? ''}
+                      onChange={(e) => set('profileSignatoryId', e.target.value)}
+                      className="w-full h-[38px] px-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] bg-[var(--surface)] text-[13px] text-[var(--ink)] cursor-pointer"
+                    >
+                      {selectedProfile.signatories?.map((s) => (
+                        <option key={s.id} value={s.id}>{s.fullName} — {s.position}</option>
+                      ))}
+                    </select>
+                  ) : selectedProfile.signatorName ? (
+                    <p className="text-[12px] text-[var(--ink-4)] px-[2px] py-[9px]">
+                      {selectedProfile.signatorName} — {selectedProfile.signatorPosition || 'без должности'}
+                      {' '}(<a href="/requisites" className="text-[var(--accent-ink)] hover:underline">указать подписантов</a>)
+                    </p>
+                  ) : (
+                    <p className="text-[12px] text-[var(--ink-4)] px-[2px] py-[9px]">
+                      Подписант не указан — добавьте в{' '}
+                      <a href="/requisites" className="text-[var(--accent-ink)] hover:underline">«Мои реквизиты»</a>
+                    </p>
+                  )}
+                </Field>
+              )}
+              {selectedCounterparty && (
+                <Field label="Подписант от контрагента">
+                  {(selectedCounterparty.signatories?.length ?? 0) > 0 ? (
+                    <select
+                      value={data.counterpartySignatoryId ?? ''}
+                      onChange={(e) => set('counterpartySignatoryId', e.target.value)}
+                      className="w-full h-[38px] px-[12px] rounded-[var(--radius-md)] border border-[var(--line-2)] bg-[var(--surface)] text-[13px] text-[var(--ink)] cursor-pointer"
+                    >
+                      {selectedCounterparty.signatories?.map((s) => (
+                        <option key={s.id} value={s.id}>{s.fullName} — {s.position}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-[12px] text-[var(--ink-4)] px-[2px] py-[9px]">
+                      Подписант не указан — добавьте в карточке контрагента
+                    </p>
+                  )}
+                </Field>
+              )}
+            </div>
+          )}
         </div>
       </Card>
+
+      {/* Шапка договора и реквизиты — автозаполняются, можно отредактировать вручную.
+          Зафиксируются за документом навсегда после перехода к шагу 2. */}
+      {selectedProfile && selectedCounterparty && (
+        <Card>
+          <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Шапка договора и реквизиты</p>
+          <div className="flex flex-col gap-[12px]">
+            <div>
+              <div className="flex items-center justify-between mb-[6px]">
+                <p className="text-[13px] font-medium text-[var(--ink)]">Преамбула (кто заказчик, кто исполнитель)</p>
+                <button type="button" onClick={() => setEditingPreamble((v) => !v)}
+                  className="text-[12px] text-[var(--accent-ink)] hover:underline cursor-pointer">
+                  {editingPreamble ? 'Готово' : 'Изменить вручную'}
+                </button>
+              </div>
+              <div
+                key={editingPreamble ? 'edit' : 'view'}
+                contentEditable={editingPreamble}
+                suppressContentEditableWarning
+                onBlur={(e) => onChange({ ...data, preambleHtml: e.currentTarget.innerHTML, preambleEdited: true })}
+                className={`px-[14px] py-[12px] rounded-[var(--radius-md)] text-[13px] text-[var(--ink-2)] leading-[1.6] [&_p]:mb-[8px] ${editingPreamble ? 'cursor-text' : ''}`}
+                style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}
+                dangerouslySetInnerHTML={{ __html: data.preambleHtml ?? '' }}
+              />
+              {data.preambleEdited && (
+                <button type="button" onClick={() => onChange({ ...data, preambleEdited: false })}
+                  className="mt-[4px] text-[11px] text-[var(--ink-4)] hover:underline cursor-pointer">
+                  Сбросить к автозаполнению
+                </button>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-[6px]">
+                <p className="text-[13px] font-medium text-[var(--ink)]">Реквизиты и подписи сторон</p>
+                <button type="button" onClick={() => setEditingRequisites((v) => !v)}
+                  className="text-[12px] text-[var(--accent-ink)] hover:underline cursor-pointer">
+                  {editingRequisites ? 'Готово' : 'Изменить вручную'}
+                </button>
+              </div>
+              <div
+                key={editingRequisites ? 'edit' : 'view'}
+                contentEditable={editingRequisites}
+                suppressContentEditableWarning
+                onBlur={(e) => onChange({ ...data, requisitesHtml: e.currentTarget.innerHTML, requisitesEdited: true })}
+                className={`px-[14px] py-[12px] rounded-[var(--radius-md)] text-[13px] text-[var(--ink-2)] leading-[1.6] flex flex-col gap-[16px] [&_p]:mb-[6px] [&_h2]:text-[12px] [&_h2]:font-medium [&_h2]:uppercase [&_h2]:tracking-[0.08em] [&_h2]:mb-[8px] ${editingRequisites ? 'cursor-text' : ''}`}
+                style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}
+                dangerouslySetInnerHTML={{ __html: data.requisitesHtml ?? '' }}
+              />
+              {data.requisitesEdited && (
+                <button type="button" onClick={() => onChange({ ...data, requisitesEdited: false })}
+                  className="mt-[4px] text-[11px] text-[var(--ink-4)] hover:underline cursor-pointer">
+                  Сбросить к автозаполнению
+                </button>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Основной договор (обязательно для Приложений и ДС) */}
       {needsParent && (() => {
@@ -1078,6 +1334,12 @@ export default function NewDocumentPage() {
     parentDocumentId: preselectedParentDocId || undefined,
     parentUploadFile: null,
     parentUploadText: '',
+    profileSignatoryId: '',
+    counterpartySignatoryId: '',
+    preambleHtml: '',
+    requisitesHtml: '',
+    preambleEdited: false,
+    requisitesEdited: false,
   })
   const [step2, setStep2] = useState<Step2Data>({
     description: '', protectionLevel: 65, targetSize: 8000, customInstruction: '', selectedChips: [],
@@ -1203,6 +1465,10 @@ export default function NewDocumentPage() {
           counterpartyId: step1.counterpartyId,
           parentDocumentId: parentDocumentId || undefined,
           uploadedContent: versionContent,
+          profileSignatoryId: step1.profileSignatoryId || undefined,
+          counterpartySignatoryId: step1.counterpartySignatoryId || undefined,
+          preambleHtml: step1.preambleHtml || undefined,
+          requisitesHtml: step1.requisitesHtml || undefined,
           aiSettings: {
             ...step2Rest,
             userRole: step1.userRole,

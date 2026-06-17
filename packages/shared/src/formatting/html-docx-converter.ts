@@ -155,8 +155,13 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
 
   for (const n of nodes) {
     if (n.type === 'text') {
+      // Переводы строк/пробелы между блочными тегами (например "\n" между
+      // <p>...</p>\n<p>...</p>) — это не отдельный абзац, а просто форматирование
+      // исходного HTML. Без этой проверки на каждый перевод строки создаётся
+      // пустой абзац с одним пробелом, и интервалы между пунктами визуально удваиваются.
+      if (!n.text.trim()) continue
       const runs = collectRuns([n])
-      if (!isBlank(runs)) out.push(new Paragraph({ children: runs, alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 } }))
+      if (!isBlank(runs)) out.push(new Paragraph({ children: runs, alignment: AlignmentType.JUSTIFIED, spacing: { after: 60 } }))
       continue
     }
 
@@ -165,13 +170,13 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         const { heading, align } = headingFor(n.tag)
         out.push(new Paragraph({
           children: collectRuns(n.children, { bold: true }),
-          heading, alignment: align, spacing: { before: 200, after: 120 },
+          heading, alignment: align, spacing: { before: 120, after: 60 },
         }))
         break
       }
       case 'p': {
         const runs = collectRuns(n.children)
-        out.push(new Paragraph({ children: runs, alignment: AlignmentType.JUSTIFIED, spacing: { after: 120 } }))
+        out.push(new Paragraph({ children: runs, alignment: AlignmentType.JUSTIFIED, spacing: { after: 60 } }))
         break
       }
       case 'ul': case 'ol': {
@@ -183,7 +188,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
             const prefix = ordered ? `${idx}. ` : '•  '
             out.push(new Paragraph({
               children: [new TextRun({ text: prefix }), ...collectRuns(li.children)],
-              indent: { left: 480, hanging: 240 }, spacing: { after: 60 },
+              indent: { left: 480, hanging: 240 }, spacing: { after: 40 },
             }))
           }
         }
@@ -325,8 +330,11 @@ function buildPartyBlock(party: RequisitesParty, title: string): Paragraph[] {
 
   const shortName = (fullName?: string | null) => {
     if (!fullName) return '___________'
-    const parts = fullName.trim().split(/\s+/)
-    if (parts.length < 2) return fullName
+    // У ИП имя хранится с префиксом «ИП Фамилия Имя Отчество» — отбрасываем
+    // префикс, иначе «ИП» попадает в позицию фамилии и портит инициалы.
+    const withoutPrefix = fullName.trim().replace(/^ИП\s+/i, '')
+    const parts = withoutPrefix.split(/\s+/)
+    if (parts.length < 2) return withoutPrefix
     return parts[0] + ' ' + parts.slice(1).map((w) => w[0] + '.').join('')
   }
 
@@ -424,13 +432,13 @@ export async function convertToDocx(content: string, opts: DocxOptions = {}): Pr
       paragraphStyles: [
         { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
           run: { size: 28, bold: true, font: 'Times New Roman', allCaps: true },
-          paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 0 } },
+          paragraph: { spacing: { before: 160, after: 80 }, outlineLevel: 0 } },
         { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
           run: { size: 26, bold: true, font: 'Times New Roman', allCaps: true },
-          paragraph: { spacing: { before: 200, after: 120 }, outlineLevel: 1 } },
+          paragraph: { spacing: { before: 120, after: 60 }, outlineLevel: 1 } },
         { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
           run: { size: 24, bold: true, font: 'Times New Roman' },
-          paragraph: { spacing: { before: 160, after: 100 }, outlineLevel: 2 } },
+          paragraph: { spacing: { before: 100, after: 60 }, outlineLevel: 2 } },
       ],
     },
     sections: [{

@@ -16,13 +16,29 @@ const createSchema = z.object({
   documentNumber: z.number().int().positive().optional(),
   // Текст загруженного файла (если base === 'upload')
   uploadedContent: z.string().optional(),
-  // AI-настройки для первой версии
+  // Подписанты сторон, выбранные на шаге настройки документа
+  profileSignatoryId: z.string().optional(),
+  counterpartySignatoryId: z.string().optional(),
+  // Замороженные HTML-блоки шапки (преамбулы) и реквизитов/подписей — собраны и,
+  // возможно, отредактированы пользователем на шаге настройки. Сохраняются как есть
+  // и больше не пересчитываются из текущих данных Profile/Counterparty.
+  preambleHtml: z.string().optional(),
+  requisitesHtml: z.string().optional(),
+  // AI-настройки для первой версии.
+  // ВАЖНО: мастер создания документа (documents/new/page.tsx) кладёт сюда же userRole,
+  // profileId и referenceContent — эти поля ОБЯЗАТЕЛЬНО должны быть объявлены здесь,
+  // иначе zod.parse() молча отбрасывает их при валидации (по умолчанию схема "strip"),
+  // и при генерации документ получит роль/профиль по дефолту вместо выбранных
+  // пользователем (баг, который уже случился с userRole и profileId).
   aiSettings: z.object({
     protectionLevel: z.number().min(0).max(100).default(65),
     targetSize: z.number().default(8400),
     customInstruction: z.string().default(''),
     base: z.enum(['scratch', 'template', 'upload']).default('scratch'),
     description: z.string().default(''),
+    userRole: z.enum(['CUSTOMER', 'EXECUTOR', 'customer', 'executor']).optional(),
+    profileId: z.string().optional(),
+    referenceContent: z.string().optional(),
   }).optional(),
 })
 
@@ -138,6 +154,10 @@ export async function POST(req: NextRequest) {
       type: data.type,
       parentDocumentId: data.parentDocumentId,
       documentNumber,
+      profileSignatoryId: data.profileSignatoryId || undefined,
+      counterpartySignatoryId: data.counterpartySignatoryId || undefined,
+      preambleHtml: data.preambleHtml || undefined,
+      requisitesHtml: data.requisitesHtml || undefined,
       versions: {
         create: {
           number: 1,

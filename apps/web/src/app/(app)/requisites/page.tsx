@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
+import { SignatoryModal, SignatoryData } from '@/components/counterparties/signatory-modal'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,17 @@ interface BankDetail {
   checkingAccount: string
   bik: string
   correspondentAccount: string
+}
+
+interface ProfileSignatory {
+  id: string
+  fullName: string
+  position: string
+  basisType: 'CHARTER' | 'POA' | 'CERTIFICATE' | 'REGULATION' | 'OTHER'
+  poaNumber: string | null
+  poaDate: string | null
+  poaExpiry: string | null
+  isDefault: boolean
 }
 
 interface Profile {
@@ -144,16 +156,65 @@ function FileUploadZone({ label, hint, value, onChange }: {
 
 // ─── Форма реквизитов ─────────────────────────────────────────────────────────
 
-function ProfileForm({ profile, onChange, isNew }: {
+function ProfileForm({ profile, onChange, isNew, profileId }: {
   profile: Omit<Profile, 'id'>
   onChange: (updated: Omit<Profile, 'id'>) => void
   isNew: boolean
+  profileId: string | null  // id уже сохранённого профиля — нужен для CRUD подписантов
 }) {
   const bank = profile.bankDetails[0] ?? { ...EMPTY_BANK }
   const set = (key: keyof Omit<Profile, 'id' | 'bankDetails'>, val: string) =>
     onChange({ ...profile, [key]: val })
   const setBank = (key: keyof BankDetail, val: string) =>
     onChange({ ...profile, bankDetails: [{ ...bank, [key]: val }] })
+
+  // ─── Подписанты профиля (несколько на одну сторону — директор, по доверенности и т.д.) ──
+  const [signatories, setSignatories] = useState<ProfileSignatory[]>([])
+  const [signatoryModalOpen, setSignatoryModalOpen] = useState(false)
+  const [editingSignatory, setEditingSignatory] = useState<ProfileSignatory | null>(null)
+  const [deleteSignatoryId, setDeleteSignatoryId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!profileId) { setSignatories([]); return }
+    fetch(`/api/profiles`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((all: Array<{ id: string; signatories?: ProfileSignatory[] }>) => {
+        setSignatories(all.find((p) => p.id === profileId)?.signatories ?? [])
+      })
+      .catch(() => {})
+  }, [profileId])
+
+  const handleSaveSignatory = async (data: SignatoryData) => {
+    if (!profileId) return
+    const payload = {
+      fullName: data.fullName,
+      position: data.position,
+      basisType: data.basisType,
+      poaNumber: data.poaNumber || null,
+      poaDate: data.poaDate || null,
+      poaExpiry: data.poaExpiry || null,
+    }
+    const res = editingSignatory
+      ? await fetch(`/api/profiles/${profileId}/signatories/${editingSignatory.id}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        })
+      : await fetch(`/api/profiles/${profileId}/signatories`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        })
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error ?? 'Ошибка сохранения') }
+    const saved: ProfileSignatory = await res.json()
+    setSignatories((prev) => editingSignatory
+      ? prev.map((s) => s.id === saved.id ? saved : s)
+      : [...prev, saved])
+  }
+
+  const confirmDeleteSignatory = async () => {
+    if (!deleteSignatoryId || !profileId) return
+    await fetch(`/api/profiles/${profileId}/signatories/${deleteSignatoryId}`, { method: 'DELETE' })
+    setSignatories((prev) => prev.filter((s) => s.id !== deleteSignatoryId))
+    setDeleteSignatoryId(null)
+  }
+
   // G.2: при смене типа сбрасываем несовместимые поля (только при создании)
   const handleTypeChange = (newType: ProfileType) =>
     onChange(clearTypeSpecificFields(profile, newType))
@@ -303,12 +364,67 @@ function ProfileForm({ profile, onChange, isNew }: {
                 : 'Устава'
               } />
           </Field>
+          <p className="text-[11px] text-[var(--ink-4)]">
+            Это поле — резервный подписант на случай, если ниже не заведено ни одного. Если нужно выбирать
+            между несколькими подписантами (директор, по доверенности и т.д.) при создании договора — заведите их в разделе ниже.
+          </p>
           <div className="flex gap-[12px] mt-[4px]">
             <FileUploadZone label="Загрузить факсимиле" hint="PNG, SVG — без фона" value={profile.signatureFilePath} onChange={() => {}} />
             <FileUploadZone label="Загрузить печать" hint="PNG, SVG — без фона" value={profile.stampFilePath} onChange={() => {}} />
           </div>
         </div>
       </Card>
+
+      {!isNew && profileId && (
+        <Card>
+          <div className="flex items-center justify-between mb-[12px]">
+            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em]">Подписанты</p>
+            <Button variant="secondary" size="sm" onClick={() => { setEditingSignatory(null); setSignatoryModalOpen(true) }}>+ Добавить</Button>
+          </div>
+          {signatories.length === 0 ? (
+            <p className="text-[12px] text-[var(--ink-4)]">Подписанты не заведены — будет использовано поле «Подписант» выше.</p>
+          ) : (
+            <div className="flex flex-col gap-[6px]">
+              {signatories.map((sig) => (
+                <div key={sig.id} className="flex items-center gap-[10px] px-[12px] py-[9px] rounded-[var(--radius-md)]" style={{ background: 'var(--surface-inset)' }}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-[var(--ink)] truncate">
+                      {sig.fullName}{sig.isDefault && <span className="ml-[6px] text-[11px] text-[var(--ink-4)]">по умолчанию</span>}
+                    </p>
+                    <p className="text-[12px] text-[var(--ink-4)] truncate">{sig.position}</p>
+                  </div>
+                  <button onClick={() => { setEditingSignatory(sig); setSignatoryModalOpen(true) }} className="text-[12px] text-[var(--ink-3)] hover:text-[var(--ink)] cursor-pointer transition-colors">Изм.</button>
+                  <button onClick={() => setDeleteSignatoryId(sig.id)} className="text-[12px] text-[var(--danger)] cursor-pointer hover:opacity-70 transition-opacity">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {signatoryModalOpen && (
+        <SignatoryModal
+          initial={editingSignatory ? {
+            id: editingSignatory.id, fullName: editingSignatory.fullName,
+            signatureName: '', position: editingSignatory.position,
+            basisType: editingSignatory.basisType,
+            poaNumber: editingSignatory.poaNumber ?? '', poaDate: editingSignatory.poaDate ?? '',
+            poaExpiry: editingSignatory.poaExpiry ?? '', scopes: [],
+          } : null}
+          counterpartyName={profile.name || undefined}
+          onSave={handleSaveSignatory}
+          onClose={() => { setSignatoryModalOpen(false); setEditingSignatory(null) }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={!!deleteSignatoryId}
+        title="Удалить подписанта?"
+        message="Подписант будет удалён. Это действие нельзя отменить."
+        confirmLabel="Удалить"
+        onConfirm={confirmDeleteSignatory}
+        onCancel={() => setDeleteSignatoryId(null)}
+      />
     </div>
   )
 }
@@ -645,7 +761,7 @@ function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDr
             {draft ? (
               <div className="grid grid-cols-[1fr_220px] gap-[16px] items-start">
                 <div>
-                  <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} isNew={selectedId === 'new'} />
+                  <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} isNew={selectedId === 'new'} profileId={selectedId === 'new' ? null : selectedId} />
                   <div className="flex items-center justify-between mt-[16px] pt-[16px] border-t border-[var(--line)]">
                     <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
                     <div className="flex items-center gap-[12px]">

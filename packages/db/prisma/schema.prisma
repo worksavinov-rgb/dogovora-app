@@ -54,7 +54,8 @@ model Profile {
   ogrnDate       String?     // дата присвоения ОГРНИП (для ИП)
   legalAddress   String?
   email          String?
-  // Подписант от имени этого профиля
+  // Подписант от имени этого профиля (legacy одиночное поле — оставлено для обратной
+  // совместимости со старыми документами; новые подписанты — через ProfileSignatory)
   signatorName   String?
   signatorPosition String?
   signatorBasis  String?
@@ -64,11 +65,34 @@ model Profile {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   bankDetails BankDetail[]
+  signatories ProfileSignatory[]
   documents   Document[]
 
   @@map("profiles")
+}
+
+// Подписанты профиля пользователя — зеркало Signatory (у контрагента), но для своей стороны.
+// Позволяет завести нескольких людей (директор, замдиректора по доверенности и т.д.)
+// и выбирать конкретного подписанта при создании документа.
+model ProfileSignatory {
+  id            String         @id @default(cuid())
+  profileId     String
+  fullName      String
+  position      String
+  basisType     SignatoryBasis
+  poaNumber     String?
+  poaDate       DateTime?
+  poaExpiry     DateTime?
+  poaFilePath   String?
+  isDefault     Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+
+  profile   Profile    @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  documents Document[]
+
+  @@map("profile_signatories")
 }
 
 enum ProfileType {
@@ -136,6 +160,7 @@ model Signatory {
 
   counterparty Counterparty     @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
   scopes       SignatoryScope[]
+  documents    Document[]
 
   @@map("signatories")
 }
@@ -180,12 +205,26 @@ model Document {
   type             DocumentType
   parentDocumentId String?      // для APPENDIX/AMENDMENT: ссылка на родительский CONTRACT
   documentNumber   Int?         // порядковый номер приложения/ДС (1, 2, 3...)
+
+  // Выбранные подписанты сторон — фиксируются один раз на шаге настройки документа
+  profileSignatoryId      String?
+  counterpartySignatoryId String?
+
+  // Замороженные HTML-блоки шапки (преамбулы) и реквизитов/подписей — формируются
+  // и (опционально) редактируются на шаге настройки, затем подставляются в каждую
+  // версию документа как есть. НЕ пересчитываются из живых данных Profile/Counterparty —
+  // если контрагент потом изменит реквизиты в карточке, уже созданный договор не изменится.
+  preambleHtml     String?
+  requisitesHtml   String?
+
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  counterparty   Counterparty @relation(fields: [counterpartyId], references: [id])
-  profile        Profile?     @relation(fields: [profileId], references: [id])
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  counterparty          Counterparty      @relation(fields: [counterpartyId], references: [id])
+  profile               Profile?          @relation(fields: [profileId], references: [id])
+  profileSignatory      ProfileSignatory? @relation(fields: [profileSignatoryId], references: [id])
+  counterpartySignatory Signatory?        @relation(fields: [counterpartySignatoryId], references: [id])
   parentDocument Document?    @relation("ChildDocuments", fields: [parentDocumentId], references: [id])
   childDocuments Document[]   @relation("ChildDocuments")
   versions       Version[]

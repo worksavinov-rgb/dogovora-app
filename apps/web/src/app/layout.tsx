@@ -25,7 +25,7 @@ const sourceSerif4 = Source_Serif_4({
 })
 
 export const metadata: Metadata = {
-  title: 'Договора — SaaS для работы с договорами через ИИ',
+  title: 'Догодок — SaaS для работы с договорами через ИИ',
   description: 'Создавайте, проверяйте и храните договоры с помощью искусственного интеллекта',
 }
 
