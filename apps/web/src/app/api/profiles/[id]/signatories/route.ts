@@ -15,6 +15,11 @@ const signatorySchema = z.object({
   isDefault: z.boolean().optional(),
 })
 
+// GET /api/profiles/:id/signatories
+export async function GET(req: NextRequest, { params: _params }: Params) {
+  return NextResponse.json([])
+}
+
 // POST /api/profiles/:id/signatories
 export async function POST(req: NextRequest, { params }: Params) {
   const userId = getUserId(req)
