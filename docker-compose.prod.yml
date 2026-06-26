@@ -1,8 +1,6 @@
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/worksavinov-rgb/dogovora-web:latest
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -25,9 +23,7 @@ services:
       - app-network
 
   worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    image: ghcr.io/worksavinov-rgb/dogovora-worker:latest
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
