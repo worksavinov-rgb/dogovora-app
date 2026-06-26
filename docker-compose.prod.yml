@@ -1,6 +1,5 @@
 services:
   web:
-    image: dogovora-web:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -25,9 +24,11 @@ services:
       - app-network
 
   worker:
-    image: dogovora-web:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["node", "-e", "require('./apps/web/src/worker.ts')"]
+    command: ["node", "apps/web/server.js"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
