@@ -7,12 +7,30 @@ const RegisterSchema = z.object({
   email: z.string().email('Введите корректный email'),
   password: z.string().min(8, 'Пароль — минимум 8 символов'),
   name: z.string().min(1, 'Укажите имя').optional(),
+  promoCode: z.string().min(1, 'Введите промокод'),
 })
+
+const WELCOME_BONUS = 5000
 
 export async function POST(req: Request) {
   try {
     const body = await req.json() as unknown
     const data = RegisterSchema.parse(body)
+
+    // Проверяем промокод
+    const promo = await prisma.promoCode.findUnique({
+      where: { code: data.promoCode.trim().toUpperCase() },
+    })
+
+    if (!promo) {
+      return NextResponse.json({ error: 'Промокод не найден' }, { status: 400 })
+    }
+    if (!promo.isActive) {
+      return NextResponse.json({ error: 'Промокод недействителен' }, { status: 400 })
+    }
+    if (promo.usedById) {
+      return NextResponse.json({ error: 'Промокод уже использован' }, { status: 400 })
+    }
 
     const existing = await prisma.user.findUnique({ where: { email: data.email } })
     if (existing) {
@@ -24,14 +42,42 @@ export async function POST(req: Request) {
 
     const passwordHash = await hashPassword(data.password)
 
-    const user = await prisma.user.create({
-      data: {
-        email: data.email,
-        passwordHash,
-        wallet: { create: { balance: 0 } },
-        storageQuota: { create: { usedBytes: 0, limitBytes: 524288000 } }, // 500 MB
-      },
-      select: { id: true, email: true, createdAt: true },
+    // Создаём пользователя + кошелёк с бонусом + транзакцию + помечаем промокод — всё атомарно
+    const user = await prisma.$transaction(async (tx) => {
+      const newUser = await tx.user.create({
+        data: {
+          email: data.email,
+          passwordHash,
+          storageQuota: { create: { usedBytes: 0, limitBytes: 524288000 } },
+        },
+        select: { id: true, email: true, createdAt: true },
+      })
+
+      const wallet = await tx.wallet.create({
+        data: {
+          userId: newUser.id,
+          balance: WELCOME_BONUS,
+        },
+      })
+
+      await tx.transaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'CREDIT',
+          amount: WELCOME_BONUS,
+          description: 'Приветственный бонус за регистрацию',
+        },
+      })
+
+      await tx.promoCode.update({
+        where: { id: promo.id },
+        data: {
+          usedById: newUser.id,
+          usedAt: new Date(),
+        },
+      })
+
+      return newUser
     })
 
     const payload = { userId: user.id, email: user.email }
@@ -44,14 +90,14 @@ export async function POST(req: Request) {
       httpOnly: true,
       secure: process.env['NODE_ENV'] === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60, // 15 мин
+      maxAge: 15 * 60,
       path: '/',
     })
     res.cookies.set('refresh_token', refreshToken, {
       httpOnly: true,
       secure: process.env['NODE_ENV'] === 'production',
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60, // 30 дней
+      maxAge: 30 * 24 * 60 * 60,
       path: '/',
     })
 

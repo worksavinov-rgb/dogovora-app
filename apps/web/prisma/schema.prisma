@@ -23,6 +23,7 @@ model User {
   counterparties     Counterparty[]
   documents          Document[]
   documentTemplates  DocumentTemplate[]
+  usedPromoCode      PromoCode?
 
   @@map("users")
 }
@@ -306,6 +307,21 @@ model DocumentTemplate {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("document_templates")
+}
+
+// ─── Промокоды (доступ к бета-тестированию) ──────────────────────────────────
+
+model PromoCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  isActive  Boolean  @default(true)
+  usedById  String?  @unique  // одноразовый — один пользователь
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  usedBy User? @relation(fields: [usedById], references: [id])
+
+  @@map("promo_codes")
 }
 
 // ─── Хранилище ────────────────────────────────────────────────────────────────

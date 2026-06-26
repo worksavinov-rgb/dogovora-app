@@ -15,6 +15,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [promoCode, setPromoCode] = useState('')
   const [remember, setRemember] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -29,7 +30,11 @@ export default function LoginPage() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(
+          mode === 'register'
+            ? { email, password, promoCode }
+            : { email, password }
+        ),
       })
 
       const data = await res.json() as { error?: string }
@@ -159,6 +164,24 @@ export default function LoginPage() {
                   required
                 />
               </Field>
+
+              {/* Промокод — только при регистрации */}
+              {mode === 'register' && (
+                <Field label="Промокод доступа" htmlFor="promoCode">
+                  <Input
+                    id="promoCode"
+                    type="text"
+                    placeholder="BETA-XXXX"
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                    autoComplete="off"
+                    required
+                  />
+                  <p className="text-[11px] text-[var(--ink-4)] mt-[4px]">
+                    Регистрация доступна по приглашению. Промокод можно получить у администратора.
+                  </p>
+                </Field>
+              )}
 
               {/* Запомнить / Забыли пароль */}
               {mode === 'login' && (
