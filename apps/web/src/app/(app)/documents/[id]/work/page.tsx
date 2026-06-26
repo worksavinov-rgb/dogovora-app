@@ -456,7 +456,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   // Polling статуса задачи генерации
   const pollJob = useCallback(async function runPoll(jobId: string, versionId: string) {
     // Таймаут 5 минут
-    if (genStartRef.current && Date.now() - genStartRef.current > 5 * 60 * 1000) {
+    if (genStartRef.current && Date.now() - genStartRef.current > 7 * 60 * 1000) {
       setGenerating(false)
       setGenError(true)
       return
@@ -1172,6 +1172,18 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           <GenerationErrorScreen docTitle={docTitle} onRetry={async () => {
             const vId = genVersionIdRef.current
             if (!vId) return
+            // Сначала проверяем — вдруг документ уже сгенерирован (таймаут сработал раньше)
+            const checkRes = await fetch(`/api/documents/${id}`)
+            if (checkRes.ok) {
+              const doc = await checkRes.json()
+              const ver = doc.versions.find((v: Version) => v.id === vId)
+              if (ver?.content) {
+                setDocContent(ver.content)
+                setVersion((prev) => prev ? { ...prev, content: ver.content } : prev)
+                setGenError(false)
+                return
+              }
+            }
             setGenError(false)
             setGenerating(true)
             setGenProgress(0)
