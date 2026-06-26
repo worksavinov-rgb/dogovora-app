@@ -22,7 +22,6 @@ export async function GET(req: NextRequest, { params }: Params) {
           title: true,
           number: true,
           type: true,
-          userRole: true,
           profileId: true,
           counterpartyId: true,
           parentDocumentId: true,
@@ -54,13 +53,13 @@ export async function GET(req: NextRequest, { params }: Params) {
       const rootDoc = docId
         ? await prisma.document.findFirst({
             where: { id: docId, userId },
-            select: { userRole: true, profileId: true, counterpartyId: true },
+            select: { profileId: true, counterpartyId: true },
           })
         : null
 
       const profileId = version.document.profileId
       const counterpartyId = version.document.counterpartyId
-      const userRole = rootDoc?.userRole ?? version.document.userRole ?? 'EXECUTOR'
+      const userRole = 'EXECUTOR'
 
       const [profile, counterparty] = await Promise.all([
         // Если профиль не выбран на документе — берём первый профиль пользователя
