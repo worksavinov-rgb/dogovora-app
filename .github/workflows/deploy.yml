@@ -18,5 +18,5 @@ jobs:
           script: |
             cd /app
             git pull origin main
-            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build web worker
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build web
             docker image prune -f
