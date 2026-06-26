@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params: _params }: Params) {
   return NextResponse.json([])
 }
 
-// POST /api/profiles/:id/signatories
+// POST /api/profiles/:id/signatories — подписанты профиля хранятся в самом профиле (signatorName, signatorPosition)
 export async function POST(req: NextRequest, { params }: Params) {
   const userId = getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -29,33 +29,16 @@ export async function POST(req: NextRequest, { params }: Params) {
   const profile = await prisma.profile.findFirst({ where: { id, userId } })
   if (!profile) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const body = await req.json()
-  let data: z.infer<typeof signatorySchema>
-  try {
-    data = signatorySchema.parse(body)
-  } catch (err: unknown) {
-    if (err instanceof z.ZodError) return NextResponse.json({ error: err.issues[0]?.message }, { status: 400 })
-    throw err
-  }
+  const body = await req.json() as { fullName?: string; position?: string; basisType?: string }
 
-  const { poaDate, poaExpiry, ...sigData } = data
-
-  // Если это первый подписант профиля или явно помечен как дефолтный —
-  // снимаем isDefault с остальных, чтобы он был единственным
-  if (data.isDefault) {
-    await prisma.profileSignatory.updateMany({ where: { profileId: id }, data: { isDefault: false } })
-  }
-  const existingCount = await prisma.profileSignatory.count({ where: { profileId: id } })
-
-  const signatory = await prisma.profileSignatory.create({
+  const updated = await prisma.profile.update({
+    where: { id },
     data: {
-      ...sigData,
-      poaDate: poaDate ? new Date(poaDate) : null,
-      poaExpiry: poaExpiry ? new Date(poaExpiry) : null,
-      isDefault: data.isDefault ?? existingCount === 0,
-      profileId: id,
+      signatorName: body.fullName,
+      signatorPosition: body.position,
+      signatorBasis: body.basisType,
     },
   })
 
-  return NextResponse.json(signatory, { status: 201 })
+  return NextResponse.json({ id: updated.id, fullName: updated.signatorName, position: updated.signatorPosition, isDefault: true }, { status: 201 })
 }
