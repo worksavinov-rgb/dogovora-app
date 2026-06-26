@@ -94,7 +94,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   // на шаге настройки; если не выбран — берём дефолтного подписанта контрагента.
   const cp = doc.counterparty
   const [cpSignatory] = await prisma.signatory.findMany({
-    where: { counterpartyId: cp.id, ...(doc.counterpartySignatoryId ? { id: doc.counterpartySignatoryId } : { isDefault: true }) },
+    where: { counterpartyId: cp.id, isDefault: true },
     take: 1,
   })
   const counterpartyData = {
@@ -158,13 +158,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     // (apps/web/src/app/api/documents/route.ts) не объявляла это поле внутри aiSettings —
     // оно тихо отбрасывалось при парсинге, и роль всегда падала в дефолт 'customer'
     // независимо от того, что выбрал пользователь в мастере создания документа.
-    userRole: doc.userRole === 'EXECUTOR' ? 'executor' : 'customer',
+    userRole: 'executor',
     userProfile,
     counterpartyData,
-    // Замороженные на шаге настройки HTML-блоки — если есть, queue.ts подставляет их
-    // как есть вместо пересчёта из текущих (возможно уже изменённых) данных сторон.
-    preambleHtml: doc.preambleHtml ?? undefined,
-    requisitesHtml: doc.requisitesHtml ?? undefined,
   })
 
   return NextResponse.json({ jobId: job.id }, { status: 202 })

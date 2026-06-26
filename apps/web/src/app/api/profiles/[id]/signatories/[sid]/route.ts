@@ -33,22 +33,16 @@ export async function PUT(req: NextRequest, { params }: Params) {
     throw err
   }
 
-  if (data.isDefault) {
-    await prisma.profileSignatory.updateMany({ where: { profileId: id, id: { not: sid } }, data: { isDefault: false } })
-  }
-
-  const { poaDate, poaExpiry, ...sigData } = data
-
-  const signatory = await prisma.profileSignatory.update({
-    where: { id: sid },
+  await prisma.profile.update({
+    where: { id },
     data: {
-      ...sigData,
-      poaDate: poaDate !== undefined ? (poaDate ? new Date(poaDate) : null) : undefined,
-      poaExpiry: poaExpiry !== undefined ? (poaExpiry ? new Date(poaExpiry) : null) : undefined,
+      signatorName: data.fullName,
+      signatorPosition: data.position,
+      signatorBasis: data.basisType,
     },
   })
 
-  return NextResponse.json(signatory)
+  return NextResponse.json({ id: sid, fullName: data.fullName, position: data.position, isDefault: true })
 }
 
 // DELETE /api/profiles/:id/signatories/:sid
@@ -56,10 +50,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const userId = getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { id, sid } = await params
+  const { id } = await params
   const profile = await prisma.profile.findFirst({ where: { id, userId } })
   if (!profile) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await prisma.profileSignatory.delete({ where: { id: sid } })
+  await prisma.profile.update({ where: { id }, data: { signatorName: null, signatorPosition: null, signatorBasis: null } })
   return NextResponse.json({ ok: true })
 }
