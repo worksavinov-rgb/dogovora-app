@@ -134,7 +134,6 @@ export async function GET(req: NextRequest, { params }: Params) {
       await prisma.version.update({
         where: { id },
         data: {
-          formattedFilePath: formattedKey,
           formattingApplied: true,
         },
       })

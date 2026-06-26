@@ -41,7 +41,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     await prisma.version.update({
       where: { id },
       data: {
-        formattedFilePath: formattedKey,
         formattingApplied: true,
       },
     })

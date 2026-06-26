@@ -217,7 +217,6 @@ export function startGenerateWorker() {
             status: 'DRAFT',
             content: trimmedText,
             fileSize: fileSize,
-            formattedFilePath: formattedKey,
             formattingApplied: true,
           },
         })
