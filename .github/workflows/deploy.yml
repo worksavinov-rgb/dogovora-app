@@ -33,7 +33,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: Dockerfile
+          file: Dockerfile
           push: true
           tags: ${{ env.IMAGE_WEB }}:latest
           cache-from: type=gha,scope=web
@@ -43,7 +43,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          dockerfile: Dockerfile.worker
+          file: Dockerfile.worker
           push: true
           tags: ${{ env.IMAGE_WORKER }}:latest
           cache-from: type=gha,scope=worker
