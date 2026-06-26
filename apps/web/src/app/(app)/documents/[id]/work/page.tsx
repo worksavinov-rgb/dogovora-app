@@ -309,7 +309,36 @@ function DocumentRenderer_LEGACY({ text, canCopy }: { text: string; canCopy: boo
 
 // ─── Экран генерации (пока документ создаётся) ───────────────────────────────
 
-function GeneratingScreen({ progress, docTitle }: { progress: number; docTitle: string }) {
+function GeneratingScreen({ done, docTitle }: { done: boolean; docTitle: string }) {
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    if (done) {
+      setProgress(100)
+      return
+    }
+    setProgress(0)
+    // Плавно заполняем до 90% за ~50 сек, потом замедляемся
+    const start = Date.now()
+    const tick = () => {
+      const elapsed = (Date.now() - start) / 1000
+      // Логистическая кривая: быстро в начале, замедляется к концу
+      const p = Math.min(90, Math.round(90 * (1 - Math.exp(-elapsed / 20))))
+      setProgress(p)
+    }
+    const interval = setInterval(tick, 300)
+    return () => clearInterval(interval)
+  }, [done])
+
+  const phases = [
+    { until: 20, label: 'Анализирую задачу…' },
+    { until: 50, label: 'Формирую структуру…' },
+    { until: 75, label: 'Прописываю условия…' },
+    { until: 90, label: 'Финализирую документ…' },
+    { until: 100, label: 'Готово!' },
+  ]
+  const phase = phases.find(p => progress <= p.until) ?? phases[phases.length - 1]
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-[24px]"
       style={{ background: 'var(--bg-soft)' }}>
@@ -320,15 +349,19 @@ function GeneratingScreen({ progress, docTitle }: { progress: number; docTitle: 
       <div className="text-center">
         <p className="text-[15px] font-medium text-[var(--ink)] mb-[6px]"
           style={{ fontFamily: 'var(--font-serif)' }}>
-          Генерирую документ…
+          {phase.label}
         </p>
         <p className="text-[12px] text-[var(--ink-4)]">{docTitle}</p>
       </div>
       {/* Прогресс-бар */}
       <div className="w-[240px] h-[3px] rounded-full bg-[var(--line)] overflow-hidden">
         <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${progress}%`, background: 'var(--accent)' }}
+          className="h-full rounded-full"
+          style={{
+            width: `${progress}%`,
+            background: 'var(--accent)',
+            transition: done ? 'width 0.3s ease' : 'width 0.6s ease-out',
+          }}
         />
       </div>
       <p className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>
@@ -1092,7 +1125,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
         {/* Тело документа */}
         {generating ? (
-          <GeneratingScreen progress={genProgress} docTitle={docTitle} />
+          <GeneratingScreen done={genProgress === 100} docTitle={docTitle} />
         ) : (
           <div className="flex-1 overflow-y-auto relative" style={{ background: '#DEDAD3', padding: '0' }}>
             {/* Индикатор обновления документа ИИ — всё время генерации */}
