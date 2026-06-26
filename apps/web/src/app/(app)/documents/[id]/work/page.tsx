@@ -309,6 +309,40 @@ function DocumentRenderer_LEGACY({ text, canCopy }: { text: string; canCopy: boo
 
 // ─── Экран генерации (пока документ создаётся) ───────────────────────────────
 
+function GenerationErrorScreen({ docTitle, onRetry }: { docTitle: string; onRetry: () => void }) {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-[24px] px-6"
+      style={{ background: 'var(--bg-soft)' }}>
+      <div className="w-[56px] h-[56px] rounded-full flex items-center justify-center"
+        style={{ background: '#FEF2F2', border: '1px solid #FECACA' }}>
+        <span className="text-[22px]">⚠</span>
+      </div>
+      <div className="text-center max-w-[320px]">
+        <p className="text-[15px] font-medium text-[var(--ink)] mb-[8px]"
+          style={{ fontFamily: 'var(--font-serif)' }}>
+          Не удалось сгенерировать документ
+        </p>
+        <p className="text-[13px] text-[var(--ink-4)] leading-relaxed mb-[6px]">{docTitle}</p>
+        <p className="text-[12px] text-[var(--ink-4)] leading-relaxed">
+          Возможно, ИИ-сервис временно недоступен или перегружен. Это бывает — обычно помогает повторная попытка через минуту.
+        </p>
+      </div>
+      <div className="flex flex-col gap-[10px] w-full max-w-[240px]">
+        <button
+          onClick={onRetry}
+          className="w-full py-[10px] rounded-[8px] text-[13px] font-medium text-white"
+          style={{ background: 'var(--ink)' }}
+        >
+          Попробовать снова
+        </button>
+        <p className="text-[11px] text-[var(--ink-4)] text-center">
+          Если ошибка повторяется — напишите нам, разберёмся
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function GeneratingScreen({ done, docTitle }: { done: boolean; docTitle: string }) {
   const [progress, setProgress] = useState(0)
 
@@ -383,6 +417,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [docContent, setDocContent] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genProgress, setGenProgress] = useState(0)
+  const [genError, setGenError] = useState(false)
+  const genStartRef = useRef<number | null>(null)
+  const genVersionIdRef = useRef<string | null>(null)
   const [mobileTab, setMobileTab] = useState<'doc' | 'chat'>('doc')
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -418,15 +455,20 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   // Polling статуса задачи генерации
   const pollJob = useCallback(async function runPoll(jobId: string, versionId: string) {
+    // Таймаут 5 минут
+    if (genStartRef.current && Date.now() - genStartRef.current > 5 * 60 * 1000) {
+      setGenerating(false)
+      setGenError(true)
+      return
+    }
+
     try {
       const res = await fetch(`/api/jobs/${jobId}`)
       if (!res.ok) return
 
       const job = await res.json()
-      setGenProgress(job.progress ?? 0)
 
       if (job.state === 'completed') {
-        // Загружаем свежий контент версии
         const vRes = await fetch(`/api/documents/${id}`)
         if (vRes.ok) {
           const doc = await vRes.json()
@@ -440,9 +482,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         setGenProgress(100)
       } else if (job.state === 'failed') {
         setGenerating(false)
-        setDocContent('Ошибка генерации. Попробуйте создать документ заново.')
+        setGenError(true)
       } else {
-        // Продолжаем polling через 1.5с
         pollTimerRef.current = setTimeout(() => {
           void runPoll(jobId, versionId)
         }, 1500)
@@ -517,6 +558,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           // Запускаем генерацию через BullMQ
           setGenerating(true)
           setGenProgress(0)
+          setGenError(false)
+          genStartRef.current = Date.now()
+          genVersionIdRef.current = ver.id
           const genRes = await fetch(`/api/versions/${ver.id}/generate`, { method: 'POST' })
           if (genRes.ok) {
             const { jobId, status } = await genRes.json()
@@ -527,7 +571,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             }
           } else {
             setGenerating(false)
-            setDocContent('Не удалось запустить генерацию.')
+            setGenError(true)
           }
         }
       })
@@ -1124,7 +1168,28 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         </div>
 
         {/* Тело документа */}
-        {generating ? (
+        {genError ? (
+          <GenerationErrorScreen docTitle={docTitle} onRetry={async () => {
+            const vId = genVersionIdRef.current
+            if (!vId) return
+            setGenError(false)
+            setGenerating(true)
+            setGenProgress(0)
+            genStartRef.current = Date.now()
+            const genRes = await fetch(`/api/versions/${vId}/generate`, { method: 'POST' })
+            if (genRes.ok) {
+              const { jobId, status } = await genRes.json()
+              if (status === 'already_generated') {
+                setGenerating(false)
+              } else if (jobId) {
+                pollJob(jobId, vId)
+              }
+            } else {
+              setGenerating(false)
+              setGenError(true)
+            }
+          }} />
+        ) : generating ? (
           <GeneratingScreen done={genProgress === 100} docTitle={docTitle} />
         ) : (
           <div className="flex-1 overflow-y-auto relative" style={{ background: '#DEDAD3', padding: '0' }}>
