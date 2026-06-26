@@ -57,16 +57,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     },
     include: {
       bankDetails: true,
-      // Выбранный на шаге настройки подписант — если не выбран явно, берём дефолтного
-      signatories: doc.profileSignatoryId
-        ? { where: { id: doc.profileSignatoryId }, take: 1 }
-        : { where: { isDefault: true }, take: 1 },
     },
     orderBy: { createdAt: 'asc' },
     take: 1,
   })
   const profile = profiles[0]
-  const profileSignatory = profile?.signatories[0]
+  const profileSignatory = profile ? { fullName: profile.signatorName, position: profile.signatorPosition, basisType: profile.signatorBasis } : null
   const userProfile = profile ? {
     type: profile.type,
     name: profile.name,
