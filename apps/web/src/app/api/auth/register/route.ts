@@ -89,16 +89,17 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({ user }, { status: 201 })
 
+    const secureCookie = process.env['COOKIE_SECURE'] !== 'false' && process.env['NODE_ENV'] === 'production'
     res.cookies.set('access_token', accessToken, {
       httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
+      secure: secureCookie,
       sameSite: 'lax',
       maxAge: 15 * 60,
       path: '/',
     })
     res.cookies.set('refresh_token', refreshToken, {
       httpOnly: true,
-      secure: process.env['NODE_ENV'] === 'production',
+      secure: secureCookie,
       sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60,
       path: '/',
