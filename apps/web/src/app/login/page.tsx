@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [businessScope, setBusinessScope] = useState('')
   const [promoCode, setPromoCode] = useState('')
   const [remember, setRemember] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -32,7 +34,7 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           mode === 'register'
-            ? { email, password, promoCode }
+            ? { email, password, fullName, businessScope, promoCode }
             : { email, password }
         ),
       })
@@ -152,6 +154,34 @@ export default function LoginPage() {
                   required
                 />
               </Field>
+
+              {/* ФИО и сфера — только при регистрации */}
+              {mode === 'register' && (
+                <>
+                  <Field label="ФИО" htmlFor="fullName">
+                    <Input
+                      id="fullName"
+                      type="text"
+                      placeholder="Иванов Иван Иванович"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      autoComplete="name"
+                      required
+                    />
+                  </Field>
+                  <Field label="Сфера деятельности" htmlFor="businessScope">
+                    <Input
+                      id="businessScope"
+                      type="text"
+                      placeholder="Строительство, IT, юридические услуги…"
+                      value={businessScope}
+                      onChange={(e) => setBusinessScope(e.target.value)}
+                      autoComplete="off"
+                      required
+                    />
+                  </Field>
+                </>
+              )}
 
               <Field label="Пароль" htmlFor="password">
                 <Input

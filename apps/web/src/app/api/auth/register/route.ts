@@ -6,7 +6,8 @@ import { hashPassword, signAccessToken, signRefreshToken } from '@/lib/auth'
 const RegisterSchema = z.object({
   email: z.string().email('Введите корректный email'),
   password: z.string().min(8, 'Пароль — минимум 8 символов'),
-  name: z.string().min(1, 'Укажите имя').optional(),
+  fullName: z.string().min(2, 'Укажите ФИО'),
+  businessScope: z.string().min(2, 'Укажите сферу деятельности'),
   promoCode: z.string().min(1, 'Введите промокод'),
 })
 
@@ -48,6 +49,8 @@ export async function POST(req: Request) {
         data: {
           email: data.email,
           passwordHash,
+          fullName: data.fullName,
+          businessScope: data.businessScope,
           storageQuota: { create: { usedBytes: 0, limitBytes: 524288000 } },
         },
         select: { id: true, email: true, createdAt: true },
