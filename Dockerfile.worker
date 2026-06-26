@@ -11,4 +11,5 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter web exec prisma generate
 
-CMD ["pnpm", "--filter", "web", "exec", "tsx", "src/worker.ts"]
+WORKDIR /app/apps/web
+CMD ["npx", "tsx", "src/worker.ts"]
