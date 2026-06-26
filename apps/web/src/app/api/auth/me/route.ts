@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, createdAt: true, wallet: { select: { balance: true } } },
+    select: { id: true, email: true, fullName: true, businessScope: true, createdAt: true, wallet: { select: { balance: true } } },
   })
   if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
 
@@ -29,14 +29,14 @@ export async function PATCH(req: NextRequest) {
   const userId = getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
 
-  const body = await req.json() as { name?: string; email?: string; currentPassword?: string; newPassword?: string }
+  const body = await req.json() as { fullName?: string; email?: string; currentPassword?: string; newPassword?: string }
 
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user) return NextResponse.json({ error: 'Не найден' }, { status: 404 })
 
-  const updateData: { name?: string; email?: string; passwordHash?: string } = {}
+  const updateData: { fullName?: string; email?: string; passwordHash?: string } = {}
 
-  if (body.name !== undefined) updateData.name = body.name.trim()
+  if (body.fullName !== undefined) updateData.fullName = body.fullName.trim()
 
   if (body.email !== undefined && body.email !== user.email) {
     const exists = await prisma.user.findUnique({ where: { email: body.email } })
@@ -55,7 +55,7 @@ export async function PATCH(req: NextRequest) {
   const updated = await prisma.user.update({
     where: { id: userId },
     data: updateData,
-    select: { id: true, email: true, name: true, createdAt: true },
+    select: { id: true, email: true, fullName: true, createdAt: true },
   })
 
   return NextResponse.json({ user: updated })
