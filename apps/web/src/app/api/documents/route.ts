@@ -148,16 +148,9 @@ export async function POST(req: NextRequest) {
       number: data.number,
       signingDate: data.signingDate ? new Date(data.signingDate) : undefined,
       profileId: data.profileId || undefined,
-      userRole: data.userRole
-        ? (data.userRole.toUpperCase() as 'CUSTOMER' | 'EXECUTOR')
-        : 'EXECUTOR',
       type: data.type,
       parentDocumentId: data.parentDocumentId,
       documentNumber,
-      profileSignatoryId: data.profileSignatoryId || undefined,
-      counterpartySignatoryId: data.counterpartySignatoryId || undefined,
-      preambleHtml: data.preambleHtml || undefined,
-      requisitesHtml: data.requisitesHtml || undefined,
       versions: {
         create: {
           number: 1,
