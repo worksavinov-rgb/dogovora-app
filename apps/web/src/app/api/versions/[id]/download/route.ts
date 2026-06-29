@@ -25,6 +25,7 @@ export async function GET(req: NextRequest, { params }: Params) {
           profileId: true,
           counterpartyId: true,
           parentDocumentId: true,
+          signingDate: true,
         },
       },
       purchase: true,
@@ -147,9 +148,24 @@ export async function GET(req: NextRequest, { params }: Params) {
         docType: version.document.type as 'CONTRACT' | 'APPENDIX' | 'AMENDMENT',
       } : undefined
 
+      // Системная преамбула — только для договоров (у приложений/ДС своя шапка).
+      // Шаблонную шапку с прочерками вырезаем, ставим заполненную.
+      const signingDate = version.document.signingDate
+        ? new Date(version.document.signingDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+        : null
+      const preamble = version.document.type === 'CONTRACT' && (profile || counterparty) ? {
+        docTitle: version.document.title || 'Договор оказания услуг',
+        docNumber: version.document.number,
+        city: null,
+        date: signingDate,
+        customer: customerParty,
+        executor: executorParty,
+      } : undefined
+
       docxBuffer = await convertToDocx(version.content, {
         title: version.document.title,
         requisites,
+        preamble,
       })
 
       const formattedKey = versionFileKey(id, 'formatted.docx')

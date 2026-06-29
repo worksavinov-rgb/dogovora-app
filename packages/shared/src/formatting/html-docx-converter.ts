@@ -10,7 +10,7 @@
 
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  WidthType, BorderStyle, AlignmentType, HeadingLevel, VerticalMergeType,
+  WidthType, BorderStyle, AlignmentType, HeadingLevel, VerticalMergeType, TabStopType,
 } from 'docx'
 import { marked } from 'marked'
 
@@ -26,6 +26,17 @@ export interface DocxOptions {
     //  - CONTRACT → «Реквизиты и подписи сторон» с полными реквизитами
     //  - APPENDIX/AMENDMENT → «Подписи сторон» только с названием и ФИО подписанта
     docType?: 'CONTRACT' | 'APPENDIX' | 'AMENDMENT'
+  }
+  // Системная преамбула (шапка). Если задана — шаблонная шапка документа (всё до
+  // раздела «1. …») вырезается, и сверху ставится сгенерированная: заголовок,
+  // город/дата и абзац со сторонами с подставленными ФИО подписантов и основаниями.
+  preamble?: {
+    docTitle: string          // «Договор оказания услуг»
+    docNumber?: string | null // «12»
+    city?: string | null      // «Москва»
+    date?: string | null      // уже отформатированная дата или null → прочерк
+    customer: RequisitesParty  // сторона-Заказчик
+    executor: RequisitesParty  // сторона-Исполнитель
   }
 }
 
@@ -528,6 +539,102 @@ function stripRequisitesSection(html: string): string {
   return html.slice(0, cut).trimEnd()
 }
 
+/**
+ * Вырезает «шапку» документа — всё до первого нумерованного раздела «1. …».
+ * Используется, когда преамбулу строит система: шаблонный заголовок и абзац со
+ * сторонами (часто с прочерками) удаляются, а сверху ставится сгенерированный.
+ * Если раздел «1.» не найден — документ не трогаем (возвращаем как есть).
+ */
+function stripLeadingPreamble(html: string): string {
+  const blockRe = /<(h[1-3]|p)\b[^>]*>([\s\S]*?)<\/\1>/gi
+  let m: RegExpExecArray | null
+  while ((m = blockRe.exec(html)) !== null) {
+    const text = (m[2] ?? '').replace(/<[^>]+>/g, '').replace(/&[^;]+;/g, ' ').trim()
+    // «1. Предмет…» — да; «1.1.» или «1.» с цифрой дальше — нет
+    if (/^1\s*[.)]\s+(?!\d)\S/.test(text)) return html.slice(m.index)
+  }
+  return html
+}
+
+/** Полное наименование стороны с организационно-правовой формой. */
+function partyFullName(party: RequisitesParty): string {
+  const name = (party.name ?? '____________').trim()
+  if (party.type === 'SOLE_PROPRIETOR') {
+    return /^(ИП|Индивидуальный)/i.test(name) ? name.replace(/^ИП\s+/i, 'Индивидуальный предприниматель ') : `Индивидуальный предприниматель ${name}`
+  }
+  return name
+}
+
+/** Основание полномочий: для ИП — ОГРНИП, для компании — Устав. */
+function partyBasis(party: RequisitesParty): string {
+  if (party.type === 'SOLE_PROPRIETOR') {
+    return party.ogrn ? `ОГРНИП ${party.ogrn}` : 'свидетельства о государственной регистрации'
+  }
+  return 'Устава'
+}
+
+/** Должность в родительный падеж для оборота «в лице …»: частые случаи. */
+function positionGenitive(position?: string | null): string {
+  const p = (position ?? '').trim()
+  if (!p) return 'Генерального директора'
+  const adj: Record<string, string> = {
+    'генеральный': 'Генерального', 'исполнительный': 'Исполнительного',
+    'финансовый': 'Финансового', 'коммерческий': 'Коммерческого', 'технический': 'Технического',
+  }
+  const m = p.match(/^(\S+)\s+директор$/i)
+  if (m) {
+    const a = adj[(m[1] ?? '').toLowerCase()]
+    if (a) return `${a} директора`
+  }
+  if (/^директор$/i.test(p)) return 'Директора'
+  return p // нестандартную должность оставляем как есть
+}
+
+/** Фраза одной стороны для преамбулы. */
+function partyPhrase(party: RequisitesParty, role: string): string {
+  const basis = partyBasis(party)
+  if (party.type === 'SOLE_PROPRIETOR') {
+    const fio = party.signatorName?.trim() || party.name?.replace(/^ИП\s+/i, '').trim() || '____________'
+    return `Индивидуальный предприниматель ${fio}, именуемый в дальнейшем «${role}», действующий на основании ${basis}`
+  }
+  const position = positionGenitive(party.signatorPosition)
+  const fio = party.signatorName?.trim() || '____________'
+  return `${partyFullName(party)} в лице ${position} ${fio}, действующего на основании ${basis}, именуемое в дальнейшем «${role}»`
+}
+
+function buildPreambleBlock(p: NonNullable<DocxOptions['preamble']>): Paragraph[] {
+  const titleText = p.docNumber ? `${p.docTitle} № ${p.docNumber}` : p.docTitle
+  const city = `г. ${p.city?.trim() || 'Москва'}`
+  const date = p.date?.trim() || '«___» ____________ 202__ г.'
+
+  const preambleText =
+    `${partyPhrase(p.customer, 'Заказчик')}, с одной стороны, и ` +
+    `${partyPhrase(p.executor, 'Исполнитель')}, с другой стороны, ` +
+    `совместно именуемые «Стороны», заключили настоящий Договор (далее — «Договор») о нижеследующем:`
+
+  return [
+    // Заголовок документа — по центру, жирный
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: 80, line: 276 },
+      children: [new TextRun({ text: titleText, font: 'Times New Roman', size: 28, bold: true })],
+    }),
+    // Город слева / дата справа (через таб)
+    new Paragraph({
+      spacing: { before: 0, after: 200, line: 276 },
+      tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
+      children: [new TextRun({ text: `${city}\t${date}`, font: 'Times New Roman', size: 24 })],
+    }),
+    // Абзац со сторонами — по ширине
+    new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { before: 0, after: 200, line: 276 },
+      indent: { firstLine: 567 }, // отступ первой строки ~1 см
+      children: [new TextRun({ text: preambleText, font: 'Times New Roman', size: 24 })],
+    }),
+  ]
+}
+
 export async function convertToDocx(content: string, opts: DocxOptions = {}): Promise<Buffer> {
   const isHtml = /<(p|h[1-6]|table|ul|ol|div|strong)\b/i.test(content.slice(0, 500))
 
@@ -539,6 +646,12 @@ export async function convertToDocx(content: string, opts: DocxOptions = {}): Pr
     html = (marked.parse(content.trim()) as string)
   }
 
+  // Преамбулу (шапку) при наличии тоже ставит система — вырезаем шаблонную
+  // шапку до раздела «1. …» и подставим сгенерированную сверху.
+  if (opts.preamble) {
+    html = stripLeadingPreamble(html)
+  }
+
   // Реквизиты/подписи в финал всегда ставит система — вырезаем любой такой
   // блок из тела (загруженные из Word договоры приносят свой), чтобы не было дубля.
   if (opts.requisites) {
@@ -548,6 +661,10 @@ export async function convertToDocx(content: string, opts: DocxOptions = {}): Pr
   const nodes = parseHtml(html)
   const children = buildBlocks(nodes)
   if (children.length === 0) children.push(new Paragraph({ children: [new TextRun('')] }))
+
+  if (opts.preamble) {
+    children.unshift(...buildPreambleBlock(opts.preamble))
+  }
 
   if (opts.requisites) {
     const sectionNumber = detectNextSectionNumber(html)
