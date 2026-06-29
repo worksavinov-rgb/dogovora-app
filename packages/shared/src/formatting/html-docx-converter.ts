@@ -321,8 +321,8 @@ function reqLine(label: string, value?: string | null): Paragraph | null {
   return new Paragraph({
     spacing: { before: 0, after: 0, line: 276 },
     children: [
-      new TextRun({ text: `${label}: `, font: 'Times New Roman', size: 20, color: '666666' }),
-      new TextRun({ text: value, font: 'Times New Roman', size: 20 }),
+      new TextRun({ text: `${label}: `, font: 'Times New Roman', size: 24 }),
+      new TextRun({ text: value, font: 'Times New Roman', size: 24 }),
     ],
   })
 }
@@ -348,7 +348,7 @@ function buildPartyBlock(party: RequisitesParty, title: string, signaturesOnly =
     // Адрес
     party.legalAddress ? new Paragraph({
       spacing: { before: 0, after: 60, line: 276 },
-      children: [new TextRun({ text: party.legalAddress, font: 'Times New Roman', size: 20, color: '444444' })],
+      children: [new TextRun({ text: party.legalAddress, font: 'Times New Roman', size: 24 })],
     }) : null,
     // Реквизиты
     reqLine('ИНН', party.inn),
@@ -365,12 +365,12 @@ function buildPartyBlock(party: RequisitesParty, title: string, signaturesOnly =
     // Заголовок (Заказчик / Исполнитель)
     new Paragraph({
       spacing: { before: 240, after: 80, line: 276 },
-      children: [new TextRun({ text: title, font: 'Times New Roman', size: 22, bold: true, allCaps: true })],
+      children: [new TextRun({ text: title, font: 'Times New Roman', size: 24, bold: true, allCaps: true })],
     }),
     // Название
     new Paragraph({
       spacing: { before: 0, after: 60, line: 276 },
-      children: [new TextRun({ text: party.name ?? '—', font: 'Times New Roman', size: 22, bold: true })],
+      children: [new TextRun({ text: party.name ?? '—', font: 'Times New Roman', size: 24, bold: true })],
     }),
     ...requisiteLines,
     // Строка подписи
@@ -380,20 +380,20 @@ function buildPartyBlock(party: RequisitesParty, title: string, signaturesOnly =
       spacing: { before: 200, after: 0, line: 276 },
       children: [new TextRun({
         text: isIP ? 'ИП' : (party.signatorPosition ?? 'Генеральный директор'),
-        font: 'Times New Roman', size: 20,
+        font: 'Times New Roman', size: 24,
       })],
     }),
     new Paragraph({
       spacing: { before: 60, after: 0, line: 276 },
       border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: 'AAAAAA', space: 2 } },
-      children: [new TextRun({ text: '', font: 'Times New Roman', size: 20 })],
+      children: [new TextRun({ text: '', font: 'Times New Roman', size: 24 })],
     }),
     // Инициалы подписанта — для ИП из имени, для ООО из данных подписанта
     new Paragraph({
       spacing: { before: 40, after: 0, line: 276 },
       children: [new TextRun({
         text: isIP ? shortName(party.name) : (party.signatorName ? shortName(party.signatorName) : ''),
-        font: 'Times New Roman', size: 18, color: '888888',
+        font: 'Times New Roman', size: 24,
       })],
     }),
   ]
