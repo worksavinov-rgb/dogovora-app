@@ -48,18 +48,33 @@ export async function GET(req: NextRequest, { params }: Params) {
   {
     try {
       // Загружаем реквизиты для блока подписей
-      // Для APPENDIX/AMENDMENT берём userRole из родительского документа
-      const docId = version.document.parentDocumentId ?? null
-      const rootDoc = docId
-        ? await prisma.document.findFirst({
-            where: { id: docId, userId },
-            select: { profileId: true, counterpartyId: true },
-          })
-        : null
-
       const profileId = version.document.profileId
       const counterpartyId = version.document.counterpartyId
-      const userRole = 'EXECUTOR'
+
+      // Реальная роль пользователя в договоре. Для APPENDIX/AMENDMENT наследуем
+      // от родительского договора, иначе читаем из настроек самой версии.
+      // Источники: aiSettings.userRole ('customer'|'executor') либо текст
+      // customInstruction («Пользователь является исполнителем/заказчиком»).
+      const resolveRole = (ai: unknown): 'CUSTOMER' | 'EXECUTOR' | null => {
+        if (!ai || typeof ai !== 'object') return null
+        const a = ai as { userRole?: string; customInstruction?: string }
+        const raw = (a.userRole ?? '').toString().toLowerCase()
+        if (raw === 'customer' || raw === 'executor') return raw.toUpperCase() as 'CUSTOMER' | 'EXECUTOR'
+        const instr = a.customInstruction ?? ''
+        if (/заказчик/i.test(instr)) return 'CUSTOMER'
+        if (/исполнител/i.test(instr)) return 'EXECUTOR'
+        return null
+      }
+      let userRole = resolveRole(version.aiSettings)
+      if (!userRole && version.document.parentDocumentId) {
+        const parentVersion = await prisma.version.findFirst({
+          where: { document: { id: version.document.parentDocumentId, userId } },
+          orderBy: { number: 'desc' },
+          select: { aiSettings: true },
+        })
+        userRole = resolveRole(parentVersion?.aiSettings)
+      }
+      userRole = userRole ?? 'EXECUTOR'
 
       const [profile, counterparty] = await Promise.all([
         // Если профиль не выбран на документе — берём первый профиль пользователя
@@ -115,12 +130,14 @@ export async function GET(req: NextRequest, { params }: Params) {
       )
 
       const isCustomer = userRole === 'CUSTOMER'
-      const isContract = version.document.type === 'CONTRACT'
-      const requisites = isContract && (profile || counterparty) ? {
+      // Финальный раздел ставим всегда: для договора — полные реквизиты,
+      // для приложения/допсоглашения — только подписи сторон (по docType).
+      const requisites = (profile || counterparty) ? {
         left: isCustomer ? myParty : cpParty,
         right: isCustomer ? cpParty : myParty,
         leftTitle: isCustomer ? 'Заказчик' : 'Исполнитель',
         rightTitle: isCustomer ? 'Исполнитель' : 'Заказчик',
+        docType: version.document.type as 'CONTRACT' | 'APPENDIX' | 'AMENDMENT',
       } : undefined
 
       docxBuffer = await convertToDocx(version.content, {

@@ -22,6 +22,10 @@ export interface DocxOptions {
     right: RequisitesParty  // правая колонка
     leftTitle: string       // «Заказчик» / «Исполнитель»
     rightTitle: string
+    // Тип документа определяет финальный раздел:
+    //  - CONTRACT → «Реквизиты и подписи сторон» с полными реквизитами
+    //  - APPENDIX/AMENDMENT → «Подписи сторон» только с названием и ФИО подписанта
+    docType?: 'CONTRACT' | 'APPENDIX' | 'AMENDMENT'
   }
 }
 
@@ -323,7 +327,7 @@ function reqLine(label: string, value?: string | null): Paragraph | null {
   })
 }
 
-function buildPartyBlock(party: RequisitesParty, title: string): Paragraph[] {
+function buildPartyBlock(party: RequisitesParty, title: string, signaturesOnly = false): Paragraph[] {
   const isIP = party.type === 'SOLE_PROPRIETOR'
   const isIndividual = party.type === 'INDIVIDUAL'
   const hasKpp = !isIP && !isIndividual
@@ -338,17 +342,9 @@ function buildPartyBlock(party: RequisitesParty, title: string): Paragraph[] {
     return parts[0] + ' ' + parts.slice(1).map((w) => w[0] + '.').join('')
   }
 
-  const lines: (Paragraph | null)[] = [
-    // Заголовок (Заказчик / Исполнитель)
-    new Paragraph({
-      spacing: { before: 240, after: 80, line: 276 },
-      children: [new TextRun({ text: title, font: 'Times New Roman', size: 22, bold: true, allCaps: true })],
-    }),
-    // Название
-    new Paragraph({
-      spacing: { before: 0, after: 60, line: 276 },
-      children: [new TextRun({ text: party.name ?? '—', font: 'Times New Roman', size: 22, bold: true })],
-    }),
+  // Для приложений и доп. соглашений — только подписи: название стороны + ФИО,
+  // без ИНН/счетов/банка. Полные реквизиты приводятся только в самом договоре.
+  const requisiteLines: (Paragraph | null)[] = signaturesOnly ? [] : [
     // Адрес
     party.legalAddress ? new Paragraph({
       spacing: { before: 0, after: 60, line: 276 },
@@ -363,6 +359,20 @@ function buildPartyBlock(party: RequisitesParty, title: string): Paragraph[] {
     reqLine('Банк', party.bankName),
     reqLine('БИК', party.bik),
     isIP ? reqLine('E-mail', party.email) : null,
+  ]
+
+  const lines: (Paragraph | null)[] = [
+    // Заголовок (Заказчик / Исполнитель)
+    new Paragraph({
+      spacing: { before: 240, after: 80, line: 276 },
+      children: [new TextRun({ text: title, font: 'Times New Roman', size: 22, bold: true, allCaps: true })],
+    }),
+    // Название
+    new Paragraph({
+      spacing: { before: 0, after: 60, line: 276 },
+      children: [new TextRun({ text: party.name ?? '—', font: 'Times New Roman', size: 22, bold: true })],
+    }),
+    ...requisiteLines,
     // Строка подписи
     // Для ИП: просто "ИП" — имя уже указано выше, не дублируем
     // Для ООО: должность подписанта
@@ -391,19 +401,105 @@ function buildPartyBlock(party: RequisitesParty, title: string): Paragraph[] {
   return lines.filter(Boolean) as Paragraph[]
 }
 
-function buildRequisitesBlock(opts: NonNullable<DocxOptions['requisites']>): Paragraph[] {
+function buildRequisitesBlock(opts: NonNullable<DocxOptions['requisites']>, sectionNumber: number): Paragraph[] {
+  // Приложение/ДС — только подписи сторон, без полных реквизитов
+  const signaturesOnly = opts.docType === 'APPENDIX' || opts.docType === 'AMENDMENT'
+  const sectionTitle = signaturesOnly ? 'Подписи сторон' : 'Реквизиты и подписи сторон'
+  const heading = `${sectionNumber}. ${sectionTitle}`
+
   return [
-    // Разделитель сверху + заголовок секции
+    // Разделитель сверху + нумерованный заголовок раздела
     new Paragraph({
       spacing: { before: 480, after: 120 },
       border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'AAAAAA', space: 8 } },
-      children: [new TextRun({ text: 'РЕКВИЗИТЫ И ПОДПИСИ СТОРОН', font: 'Times New Roman', size: 24, bold: true, allCaps: true })],
+      children: [new TextRun({ text: heading, font: 'Times New Roman', size: 24, bold: true, allCaps: true })],
     }),
     // Первая сторона
-    ...buildPartyBlock(opts.left, opts.leftTitle),
+    ...buildPartyBlock(opts.left, opts.leftTitle, signaturesOnly),
     // Вторая сторона
-    ...buildPartyBlock(opts.right, opts.rightTitle),
+    ...buildPartyBlock(opts.right, opts.rightTitle, signaturesOnly),
   ]
+}
+
+/**
+ * Определяет номер следующего раздела по тексту документа.
+ * Ищет заголовки вида «N. Название» (верхний уровень, без подпунктов «N.M»)
+ * и берёт максимум — финальный раздел получит номер max + 1.
+ * Работает и для сгенерированных (<h2>), и для загруженных (<p>) документов.
+ */
+function detectNextSectionNumber(html: string): number {
+  let max = 0
+  const blockRe = /<(h[1-3]|p)\b[^>]*>([\s\S]*?)<\/\1>/gi
+  let m: RegExpExecArray | null
+  while ((m = blockRe.exec(html)) !== null) {
+    const text = (m[2] ?? '').replace(/<[^>]+>/g, '').replace(/&[^;]+;/g, ' ').trim()
+    // «13. Место...» — да; «13.1. ...» — нет (это подпункт)
+    const num = text.match(/^(\d{1,2})\.\s+(?!\d)/)
+    if (num) {
+      const n = parseInt(num[1]!, 10)
+      if (n > max && n < 60) max = n
+    }
+  }
+  return max + 1
+}
+
+/**
+ * Вырезает из тела документа блок реквизитов/подписей, если он там есть
+ * (например, у загруженного из Word договора или если ИИ его всё же добавил).
+ * Реквизиты в финал документа всегда ставит система — дубля быть не должно.
+ *
+ * Детект по двум признакам:
+ *  A) заголовок раздела реквизитов/подписей (плоские <p> у mammoth-документов);
+ *  B) последняя <table> с ключевыми словами реквизитов.
+ * Берём самую раннюю точку среза — от неё до конца документа всё удаляем.
+ */
+function stripRequisitesSection(html: string): string {
+  const REQS_RE = /ИНН|Р\/сч|р\/сч|ОГРН|БИК|К\/сч|к\/сч/i
+  // Заголовки финального раздела. ВАЖНО: \w и \b в JS не работают с кириллицей
+  // (только ASCII), поэтому продолжения слов задаём явным классом [а-яё]*.
+  // Примеры: «Реквизиты сторон», «Реквизиты и подписи сторон», «Подписи сторон»,
+  // «Место нахождения и банковские реквизиты», «Адреса и реквизиты сторон».
+  const TITLE_RES: RegExp[] = [
+    /место\s+нахождени[а-яё]*\s+и\s+(?:банковск[а-яё]*\s+)?реквизит/i,
+    /адрес[а-яё]*\s+и\s+реквизит/i,
+    /банковск[а-яё]*\s+реквизит/i,
+    /реквизит[а-яё]*\s+и\s+подписи\s+сторон/i,
+    /реквизит[а-яё]*\s+сторон/i,
+    /подписи\s+сторон/i,
+    /^реквизиты\s*$/i, // отдельный заголовок «Реквизиты»
+  ]
+
+  let cut = -1
+
+  // ── A: заголовок раздела реквизитов/подписей (плоские <p> или <h2>) ──
+  // Берём ПОСЛЕДНЕЕ совпадение — раздел всегда в конце документа.
+  const blockRe = /<(h[1-3]|p)\b[^>]*>([\s\S]*?)<\/\1>/gi
+  let m: RegExpExecArray | null
+  while ((m = blockRe.exec(html)) !== null) {
+    const text = (m[2] ?? '')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&[^;]+;/g, ' ')
+      .replace(/^\s*\d{1,2}\s*[.)]\s*/, '') // отбрасываем ведущий номер «13.»
+      .trim()
+    if (TITLE_RES.some((re) => re.test(text))) cut = m.index
+  }
+
+  // ── B: последняя <table> с реквизитами ──
+  const tableMatches = [...html.matchAll(/<table[\s>]/gi)]
+  const lastTable = tableMatches[tableMatches.length - 1]
+  if (lastTable) {
+    const tableStart = lastTable.index
+    const tableEndIdx = html.lastIndexOf('</table>')
+    if (tableEndIdx > tableStart) {
+      const tableHtml = html.slice(tableStart, tableEndIdx)
+      if (REQS_RE.test(tableHtml) && (cut === -1 || tableStart < cut)) {
+        cut = tableStart
+      }
+    }
+  }
+
+  if (cut === -1) return html
+  return html.slice(0, cut).trimEnd()
 }
 
 export async function convertToDocx(content: string, opts: DocxOptions = {}): Promise<Buffer> {
@@ -417,12 +513,19 @@ export async function convertToDocx(content: string, opts: DocxOptions = {}): Pr
     html = (marked.parse(content.trim()) as string)
   }
 
+  // Реквизиты/подписи в финал всегда ставит система — вырезаем любой такой
+  // блок из тела (загруженные из Word договоры приносят свой), чтобы не было дубля.
+  if (opts.requisites) {
+    html = stripRequisitesSection(html)
+  }
+
   const nodes = parseHtml(html)
   const children = buildBlocks(nodes)
   if (children.length === 0) children.push(new Paragraph({ children: [new TextRun('')] }))
 
   if (opts.requisites) {
-    children.push(...buildRequisitesBlock(opts.requisites))
+    const sectionNumber = detectNextSectionNumber(html)
+    children.push(...buildRequisitesBlock(opts.requisites, sectionNumber))
   }
 
   const doc = new Document({
