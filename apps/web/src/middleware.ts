@@ -22,6 +22,11 @@ export function middleware(req: NextRequest) {
   const token = req.cookies.get('access_token')?.value
 
   if (!token) {
+    // API-запросы возвращают 401 JSON — редирект на /login сохраняет метод (307)
+    // и браузер делает POST /login → 405
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     return NextResponse.redirect(new URL('/login', req.url))
   }
 
