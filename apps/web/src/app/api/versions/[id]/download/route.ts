@@ -86,7 +86,8 @@ export async function GET(req: NextRequest, { params }: Params) {
           where: { id: counterpartyId, userId },
           include: {
             bankDetails: { take: 1 },
-            signatories: { where: { isDefault: true }, take: 1 },
+            // Берём подписанта: предпочитаем дефолтного, иначе любого первого
+            signatories: { orderBy: { isDefault: 'desc' }, take: 1 },
           },
         }),
       ])

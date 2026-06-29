@@ -438,10 +438,9 @@ function buildRequisitesBlock(opts: NonNullable<DocxOptions['requisites']>, sect
   })
 
   return [
-    // Разделитель сверху + нумерованный заголовок раздела
+    // Нумерованный заголовок раздела (без верхней черты)
     new Paragraph({
-      spacing: { before: 480, after: 120 },
-      border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'AAAAAA', space: 8 } },
+      spacing: { before: 360, after: 120 },
       children: [new TextRun({ text: heading, font: 'Times New Roman', size: 24, bold: true, allCaps: true })],
     }),
     table,
