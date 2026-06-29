@@ -703,7 +703,7 @@ export default function UploadPage() {
           <div className="w-[48px] h-[48px] rounded-full border-[3px] animate-spin" style={{ borderColor: 'var(--line-2)', borderTopColor: 'var(--accent)' }} />
           <p className="text-[14px] text-[var(--ink)] font-medium">ИИ анализирует документ…</p>
           <p className="text-[12px] text-[var(--ink-4)]">{analysisProgress}</p>
-          <p className="text-[11px] text-[var(--ink-4)] opacity-60">Большие документы — более 60 секунд</p>
+          <p className="text-[11px] text-[var(--ink-4)] opacity-60">Большие документы — до 60 секунд</p>
         </div>
       )}
 
