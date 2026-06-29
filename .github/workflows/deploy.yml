@@ -66,4 +66,5 @@ jobs:
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u worksavinov-rgb --password-stdin
             docker compose -f docker-compose.prod.yml --env-file .env.production pull web worker
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d web worker
+            docker compose -f docker-compose.prod.yml restart nginx
             docker image prune -f
