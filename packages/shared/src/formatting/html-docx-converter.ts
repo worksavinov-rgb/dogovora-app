@@ -401,11 +401,41 @@ function buildPartyBlock(party: RequisitesParty, title: string, signaturesOnly =
   return lines.filter(Boolean) as Paragraph[]
 }
 
-function buildRequisitesBlock(opts: NonNullable<DocxOptions['requisites']>, sectionNumber: number): Paragraph[] {
+function buildRequisitesBlock(opts: NonNullable<DocxOptions['requisites']>, sectionNumber: number): (Paragraph | Table)[] {
   // Приложение/ДС — только подписи сторон, без полных реквизитов
   const signaturesOnly = opts.docType === 'APPENDIX' || opts.docType === 'AMENDMENT'
   const sectionTitle = signaturesOnly ? 'Подписи сторон' : 'Реквизиты и подписи сторон'
   const heading = `${sectionNumber}. ${sectionTitle}`
+
+  // Две стороны — в два столбца (таблица без видимых рамок).
+  const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
+  const cellBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder }
+  const colWidth = Math.floor(CONTENT_WIDTH / 2)
+
+  const partyCell = (party: RequisitesParty, title: string) =>
+    new TableCell({
+      width: { size: colWidth, type: WidthType.DXA },
+      borders: cellBorders,
+      margins: { top: 0, bottom: 0, left: 80, right: 80 },
+      children: buildPartyBlock(party, title, signaturesOnly),
+    })
+
+  const table = new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    columnWidths: [colWidth, colWidth],
+    borders: {
+      top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
+      insideHorizontal: noBorder, insideVertical: noBorder,
+    },
+    rows: [
+      new TableRow({
+        children: [
+          partyCell(opts.left, opts.leftTitle),
+          partyCell(opts.right, opts.rightTitle),
+        ],
+      }),
+    ],
+  })
 
   return [
     // Разделитель сверху + нумерованный заголовок раздела
@@ -414,10 +444,7 @@ function buildRequisitesBlock(opts: NonNullable<DocxOptions['requisites']>, sect
       border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'AAAAAA', space: 8 } },
       children: [new TextRun({ text: heading, font: 'Times New Roman', size: 24, bold: true, allCaps: true })],
     }),
-    // Первая сторона
-    ...buildPartyBlock(opts.left, opts.leftTitle, signaturesOnly),
-    // Вторая сторона
-    ...buildPartyBlock(opts.right, opts.rightTitle, signaturesOnly),
+    table,
   ]
 }
 
