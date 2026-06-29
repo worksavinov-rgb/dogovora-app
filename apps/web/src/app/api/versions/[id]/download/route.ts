@@ -131,13 +131,19 @@ export async function GET(req: NextRequest, { params }: Params) {
       )
 
       const isCustomer = userRole === 'CUSTOMER'
+      // Кто Заказчик, а кто Исполнитель — зависит от роли пользователя.
+      // Если пользователь Заказчик → его профиль слева (Заказчик), контрагент справа.
+      // Если пользователь Исполнитель → наоборот.
+      const customerParty = isCustomer ? myParty : cpParty
+      const executorParty = isCustomer ? cpParty : myParty
       // Финальный раздел ставим всегда: для договора — полные реквизиты,
       // для приложения/допсоглашения — только подписи сторон (по docType).
+      // Колонки в привычном порядке: слева Заказчик, справа Исполнитель.
       const requisites = (profile || counterparty) ? {
-        left: isCustomer ? myParty : cpParty,
-        right: isCustomer ? cpParty : myParty,
-        leftTitle: isCustomer ? 'Заказчик' : 'Исполнитель',
-        rightTitle: isCustomer ? 'Исполнитель' : 'Заказчик',
+        left: customerParty,
+        right: executorParty,
+        leftTitle: 'Заказчик',
+        rightTitle: 'Исполнитель',
         docType: version.document.type as 'CONTRACT' | 'APPENDIX' | 'AMENDMENT',
       } : undefined
 
