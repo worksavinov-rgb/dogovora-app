@@ -1,19 +1,30 @@
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 
+const ACCESS_EXPIRES = '15m'
+const REFRESH_EXPIRES = '30d'
+
 // Секрет ДОЛЖЕН быть задан в окружении. Никакого запасного значения в коде —
 // иначе при незаданной переменной сервер работал бы на публичном секрете из
 // исходников, и кто угодно смог бы подделать токен любого пользователя.
-const JWT_SECRET: string = process.env['JWT_SECRET'] ?? ''
-if (JWT_SECRET.length < 32) {
-  throw new Error(
-    'JWT_SECRET не задан или короче 32 символов. Установите переменную окружения JWT_SECRET ' +
-      '(случайная строка ≥ 32 символов) перед запуском.',
-  )
+//
+// Проверку делаем ЛЕНИВО (при первом обращении в рантайме), а не на верхнем
+// уровне модуля: иначе `next build` падает, т.к. во время сборки JWT_SECRET
+// ещё не задан. Fail-fast сохраняется — первый же запрос к auth упадёт, если
+// секрет не настроен.
+let _cachedSecret: string | null = null
+function getJwtSecret(): string {
+  if (_cachedSecret) return _cachedSecret
+  const secret = process.env['JWT_SECRET'] ?? ''
+  if (secret.length < 32) {
+    throw new Error(
+      'JWT_SECRET не задан или короче 32 символов. Установите переменную окружения JWT_SECRET ' +
+        '(случайная строка ≥ 32 символов) перед запуском.',
+    )
+  }
+  _cachedSecret = secret
+  return secret
 }
-
-const ACCESS_EXPIRES = '15m'
-const REFRESH_EXPIRES = '30d'
 
 export interface JWTPayload {
   userId: string
@@ -21,15 +32,15 @@ export interface JWTPayload {
 }
 
 export function signAccessToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: ACCESS_EXPIRES })
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: ACCESS_EXPIRES })
 }
 
 export function signRefreshToken(payload: JWTPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_EXPIRES })
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: REFRESH_EXPIRES })
 }
 
 export function verifyToken(token: string): JWTPayload {
-  return jwt.verify(token, JWT_SECRET) as JWTPayload
+  return jwt.verify(token, getJwtSecret()) as JWTPayload
 }
 
 export async function hashPassword(password: string): Promise<string> {
