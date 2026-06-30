@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { comparePassword, signAccessToken, signRefreshToken } from '@/lib/auth'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
+import { checkLoginLock, recordLoginFailure, resetLoginFailures } from '@/lib/login-attempts'
 
 const LoginSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -25,19 +26,35 @@ export async function POST(req: Request) {
     const data = LoginSchema.parse(body)
     const email = data.email.trim().toLowerCase()
 
+    // Блокировка по аккаунту: защита от подбора пароля с разных IP (ботнет).
+    const lock = await checkLoginLock(email)
+    if (lock.locked) {
+      return NextResponse.json(
+        { error: 'Аккаунт временно заблокирован из-за множества неудачных попыток. Попробуйте позже.' },
+        { status: 429, headers: { 'Retry-After': String(lock.retryAfterSec) } },
+      )
+    }
+
     const user = await prisma.user.findUnique({
       where: { email },
       select: { id: true, email: true, passwordHash: true, createdAt: true },
     })
 
     if (!user) {
+      // Считаем неудачу по email даже для несуществующего аккаунта — чтобы не
+      // раскрывать существование email и не давать перебор через эту разницу.
+      await recordLoginFailure(email)
       return NextResponse.json({ error: 'Неверный email или пароль' }, { status: 401 })
     }
 
     const valid = await comparePassword(data.password, user.passwordHash)
     if (!valid) {
+      await recordLoginFailure(email)
       return NextResponse.json({ error: 'Неверный email или пароль' }, { status: 401 })
     }
+
+    // Успешный вход — сбрасываем счётчик неудач.
+    await resetLoginFailures(email)
 
     const payload = { userId: user.id, email: user.email }
     const accessToken = signAccessToken(payload)
