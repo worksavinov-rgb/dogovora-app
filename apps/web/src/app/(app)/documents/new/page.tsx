@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useId } from 'react'
 import { calcVersionPrice } from '@/lib/pricing'
+import { apiFetch } from '@/lib/api-client'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -1433,7 +1434,7 @@ export default function NewDocumentPage() {
       let parentDocumentId = step1.parentDocumentId
       if (!parentDocumentId && step1.parentUploadFile) {
         const parentTitle = step1.parentUploadFile.name.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ')
-        const parentRes = await fetch('/api/documents', {
+        const parentRes = await apiFetch('/api/documents', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1454,7 +1455,7 @@ export default function NewDocumentPage() {
         parentDocumentId = parentDoc.id
       }
 
-      const res = await fetch('/api/documents', {
+      const res = await apiFetch('/api/documents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

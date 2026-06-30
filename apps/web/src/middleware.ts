@@ -23,6 +23,12 @@ export function middleware(req: NextRequest) {
   const token = req.cookies.get('access_token')?.value
 
   if (!token) {
+    // Для API-запросов НЕЛЬЗЯ редиректить на /login: редирект 307 сохраняет
+    // метод (POST→/login = 405) и отдаёт HTML вместо JSON. Возвращаем 401 —
+    // клиент сам обновит сессию через /api/auth/refresh и повторит запрос.
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
+    }
     return NextResponse.redirect(new URL('/login', req.url))
   }
 
