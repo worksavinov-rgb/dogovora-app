@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { hashPassword, signAccessToken, signRefreshToken } from '@/lib/auth'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
+import { recordLoginAudit } from '@/lib/login-audit'
 
 const RegisterSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -93,6 +94,14 @@ export async function POST(req: Request) {
       })
 
       return newUser
+    })
+
+    await recordLoginAudit({
+      email: user.email,
+      userId: user.id,
+      ip,
+      userAgent: req.headers.get('user-agent'),
+      result: 'SUCCESS',
     })
 
     const payload = { userId: user.id, email: user.email }

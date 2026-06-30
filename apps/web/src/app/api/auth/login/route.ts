@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db'
 import { comparePassword, signAccessToken, signRefreshToken } from '@/lib/auth'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
 import { checkLoginLock, recordLoginFailure, resetLoginFailures } from '@/lib/login-attempts'
+import { recordLoginAudit } from '@/lib/login-audit'
 
 const LoginSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -22,6 +23,8 @@ export async function POST(req: Request) {
       )
     }
 
+    const userAgent = req.headers.get('user-agent')
+
     const body = await req.json() as unknown
     const data = LoginSchema.parse(body)
     const email = data.email.trim().toLowerCase()
@@ -29,6 +32,7 @@ export async function POST(req: Request) {
     // Блокировка по аккаунту: защита от подбора пароля с разных IP (ботнет).
     const lock = await checkLoginLock(email)
     if (lock.locked) {
+      await recordLoginAudit({ email, ip, userAgent, result: 'LOCKED' })
       return NextResponse.json(
         { error: 'Аккаунт временно заблокирован из-за множества неудачных попыток. Попробуйте позже.' },
         { status: 429, headers: { 'Retry-After': String(lock.retryAfterSec) } },
@@ -44,17 +48,20 @@ export async function POST(req: Request) {
       // Считаем неудачу по email даже для несуществующего аккаунта — чтобы не
       // раскрывать существование email и не давать перебор через эту разницу.
       await recordLoginFailure(email)
+      await recordLoginAudit({ email, ip, userAgent, result: 'FAIL' })
       return NextResponse.json({ error: 'Неверный email или пароль' }, { status: 401 })
     }
 
     const valid = await comparePassword(data.password, user.passwordHash)
     if (!valid) {
       await recordLoginFailure(email)
+      await recordLoginAudit({ email, userId: user.id, ip, userAgent, result: 'FAIL' })
       return NextResponse.json({ error: 'Неверный email или пароль' }, { status: 401 })
     }
 
     // Успешный вход — сбрасываем счётчик неудач.
     await resetLoginFailures(email)
+    await recordLoginAudit({ email, userId: user.id, ip, userAgent, result: 'SUCCESS' })
 
     const payload = { userId: user.id, email: user.email }
     const accessToken = signAccessToken(payload)

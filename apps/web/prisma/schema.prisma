@@ -326,6 +326,25 @@ model PromoCode {
   @@map("promo_codes")
 }
 
+// ─── Аудит входов (безопасность) ─────────────────────────────────────────────
+// Лог попыток входа/выхода для обнаружения и расследования атак. Без relation к
+// User: фиксируем и несуществующие email (попытки перебора), userId опционален.
+
+model LoginAudit {
+  id        String   @id @default(cuid())
+  email     String   // email из попытки входа (в нижнем регистре)
+  userId    String?  // заполняется при успешном входе/известном пользователе
+  ip        String?
+  userAgent String?
+  result    String   // SUCCESS | FAIL | LOCKED | LOGOUT
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("login_audits")
+}
+
 // ─── Хранилище ────────────────────────────────────────────────────────────────
 
 model StorageQuota {
