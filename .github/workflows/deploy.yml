@@ -65,6 +65,9 @@ jobs:
             git pull origin main
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u worksavinov-rgb --password-stdin
             docker compose -f docker-compose.prod.yml --env-file .env.production pull web worker
+            # Применяем миграции БД на свежем образе ДО перезапуска сервисов,
+            # иначе новый код обращается к ещё не созданным таблицам/колонкам.
+            docker compose -f docker-compose.prod.yml --env-file .env.production run --rm --user root web sh -c 'cd /app/apps/web && npx --yes prisma@5.22.0 migrate deploy'
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d web worker
             docker compose -f docker-compose.prod.yml restart nginx
             docker image prune -f
