@@ -2,8 +2,28 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  poweredByHeader: false, // не раскрываем стек через X-Powered-By
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          // Принудительный HTTPS на 2 года + поддомены
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          // Запрет встраивания в iframe (защита от кликджекинга)
+          { key: 'X-Frame-Options', value: 'DENY' },
+          // Запрет MIME-sniffing
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // Не утекать полный URL в Referer на сторонние сайты
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // Отключаем доступ к чувствительным API браузера
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ]
+  },
   transpilePackages: [
     'react-markdown',
     'remark-parse',

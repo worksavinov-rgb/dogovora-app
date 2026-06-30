@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest) {
     if (!body.currentPassword) return NextResponse.json({ error: 'Введите текущий пароль' }, { status: 400 })
     const ok = await comparePassword(body.currentPassword, user.passwordHash)
     if (!ok) return NextResponse.json({ error: 'Неверный текущий пароль' }, { status: 400 })
-    if (body.newPassword.length < 6) return NextResponse.json({ error: 'Пароль должен быть не менее 6 символов' }, { status: 400 })
+    if (body.newPassword.length < 8) return NextResponse.json({ error: 'Пароль должен быть не менее 8 символов' }, { status: 400 })
     updateData.passwordHash = await hashPassword(body.newPassword)
   }
 

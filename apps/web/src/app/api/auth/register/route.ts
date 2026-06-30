@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { hashPassword, signAccessToken, signRefreshToken } from '@/lib/auth'
+import { rateLimit, getClientIp } from '@/lib/rate-limit'
 
 const RegisterSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -15,8 +16,19 @@ const WELCOME_BONUS = 5000
 
 export async function POST(req: Request) {
   try {
+    // Защита от перебора промокодов: не более 10 регистраций с одного IP за час.
+    const ip = getClientIp(req)
+    const rl = await rateLimit(`register:${ip}`, 10, 60 * 60 * 1000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Слишком много попыток регистрации. Попробуйте позже.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+      )
+    }
+
     const body = await req.json() as unknown
     const data = RegisterSchema.parse(body)
+    const email = data.email.trim().toLowerCase()
 
     // Проверяем промокод
     const promo = await prisma.promoCode.findUnique({
@@ -33,7 +45,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Промокод уже использован' }, { status: 400 })
     }
 
-    const existing = await prisma.user.findUnique({ where: { email: data.email } })
+    const existing = await prisma.user.findUnique({ where: { email } })
     if (existing) {
       return NextResponse.json(
         { error: 'Пользователь с таким email уже существует' },
@@ -47,7 +59,7 @@ export async function POST(req: Request) {
     const user = await prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
         data: {
-          email: data.email,
+          email,
           passwordHash,
           fullName: data.fullName,
           businessScope: data.businessScope,

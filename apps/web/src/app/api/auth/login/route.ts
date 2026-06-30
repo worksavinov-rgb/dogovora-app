@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { comparePassword, signAccessToken, signRefreshToken } from '@/lib/auth'
+import { rateLimit, getClientIp } from '@/lib/rate-limit'
 
 const LoginSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -10,11 +11,22 @@ const LoginSchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    // Защита от брутфорса: не более 10 попыток с одного IP за 5 минут.
+    const ip = getClientIp(req)
+    const rl = await rateLimit(`login:${ip}`, 10, 5 * 60 * 1000)
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { error: 'Слишком много попыток входа. Попробуйте позже.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+      )
+    }
+
     const body = await req.json() as unknown
     const data = LoginSchema.parse(body)
+    const email = data.email.trim().toLowerCase()
 
     const user = await prisma.user.findUnique({
-      where: { email: data.email },
+      where: { email },
       select: { id: true, email: true, passwordHash: true, createdAt: true },
     })
 

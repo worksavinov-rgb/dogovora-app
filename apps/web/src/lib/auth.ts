@@ -1,7 +1,17 @@
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 
-const JWT_SECRET = process.env['JWT_SECRET'] ?? 'dev-secret-change-in-production-min-32-chars'
+// Секрет ДОЛЖЕН быть задан в окружении. Никакого запасного значения в коде —
+// иначе при незаданной переменной сервер работал бы на публичном секрете из
+// исходников, и кто угодно смог бы подделать токен любого пользователя.
+const JWT_SECRET: string = process.env['JWT_SECRET'] ?? ''
+if (JWT_SECRET.length < 32) {
+  throw new Error(
+    'JWT_SECRET не задан или короче 32 символов. Установите переменную окружения JWT_SECRET ' +
+      '(случайная строка ≥ 32 символов) перед запуском.',
+  )
+}
+
 const ACCESS_EXPIRES = '15m'
 const REFRESH_EXPIRES = '30d'
 
