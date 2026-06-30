@@ -1,5 +1,27 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV !== 'production'
+
+// Content-Security-Policy.
+// Nonce/strict-dynamic не используем: страницы рендерятся статически, nonce им
+// не проставляется, и strict-dynamic заблокировал бы их bootstrap-скрипты.
+// Поэтому script-src 'self' + 'unsafe-inline' (внешние вредоносные скрипты
+// заблокированы; inline-скрипты из AI-HTML вырезаются санитайзером отдельно).
+// В dev добавляем 'unsafe-eval' — нужно для HMR/React Refresh.
+const csp = [
+  `default-src 'self'`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+  `style-src 'self' 'unsafe-inline'`,
+  `img-src 'self' data: blob:`,
+  `font-src 'self' data:`,
+  `connect-src 'self'`,
+  `object-src 'none'`,
+  `base-uri 'self'`,
+  `form-action 'self'`,
+  `frame-ancestors 'none'`,
+  ...(isDev ? [] : ['upgrade-insecure-requests']),
+].join('; ')
+
 const nextConfig: NextConfig = {
   output: 'standalone',
   poweredByHeader: false, // не раскрываем стек через X-Powered-By
@@ -20,6 +42,8 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           // Отключаем доступ к чувствительным API браузера
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Защита от XSS/инъекций (defense-in-depth)
+          { key: 'Content-Security-Policy', value: csp },
         ],
       },
     ]
