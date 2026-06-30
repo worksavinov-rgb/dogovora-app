@@ -2,6 +2,11 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
+# Принудительно поднимаем уязвимые транзитивные зависимости до безопасных версий.
+# postcss <8.5.10 — XSS через незаэкранированный </style> (GHSA-qx2v-qp2m-jg93).
+overrides:
+  postcss: '>=8.5.10'
+
 allowBuilds:
   '@prisma/client': true
   '@prisma/engines': true
