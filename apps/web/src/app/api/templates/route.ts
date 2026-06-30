@@ -10,7 +10,7 @@ const createSchema = z.object({
 
 // GET /api/templates — список шаблонов пользователя
 export async function GET(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const templates = await prisma.documentTemplate.findMany({
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/templates — создать шаблон
 export async function POST(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()

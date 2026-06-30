@@ -1,34 +1,10 @@
-import Redis from 'ioredis'
+import { getRedisClient } from '@/lib/redis-client'
 
 // ─── Rate limiter ──────────────────────────────────────────────────────────────
 // Скользящее окно с фиксированным интервалом (fixed window).
 // Использует Redis, если задан REDIS_URL; иначе — in-memory фолбэк (для dev и
 // одиночного инстанса). Применяется на чувствительных эндпоинтах (login, register)
 // для защиты от брутфорса паролей и перебора промокодов.
-
-let _redis: Redis | null = null
-let _redisDisabled = false
-
-function getRedis(): Redis | null {
-  if (_redisDisabled) return null
-  if (_redis) return _redis
-  const url = process.env['REDIS_URL']
-  if (!url) {
-    _redisDisabled = true
-    return null
-  }
-  try {
-    _redis = new Redis(url, { maxRetriesPerRequest: 2, lazyConnect: false })
-    _redis.on('error', () => {
-      // При сбое Redis не роняем запросы — переходим на in-memory фолбэк.
-      _redisDisabled = true
-    })
-    return _redis
-  } catch {
-    _redisDisabled = true
-    return null
-  }
-}
 
 // In-memory фолбэк: счётчики попыток в памяти процесса.
 const memStore = new Map<string, { count: number; resetAt: number }>()
@@ -60,7 +36,7 @@ export interface RateLimitResult {
  * @param windowMs длина окна в миллисекундах
  */
 export async function rateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
-  const redis = getRedis()
+  const redis = getRedisClient()
   if (!redis) return memHit(key, limit, windowMs)
 
   try {

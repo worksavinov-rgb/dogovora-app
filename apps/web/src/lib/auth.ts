@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
+import { randomUUID } from 'crypto'
 
 const ACCESS_EXPIRES = '15m'
 const REFRESH_EXPIRES = '30d'
@@ -29,18 +30,39 @@ function getJwtSecret(): string {
 export interface JWTPayload {
   userId: string
   email: string
+  /** Уникальный id токена (для отзыва через blocklist). Есть у выданных токенов. */
+  jti?: string
+  /** Unix-время истечения (сек), заполняется jwt при verify/decode. */
+  exp?: number
 }
 
 export function signAccessToken(payload: JWTPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: ACCESS_EXPIRES })
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: ACCESS_EXPIRES, jwtid: randomUUID() })
 }
 
 export function signRefreshToken(payload: JWTPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: REFRESH_EXPIRES })
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: REFRESH_EXPIRES, jwtid: randomUUID() })
 }
 
 export function verifyToken(token: string): JWTPayload {
   return jwt.verify(token, getJwtSecret()) as JWTPayload
+}
+
+/**
+ * Достаёт jti и оставшийся TTL (сек) из токена БЕЗ проверки подписи/срока.
+ * Нужно для отзыва (logout): токен мог уже почти истечь — нам важен лишь jti и
+ * сколько секунд держать его в blocklist. Возвращает null, если структура не та.
+ */
+export function getRevocationInfo(token: string): { jti: string; ttlSec: number } | null {
+  try {
+    const decoded = jwt.decode(token) as JWTPayload | null
+    if (!decoded?.jti) return null
+    const nowSec = Math.floor(Date.now() / 1000)
+    const ttlSec = decoded.exp ? decoded.exp - nowSec : 0
+    return { jti: decoded.jti, ttlSec }
+  } catch {
+    return null
+  }
 }
 
 export async function hashPassword(password: string): Promise<string> {

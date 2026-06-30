@@ -6,7 +6,7 @@ type Params = { params: Promise<{ jobId: string }> }
 
 // GET /api/jobs/:jobId — статус фоновой задачи (polling)
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { jobId } = await params

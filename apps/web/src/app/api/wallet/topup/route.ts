@@ -12,7 +12,7 @@ const schema = z.object({
 // В MVP любой авторизованный пользователь может пополнить свой баланс
 // (в продакшне будет через платёжный шлюз)
 export async function POST(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()

@@ -6,7 +6,7 @@ import { getUserId } from '@/lib/api-auth'
 // ?counterpartyId=... — фильтр по контрагенту
 // ?type=CONTRACT|APPENDIX|AMENDMENT — фильтр по типу
 export async function GET(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const url = new URL(req.url)

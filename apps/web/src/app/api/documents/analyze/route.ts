@@ -8,7 +8,7 @@ export const maxDuration = 180
 // POST /api/documents/analyze — анализ через SSE чтобы браузер не дропал соединение
 // Шлём события: {"type":"progress","message":"..."} и финальный {"type":"result",...}
 export async function POST(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }

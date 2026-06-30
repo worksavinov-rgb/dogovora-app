@@ -8,7 +8,7 @@ type Params = { params: Promise<{ id: string }> }
 // Возвращает HTML-версию отформатированного DOCX для отображения в браузере.
 // Конвертирует formattedContent (Base64 DOCX) → HTML через mammoth.js
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

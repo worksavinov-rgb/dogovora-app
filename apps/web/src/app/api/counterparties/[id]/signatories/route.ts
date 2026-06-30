@@ -19,7 +19,7 @@ const signatorySchema = z.object({
 
 // POST /api/counterparties/:id/signatories
 export async function POST(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

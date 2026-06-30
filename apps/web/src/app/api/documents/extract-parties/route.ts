@@ -4,7 +4,7 @@ import { getAIProvider } from '@/lib/ai/provider'
 
 // POST /api/documents/extract-parties — извлечение реквизитов сторон из текста договора
 export async function POST(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as { text?: string }

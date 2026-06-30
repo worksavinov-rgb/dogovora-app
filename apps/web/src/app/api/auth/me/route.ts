@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { verifyToken, getTokenFromCookie, hashPassword, comparePassword } from '@/lib/auth'
-
-function getUserId(req: NextRequest): string | null {
-  try {
-    const token = getTokenFromCookie(req.headers.get('cookie'), 'access_token')
-    if (!token) return null
-    return verifyToken(token).userId
-  } catch {
-    return null
-  }
-}
+import { hashPassword, comparePassword } from '@/lib/auth'
+import { getUserId } from '@/lib/api-auth'
 
 export async function GET(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
 
   const user = await prisma.user.findUnique({
@@ -26,7 +17,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Не авторизован' }, { status: 401 })
 
   const body = await req.json() as { fullName?: string; email?: string; currentPassword?: string; newPassword?: string }

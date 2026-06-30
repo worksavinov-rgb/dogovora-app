@@ -17,7 +17,7 @@ async function assertOwner(documentId: string, userId: string) {
 
 // GET /api/documents/:id/draft — рабочая копия (или null, если ещё не сохранялась)
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 // PUT /api/documents/:id/draft — автосохранение рабочей копии (upsert)
 export async function PUT(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -47,7 +47,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 // DELETE /api/documents/:id/draft — удалить рабочую копию (после фиксации версии)
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

@@ -20,7 +20,7 @@ const msgSchema = z.object({
 
 // GET /api/versions/:id/chat — история сообщений
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 //   data: [DONE]                         — конец потока
 //
 export async function POST(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

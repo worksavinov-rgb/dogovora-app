@@ -8,7 +8,7 @@ type Params = { params: Promise<{ id: string }> }
 // POST /api/versions/:id/purchase — купить версию
 // ACID: SELECT FOR UPDATE на кошелёк, идемпотентность по versionId
 export async function POST(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id: versionId } = await params
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
 // GET /api/versions/:id/purchase — проверить статус покупки
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id: versionId } = await params

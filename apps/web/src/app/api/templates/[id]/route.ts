@@ -12,7 +12,7 @@ const updateSchema = z.object({
 
 // GET /api/templates/:id — полный шаблон с content
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 // PATCH /api/templates/:id — переименовать или обновить содержимое
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -50,7 +50,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 // DELETE /api/templates/:id — удалить шаблон
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

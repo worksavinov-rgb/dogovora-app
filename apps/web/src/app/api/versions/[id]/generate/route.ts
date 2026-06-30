@@ -7,7 +7,7 @@ type Params = { params: Promise<{ id: string }> }
 
 // POST /api/versions/:id/generate — ставит задачу генерации в BullMQ очередь
 export async function POST(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

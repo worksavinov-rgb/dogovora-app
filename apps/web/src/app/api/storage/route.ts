@@ -10,7 +10,7 @@ const PLAN_LIMITS: Record<string, bigint> = {
 
 // GET /api/storage — информация об использовании хранилища
 export async function GET(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Lazy init квоты

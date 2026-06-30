@@ -17,7 +17,7 @@ const updateSchema = z.object({
 
 // PUT /api/profiles/:id/signatories/:sid
 export async function PUT(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id, sid } = await params
@@ -47,7 +47,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 // DELETE /api/profiles/:id/signatories/:sid
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

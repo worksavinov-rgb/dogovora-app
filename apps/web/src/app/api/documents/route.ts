@@ -44,7 +44,7 @@ const createSchema = z.object({
 
 // GET /api/documents?q=&type=&status=&counterpartyId=
 export async function GET(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/documents
 export async function POST(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()

@@ -14,7 +14,7 @@ const schema = z.object({
 // PATCH /api/versions/:id/status — смена статуса версии
 // Флоу: DRAFT → IN_PROGRESS → REVIEW → APPROVED → (PAID через /purchase) → SIGNED
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

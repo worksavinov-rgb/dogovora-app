@@ -4,7 +4,7 @@ import { getUserId } from '@/lib/api-auth'
 
 // GET /api/wallet — текущий баланс + кошелёк
 export async function GET(req: NextRequest) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Создаём кошелёк если не существует (lazy init)

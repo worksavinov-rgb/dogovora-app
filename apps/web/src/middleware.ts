@@ -6,6 +6,7 @@ const PUBLIC_PATHS = [
   '/register',
   '/api/auth/login',
   '/api/auth/register',
+  '/api/auth/refresh',
   '/_next',
   '/ui-kit',
   '/favicon.ico',

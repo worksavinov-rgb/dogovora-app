@@ -15,7 +15,7 @@ async function checkIsDescendant(candidateId: string, ancestorId: string): Promi
 
 // GET /api/documents/:id
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 // PATCH /api/documents/:id — обновить название, номер, дату
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -89,7 +89,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 // DELETE /api/documents/:id
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

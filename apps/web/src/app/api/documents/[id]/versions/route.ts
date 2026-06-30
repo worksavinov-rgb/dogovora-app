@@ -20,7 +20,7 @@ const versionSchema = z.object({
 
 // POST /api/documents/:id/versions  — APPEND-ONLY, никогда не обновляет существующую
 export async function POST(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

@@ -29,7 +29,7 @@ const updateSchema = z.object({
 
 // GET /api/counterparties/:id
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 // PUT /api/counterparties/:id
 export async function PUT(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -91,7 +91,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
 // DELETE /api/counterparties/:id  (мягкое удаление = архив)
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

@@ -31,7 +31,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   initialize: async () => {
     set({ isLoading: true })
     try {
-      const res = await fetch('/api/auth/me')
+      let res = await fetch('/api/auth/me')
+      // Access-токен мог истечь (15 мин) — пробуем продлить сессию по refresh-токену.
+      if (res.status === 401) {
+        const refreshed = await fetch('/api/auth/refresh', { method: 'POST' })
+        if (refreshed.ok) {
+          res = await fetch('/api/auth/me')
+        }
+      }
       if (res.ok) {
         const data = await res.json() as { user: AuthUser & { wallet?: { balance: number } } }
         set({

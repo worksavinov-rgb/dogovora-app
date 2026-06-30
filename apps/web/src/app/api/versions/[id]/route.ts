@@ -6,7 +6,7 @@ type Params = { params: Promise<{ id: string }> }
 
 // GET /api/versions/:id — полная информация о версии включая content
 export async function GET(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 
 // DELETE /api/versions/:id — удаление неоплаченной версии
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params: _params }: Params) {
 
 // POST /api/profiles/:id/signatories — подписанты профиля хранятся в самом профиле (signatorName, signatorPosition)
 export async function POST(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params

@@ -16,7 +16,7 @@ const aiSettingsSchema = z.object({
 // Обновляет только настройки ИИ без создания новой версии.
 // Используется при изменении параметров через панель "Настройки" на рабочем экране.
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const userId = getUserId(req)
+  const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
