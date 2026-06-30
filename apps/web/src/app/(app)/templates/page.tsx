@@ -59,13 +59,105 @@ function RenameDialog({ template, onSave, onClose }: {
   )
 }
 
+// ─── Модалка предпросмотра (только чтение) ──────────────────────────────────────
+
+function PreviewDialog({ template, onUse, onClose }: {
+  template: Template
+  onUse: () => void
+  onClose: () => void
+}) {
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(false)
+    fetch(`/api/templates/${template.id}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: { content: string }) => { if (active) setContent(data.content ?? '') })
+      .catch(() => { if (active) setError(true) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [template.id])
+
+  // Закрытие по Esc
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Загруженные DOCX хранятся как HTML, TXT — как обычный текст.
+  const isHtml = content != null && /<(p|h[1-6]|strong|em|ul|ol|li|table|br|div|span)\b/i.test(content.slice(0, 500))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-[24px]" style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-[var(--radius-xl)] shadow-xl w-full max-w-[760px] max-h-[88vh] flex flex-col overflow-hidden">
+        {/* Шапка */}
+        <div className="flex items-center justify-between gap-[12px] px-[24px] py-[16px] border-b border-[var(--line)] shrink-0">
+          <div className="min-w-0">
+            <p className="text-[14px] font-medium text-[var(--ink)] truncate">{template.name}</p>
+            <p className="text-[11px] text-[var(--ink-4)] mt-[1px]">Предпросмотр — только чтение</p>
+          </div>
+          <button onClick={onClose}
+            className="shrink-0 w-[30px] h-[30px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Тело — прокручиваемый «лист» */}
+        <div className="flex-1 overflow-y-auto px-[32px] py-[28px]" style={{ background: 'var(--surface)' }}>
+          {loading ? (
+            <div className="flex flex-col gap-[10px]">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-[14px]" style={{ width: `${60 + ((i * 13) % 35)}%` }} />
+              ))}
+            </div>
+          ) : error ? (
+            <p className="text-[13px] text-[var(--danger)] text-center py-[40px]">Не удалось загрузить шаблон</p>
+          ) : !content?.trim() ? (
+            <p className="text-[13px] text-[var(--ink-4)] text-center py-[40px]">Шаблон пуст</p>
+          ) : isHtml ? (
+            <div className="uploaded-doc-html bg-white rounded-[var(--radius-md)] px-[40px] py-[36px]"
+              style={{ border: '1px solid var(--line)' }}
+              dangerouslySetInnerHTML={{ __html: content }} />
+          ) : (
+            <pre className="bg-white rounded-[var(--radius-md)] px-[32px] py-[28px] text-[13px] leading-[1.7] text-[var(--ink)] whitespace-pre-wrap break-words"
+              style={{ border: '1px solid var(--line)', fontFamily: 'var(--font-ui)' }}>
+              {content}
+            </pre>
+          )}
+        </div>
+
+        {/* Подвал */}
+        <div className="flex items-center justify-end gap-[8px] px-[24px] py-[14px] border-t border-[var(--line)] shrink-0">
+          <button onClick={onClose}
+            className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+            Закрыть
+          </button>
+          <button onClick={onUse}
+            className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer">
+            Использовать
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Карточка шаблона ─────────────────────────────────────────────────────────
 
-function TemplateCard({ template, onRename, onDelete, onUse }: {
+function TemplateCard({ template, onRename, onDelete, onUse, onPreview }: {
   template: Template
   onRename: () => void
   onDelete: () => void
   onUse: () => void
+  onPreview: () => void
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -99,11 +191,12 @@ function TemplateCard({ template, onRename, onDelete, onUse }: {
         </svg>
       </div>
 
-      {/* Название и дата */}
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium text-[var(--ink)] truncate">{template.name}</p>
+      {/* Название и дата — клик открывает предпросмотр */}
+      <button onClick={onPreview} title="Открыть предпросмотр"
+        className="flex-1 min-w-0 text-left cursor-pointer group/name">
+        <p className="text-[13px] font-medium text-[var(--ink)] truncate group-hover/name:text-[var(--accent)] transition-colors">{template.name}</p>
         <p className="text-[11px] text-[var(--ink-4)] mt-[1px]">Обновлён {relDate(template.updatedAt)}</p>
-      </div>
+      </button>
 
       {/* Использовать */}
       <button
@@ -127,6 +220,9 @@ function TemplateCard({ template, onRename, onDelete, onUse }: {
           <div className="absolute right-0 top-[32px] z-50 rounded-[var(--radius-md)] py-[4px] min-w-[160px]"
             style={{ background: 'white', border: '1px solid var(--line)', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}>
             <button className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] cursor-pointer"
+              onClick={() => { onPreview(); setMenuOpen(false) }}>Просмотреть</button>
+            <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+            <button className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] cursor-pointer"
               onClick={() => { onRename(); setMenuOpen(false) }}>Переименовать</button>
             <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
             <button className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--danger)] hover:bg-[var(--surface-inset)] cursor-pointer"
@@ -146,6 +242,7 @@ export default function TemplatesPage() {
   const [uploading, setUploading] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
@@ -210,6 +307,7 @@ export default function TemplatesPage() {
   }
 
   const renamingTemplate = templates.find((t) => t.id === renamingId)
+  const previewTemplate = templates.find((t) => t.id === previewId)
 
   return (
     <>
@@ -226,6 +324,13 @@ export default function TemplatesPage() {
           template={renamingTemplate}
           onSave={(name) => handleRename(renamingTemplate.id, name)}
           onClose={() => setRenamingId(null)}
+        />
+      )}
+      {previewTemplate && (
+        <PreviewDialog
+          template={previewTemplate}
+          onUse={() => handleUse(previewTemplate)}
+          onClose={() => setPreviewId(null)}
         />
       )}
 
@@ -306,6 +411,7 @@ export default function TemplatesPage() {
                 onRename={() => setRenamingId(t.id)}
                 onDelete={() => handleDelete(t.id)}
                 onUse={() => handleUse(t)}
+                onPreview={() => setPreviewId(t.id)}
               />
             ))}
           </div>
