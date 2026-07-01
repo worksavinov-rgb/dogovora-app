@@ -55,7 +55,10 @@ export async function GET(req: NextRequest, { params }: Params) {
   })
 }
 
-// DELETE /api/versions/:id — удаление неоплаченной версии
+// DELETE /api/versions/:id — удаление версии (в т.ч. оплаченной).
+// Оплаченную версию удалять можно: покупка (Purchase) уходит каскадом, но
+// запись об оплате в истории (Transaction.relatedVersion = SetNull) сохраняется
+// навсегда, а списанные средства НЕ возвращаются. Предупреждение — на фронте.
 export async function DELETE(req: NextRequest, { params }: Params) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -63,12 +66,9 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params
   const version = await prisma.version.findFirst({
     where: { id, document: { userId } },
-    include: { purchase: true },
+    select: { id: true },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (version.purchase) {
-    return NextResponse.json({ error: 'Нельзя удалить оплаченную версию' }, { status: 403 })
-  }
 
   await prisma.version.delete({ where: { id } })
   return NextResponse.json({ ok: true })

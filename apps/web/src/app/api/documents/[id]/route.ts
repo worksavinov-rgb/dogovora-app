@@ -13,6 +13,23 @@ async function checkIsDescendant(candidateId: string, ancestorId: string): Promi
   return false
 }
 
+// Собирает id всех потомков документа (приложения/допсоглашения и их потомки).
+// Нужно потому, что связь parentDocument стоит onDelete: SetNull — без явного
+// сбора потомки бы «отвязались», а не удалились вместе с родителем.
+async function collectDescendantIds(rootId: string): Promise<string[]> {
+  const result: string[] = []
+  const stack = [rootId]
+  while (stack.length) {
+    const current = stack.pop()!
+    const children = await prisma.document.findMany({ where: { parentDocumentId: current }, select: { id: true } })
+    for (const child of children) {
+      result.push(child.id)
+      stack.push(child.id)
+    }
+  }
+  return result
+}
+
 // GET /api/documents/:id
 export async function GET(req: NextRequest, { params }: Params) {
   const userId = await getUserId(req)
@@ -93,17 +110,14 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
-  const doc = await prisma.document.findFirst({
-    where: { id, userId },
-    include: { versions: { include: { purchase: true } } },
-  })
+  const doc = await prisma.document.findFirst({ where: { id, userId }, select: { id: true } })
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const hasPaidVersion = doc.versions.some((v) => v.purchase)
-  if (hasPaidVersion) {
-    return NextResponse.json({ error: 'Нельзя удалить документ с оплаченными версиями' }, { status: 403 })
-  }
-
-  await prisma.document.delete({ where: { id } })
+  // Удаляем документ вместе со всеми потомками (приложения/допсоглашения).
+  // Версии и покупки уходят каскадом; записи об оплате в истории
+  // (Transaction.relatedVersion = SetNull) сохраняются, деньги не возвращаются.
+  const descendantIds = await collectDescendantIds(id)
+  const allIds = [id, ...descendantIds]
+  await prisma.document.deleteMany({ where: { id: { in: allIds }, userId } })
   return NextResponse.json({ ok: true })
 }

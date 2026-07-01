@@ -69,13 +69,20 @@ function CounterpartyMenu({ cp, onRefresh }: { cp: Counterparty; onRefresh: () =
     onRefresh()
   }
 
+  const docCount = cp._count.documents
+  const docsPhrase = docCount > 0
+    ? `${docCount} ${docCount === 1 ? 'связанный документ' : docCount < 5 ? 'связанных документа' : 'связанных документов'}`
+    : null
+
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
       <ConfirmDialog
         open={deleteConfirm}
-        title={`Удалить «${cp.name}»?`}
-        message="Контрагент будет перемещён в архив. Это действие нельзя отменить."
-        confirmLabel="Удалить"
+        title={cp.isArchived ? `Удалить навсегда «${cp.name}»?` : `Удалить «${cp.name}»?`}
+        message={cp.isArchived
+          ? `Контрагент${docsPhrase ? ` и все его документы (${docsPhrase})` : ''} будут удалены безвозвратно. Восстановить их будет нельзя. Записи об оплате останутся в истории платежей, деньги не возвращаются.`
+          : `Контрагент${docsPhrase ? ` и ${docsPhrase}` : ''} будут перемещены в архив и пропадут из списков. Документы можно будет открыть из карточки контрагента в архиве.`}
+        confirmLabel={cp.isArchived ? 'Удалить навсегда' : 'В архив'}
         onConfirm={confirmDel}
         onCancel={() => setDeleteConfirm(false)}
       />

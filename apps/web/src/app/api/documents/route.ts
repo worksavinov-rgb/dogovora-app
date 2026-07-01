@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
   const type = searchParams.get('type') // CONTRACT | APPENDIX | AMENDMENT
   const status = searchParams.get('status') // DRAFT | IN_PROGRESS | REVIEW | APPROVED | PAID
   const counterpartyId = searchParams.get('counterpartyId')
+  const archived = searchParams.get('archived') === '1' // вкладка «Архив»
   const limit = searchParams.get('limit') ? Math.min(Number(searchParams.get('limit')), 100) : undefined
 
   const documents = await prisma.document.findMany({
@@ -59,7 +60,10 @@ export async function GET(req: NextRequest) {
       userId,
       ...(q ? { title: { contains: q, mode: 'insensitive' } } : {}),
       ...(type ? { type: type as 'CONTRACT' | 'APPENDIX' | 'AMENDMENT' } : {}),
-      ...(counterpartyId ? { counterpartyId } : {}),
+      // Документы привязаны к контрагенту: «Архив» показывает документы архивных
+      // контрагентов, обычный список — только активных. При фильтре по конкретному
+      // контрагенту (его карточка) показываем всё, включая архивного.
+      ...(counterpartyId ? { counterpartyId } : { counterparty: { isArchived: archived } }),
     },
     include: {
       counterparty: true,

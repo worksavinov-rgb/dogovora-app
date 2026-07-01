@@ -713,6 +713,7 @@ export default function DocumentsPage() {
   const [docs, setDocs] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [q, setQ] = useState('')
+  const [view, setView] = useState<'all' | 'archive'>('all')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [counterpartyFilter, setCounterpartyFilter] = useState('')
@@ -744,10 +745,11 @@ export default function DocumentsPage() {
     if (typeFilter) p.set('type', typeFilter)
     if (statusFilter) p.set('status', statusFilter)
     if (counterpartyFilter) p.set('counterpartyId', counterpartyFilter)
+    if (view === 'archive') p.set('archived', '1')
     const res = await fetch(`/api/documents?${p}`)
     if (res.ok) setDocs(await res.json())
     setLoading(false)
-  }, [q, typeFilter, statusFilter, counterpartyFilter])
+  }, [q, typeFilter, statusFilter, counterpartyFilter, view])
 
   useEffect(() => { load() }, [load])
 
@@ -789,12 +791,18 @@ export default function DocumentsPage() {
     load()
   }
 
-  // Текст предупреждения зависит от того, оплачен ли документ и есть ли вложения
+  // Удаление ИЗ СПИСКА документов = документ целиком, со всеми версиями (и с
+  // вложениями, если это корневой договор). Предупреждение это подчёркивает и
+  // советует сперва проверить список версий.
   const delIsPaid = !!deleteConfirm?.versions.some((v) => v.purchase)
   const delChildCount = deleteConfirm?._count.childDocuments ?? 0
+  const delChildPhrase = delChildCount > 0
+    ? `, а также ${delChildCount} ${delChildCount === 1 ? 'вложенный документ' : delChildCount < 5 ? 'вложенных документа' : 'вложенных документов'} (приложения, допсоглашения)`
+    : ''
   const delMessage = [
-    delIsPaid ? 'Это оплаченный документ — списанные средства не возвращаются, но запись об оплате останется в истории платежей.' : 'Будут удалены все версии документа.',
-    delChildCount > 0 ? `Вместе с ним удалятся ${delChildCount} ${delChildCount === 1 ? 'связанный документ' : delChildCount < 5 ? 'связанных документа' : 'связанных документов'} (приложения, допсоглашения).` : null,
+    `Из списка документ удаляется целиком — вместе со ВСЕМИ его версиями${delChildPhrase}.`,
+    delIsPaid ? 'Среди версий есть оплаченные: списанные средства не возвращаются, но записи об оплате останутся в истории платежей.' : null,
+    'Если нужна только одна версия — откройте документ и удалите конкретную версию в списке версий.',
     'Восстановить будет нельзя.',
   ].filter(Boolean).join(' ')
 
@@ -876,6 +884,17 @@ export default function DocumentsPage() {
 
       {/* Фильтры */}
       <div className="flex items-center gap-[8px] mb-[16px] flex-wrap">
+        <div className="flex gap-0 mr-[4px]">
+          {([['all', 'Все'], ['archive', 'Архив']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => { setView(key); setPage(1) }}
+              className={['px-[14px] h-[36px] text-[13px] font-medium rounded-[var(--radius-md)] transition-colors cursor-pointer', view === key ? 'bg-[var(--surface-2)] text-[var(--ink)]' : 'text-[var(--ink-3)] hover:text-[var(--ink-2)]'].join(' ')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="relative">
           <span className="absolute left-[10px] top-1/2 -translate-y-1/2 text-[var(--ink-4)]">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -955,9 +974,13 @@ export default function DocumentsPage() {
             <div className="w-[48px] h-[48px] rounded-full bg-[var(--surface-inset)] flex items-center justify-center">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             </div>
-            <p className="text-[16px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-serif)' }}>Документов пока нет</p>
-            <p className="text-[13px] text-[var(--ink-4)]">Создайте первый договор или загрузите существующий</p>
-            <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать документ</Button>
+            <p className="text-[16px] text-[var(--ink-2)]" style={{ fontFamily: 'var(--font-serif)' }}>
+              {view === 'archive' ? 'Архив пуст' : 'Документов пока нет'}
+            </p>
+            <p className="text-[13px] text-[var(--ink-4)]">
+              {view === 'archive' ? 'Документы контрагентов, которых вы отправите в архив, появятся здесь' : 'Создайте первый договор или загрузите существующий'}
+            </p>
+            {view !== 'archive' && <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать документ</Button>}
           </div>
         ) : (
           pageRows.map(({ doc, depth }, i) => {

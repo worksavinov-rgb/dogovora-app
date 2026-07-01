@@ -491,13 +491,15 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   }
 
   function handleVersionDeleted(verId: string) {
+    const isPaid = !!doc?.versions.find((v) => v.id === verId)?.purchase
     setConfirmDialog({
-      title: 'Удалить версию?',
-      message: 'Версия будет удалена без возможности восстановления.',
+      title: isPaid ? 'Удалить оплаченную версию?' : 'Удалить версию?',
+      message: isPaid
+        ? 'Это оплаченная версия — списанные средства не возвращаются, но запись об оплате останется в истории платежей. Восстановить версию будет нельзя.'
+        : 'Версия будет удалена без возможности восстановления.',
       onConfirm: async () => {
         setConfirmDialog(null)
         const res = await fetch(`/api/versions/${verId}`, { method: 'DELETE' })
-        if (res.status === 403) { showToast('Нельзя удалить оплаченную версию.', 'error'); return }
         if (!res.ok) { showToast('Не удалось удалить версию.', 'error'); return }
         await loadDoc()
       },
@@ -505,13 +507,21 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   }
 
   function handleDeleteDocument() {
+    const isPaid = !!doc?.versions.some((v) => v.purchase)
+    const childCount = doc?.childDocuments.length ?? 0
+    const message = [
+      isPaid
+        ? 'Это оплаченный документ — списанные средства не возвращаются, но запись об оплате останется в истории платежей.'
+        : `Документ «${doc?.title}» и все его версии будут удалены.`,
+      childCount > 0 ? `Вместе с ним удалятся ${childCount} ${childCount === 1 ? 'связанный документ' : childCount < 5 ? 'связанных документа' : 'связанных документов'} (приложения, допсоглашения).` : null,
+      'Восстановить будет нельзя.',
+    ].filter(Boolean).join(' ')
     setConfirmDialog({
-      title: 'Удалить документ?',
-      message: `Документ «${doc?.title}» и все его версии будут удалены без возможности восстановления.`,
+      title: isPaid ? 'Удалить оплаченный документ?' : 'Удалить документ?',
+      message,
       onConfirm: async () => {
         setConfirmDialog(null)
         const res = await fetch(`/api/documents/${id}`, { method: 'DELETE' })
-        if (res.status === 403) { showToast('Нельзя удалить документ: есть оплаченные версии.', 'error'); return }
         if (!res.ok) { showToast('Не удалось удалить документ.', 'error'); return }
         router.push('/documents')
         router.refresh()

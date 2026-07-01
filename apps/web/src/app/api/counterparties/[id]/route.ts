@@ -89,7 +89,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
   return NextResponse.json(updated)
 }
 
-// DELETE /api/counterparties/:id  (мягкое удаление = архив)
+// DELETE /api/counterparties/:id — двухступенчатое удаление:
+//  • активный контрагент → уходит в архив вместе со всеми документами
+//    (документы архивных контрагентов скрываются из списка документов);
+//  • уже архивный контрагент → удаляется БЕЗВОЗВРАТНО вместе со всеми
+//    документами, версиями и покупками. Записи об оплате в истории
+//    (Transaction.relatedVersion = SetNull) сохраняются, деньги не возвращаются.
 export async function DELETE(req: NextRequest, { params }: Params) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -98,6 +103,17 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const existing = await prisma.counterparty.findFirst({ where: { id, userId } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await prisma.counterparty.update({ where: { id }, data: { isArchived: true } })
-  return NextResponse.json({ ok: true })
+  if (!existing.isArchived) {
+    await prisma.counterparty.update({ where: { id }, data: { isArchived: true } })
+    return NextResponse.json({ ok: true, archived: true })
+  }
+
+  // Жёсткое удаление: сначала документы (версии/покупки — каскадом), затем
+  // самого контрагента (связь Document→Counterparty стоит Restrict, поэтому
+  // документы нужно удалить первыми).
+  await prisma.$transaction([
+    prisma.document.deleteMany({ where: { counterpartyId: id, userId } }),
+    prisma.counterparty.delete({ where: { id } }),
+  ])
+  return NextResponse.json({ ok: true, deleted: true })
 }
