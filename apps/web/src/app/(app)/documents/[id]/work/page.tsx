@@ -944,6 +944,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const charCount = docContent?.length ?? 0
   const wordCount = docContent ? docContent.trim().split(/\s+/).filter(Boolean).length : 0
   const isPurchased = Boolean(version.purchase) || purchased
+  // «Оплачено и без правок»: только в этом состоянии документ считается купленным
+  // именно в том виде, что показан. Любая правка после покупки создаёт новый,
+  // ещё не оплаченный текст — защита от копирования/скачивания/печати возвращается,
+  // пока пользователь не купит новую версию (иначе можно отредактировать и
+  // бесплатно скопировать/скачать неоплаченный вариант из окна предпросмотра).
+  const paidClean = isPurchased && !hasUnsavedEdits
   const docType = version.document?.type ?? 'CONTRACT'
   const versionPrice = calcVersionPrice(docType, charCount)
 
@@ -1129,20 +1135,25 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
-            {/* Купить */}
-            {!isPurchased && !generating && docContent && (
+            {/* Купить. Показываем и когда версия не куплена, и когда в купленную
+                внесли правки — тогда покупается новая версия с текущим текстом. */}
+            {!paidClean && !generating && docContent && (
               <button
                 onClick={purchaseVersion}
                 disabled={purchasing}
                 className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 flex items-center gap-[5px]"
                 style={{ background: 'var(--ok)' }}
               >
-                {purchasing ? 'Покупаю…' : `Купить · ${versionPrice} ₽`}
+                {purchasing
+                  ? 'Покупаю…'
+                  : isPurchased
+                    ? `Купить правки · ${versionPrice} ₽`
+                    : `Купить · ${versionPrice} ₽`}
               </button>
             )}
 
             {/* Скачать DOCX */}
-            {isPurchased ? (
+            {paidClean ? (
               <button
                 onClick={downloadDocx}
                 disabled={downloading || generating}
@@ -1156,7 +1167,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 <span className="hidden md:inline">{downloading ? 'Скачиваю…' : 'Скачать'}</span>
               </button>
             ) : (
-              <button disabled title="Купите версию, чтобы скачать"
+              <button disabled title={isPurchased ? 'Купите правки, чтобы скачать обновлённый документ' : 'Купите версию, чтобы скачать'}
                 className="shrink-0 h-[30px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-4)] cursor-not-allowed opacity-40 hidden md:flex items-center gap-[4px]">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                 <span className="hidden md:inline">Скачать</span>
@@ -1165,10 +1176,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
             {/* Печать */}
             <button
-              onClick={() => isPurchased && window.print()}
-              disabled={!isPurchased || generating}
+              onClick={() => paidClean && window.print()}
+              disabled={!paidClean || generating}
               className="shrink-0 h-[30px] w-[30px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-              title={isPurchased ? 'Печать' : 'Купите версию, чтобы распечатать'}
+              title={paidClean ? 'Печать' : isPurchased ? 'Купите правки, чтобы распечатать обновлённый документ' : 'Купите версию, чтобы распечатать'}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>
@@ -1238,8 +1249,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 20px rgba(0,0,0,0.13)',
               }}
             >
-              {/* Ватермарк */}
-              {!isPurchased && docContent && (
+              {/* Ватермарк «ЧЕРНОВИК» — на неоплаченном тексте, а также когда в
+                  оплаченный документ внесли правки (текущий вид ещё не оплачен). */}
+              {!paidClean && docContent && (
                 <div className="absolute inset-0 pointer-events-none select-none z-[1]" style={{
                   backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='IBM Plex Sans, sans-serif' font-size='22' font-weight='600' fill='rgba(0,0,0,0.06)' transform='rotate(-35 150 100)'%3EЧЕРНОВИК%3C/text%3E%3C/svg%3E")`,
                   backgroundRepeat: 'repeat',
@@ -1262,7 +1274,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
                 return (
                   <div className="relative z-[2]" style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s' }}>
-                    <DocumentViewer content={displayText} canCopy={isPurchased} />
+                    <DocumentViewer content={displayText} canCopy={paidClean} />
                   </div>
                 )
               })()}
