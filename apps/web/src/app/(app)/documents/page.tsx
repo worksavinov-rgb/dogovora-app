@@ -747,7 +747,15 @@ export default function DocumentsPage() {
     if (counterpartyFilter) p.set('counterpartyId', counterpartyFilter)
     if (view === 'archive') p.set('archived', '1')
     const res = await fetch(`/api/documents?${p}`)
-    if (res.ok) setDocs(await res.json())
+    if (res.ok) {
+      const data: Document[] = await res.json()
+      setDocs(data)
+      // По умолчанию сворачиваем все корневые документы с вложениями —
+      // список вложенных раскрывается только по клику на стрелку.
+      setCollapsedRoots(new Set(
+        data.filter((d) => !d.parentDocument && d._count.childDocuments > 0).map((d) => d.id)
+      ))
+    }
     setLoading(false)
   }, [q, typeFilter, statusFilter, counterpartyFilter, view])
 
