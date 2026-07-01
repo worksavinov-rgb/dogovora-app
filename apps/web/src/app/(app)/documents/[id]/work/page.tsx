@@ -1443,13 +1443,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             <div className="flex gap-[8px]">
               <button
                 onClick={() => setBackConfirmOpen(false)}
-                className="flex-1 h-[34px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                className="flex-1 h-[38px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-2)] bg-[var(--surface)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] hover:border-[var(--ink-4)] transition-colors cursor-pointer"
               >
                 Остаться
               </button>
               <button
                 onClick={() => { setBackConfirmOpen(false); router.push(`/documents/${id}`) }}
-                className="flex-1 h-[34px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--danger)] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer"
+                className="flex-1 h-[38px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--danger)] bg-transparent border border-[oklch(0.85_0.06_20)] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer"
               >
                 Выйти без сохранения
               </button>
