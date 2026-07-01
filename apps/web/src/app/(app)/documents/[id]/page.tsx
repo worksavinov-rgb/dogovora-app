@@ -9,6 +9,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { calcVersionPrice } from '@/lib/pricing'
+import { parseDocxToHtml } from '@/lib/docx-to-html'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -415,7 +416,9 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   const [signingVer, setSigningVer] = useState<Version | null>(null)
   const [signing, setSigning] = useState(false)
   const [sortAsc, setSortAsc] = useState(false) // false = по убыванию (новые сначала)
-  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; confirmLabel?: string; danger?: boolean } | null>(null)
+  const [uploadingVersion, setUploadingVersion] = useState(false)
+  const revisedFileInputRef = useRef<HTMLInputElement>(null)
 
   async function loadDoc() {
     const res = await fetch(`/api/documents/${id}`)
@@ -527,6 +530,74 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
         router.refresh()
       },
     })
+  }
+
+  // Загрузка Word с правками контрагента как новой версии (append-only).
+  // Сначала показываем предупреждение принять правки и убрать комментарии.
+  function handleUploadRevisedVersion() {
+    setConfirmDialog({
+      title: 'Загрузить версию с правками',
+      message: 'Загрузите файл Word (.docx) с правками от контрагента — он станет следующей версией документа, которую можно открыть в ИИ-чате. ВАЖНО: перед загрузкой откройте файл в Word и (1) примите все исправления (Рецензирование → Принять → Принять все исправления), (2) удалите все комментарии. Иначе правки и комментарии могут исказить распознавание текста.',
+      confirmLabel: 'Выбрать файл',
+      danger: false,
+      onConfirm: () => {
+        setConfirmDialog(null)
+        revisedFileInputRef.current?.click()
+      },
+    })
+  }
+
+  async function handleRevisedFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // чтобы повторный выбор того же файла тоже срабатывал
+    if (!file) return
+
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext !== 'docx' && ext !== 'doc') {
+      showToast('Загрузите файл Word в формате .docx', 'error')
+      return
+    }
+
+    setUploadingVersion(true)
+    try {
+      const content = await parseDocxToHtml(file)
+      if (!content || !content.replace(/<[^>]*>/g, '').trim()) {
+        showToast('Не удалось распознать текст в файле', 'error')
+        return
+      }
+
+      // Переносим AI-настройки с текущей версии, чтобы продолжить работу с теми же параметрами
+      const prev = currentVersion?.aiSettings ?? {}
+      const res = await fetch(`/api/documents/${id}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aiSettings: {
+            protectionLevel: prev.protectionLevel ?? 65,
+            targetSize: prev.targetSize ?? 8400,
+            customInstruction: prev.customInstruction ?? '',
+            base: 'upload',
+            description: 'Загружено из Word — правки контрагента',
+          },
+          content,
+          status: 'DRAFT',
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        showToast(data.error ?? 'Не удалось загрузить версию', 'error')
+        return
+      }
+      const newVersion = await res.json()
+      showToast('Версия с правками загружена', 'success')
+      await loadDoc()
+      // Сразу открываем новую версию в ИИ-чате для дальнейшего редактирования
+      router.push(`/documents/${id}/work?version=${newVersion.id}`)
+    } catch {
+      showToast('Ошибка при чтении файла Word', 'error')
+    } finally {
+      setUploadingVersion(false)
+    }
   }
 
   if (loading) {
@@ -666,6 +737,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   { icon: '✦', label: 'Открыть в ИИ-чате', primary: true, onClick: () => router.push(`/documents/${id}/work`) },
                   { icon: '⇄', label: 'Сравнить', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/${id}/compare`) },
                   { icon: '◎', label: 'Проверить риски', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/${id}/check`) },
+                  { icon: '↑', label: uploadingVersion ? 'Загрузка версии…' : 'Загрузить версию с правками', primary: false, disabled: uploadingVersion, onClick: handleUploadRevisedVersion },
                   ...(currentVersion?.purchase ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
@@ -767,8 +839,19 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
         open={!!confirmDialog}
         title={confirmDialog?.title ?? ''}
         message={confirmDialog?.message ?? ''}
+        confirmLabel={confirmDialog?.confirmLabel}
+        danger={confirmDialog?.danger}
         onConfirm={confirmDialog?.onConfirm ?? (() => {})}
         onCancel={() => setConfirmDialog(null)}
+      />
+
+      {/* Скрытый input для загрузки Word с правками контрагента как новой версии */}
+      <input
+        ref={revisedFileInputRef}
+        type="file"
+        accept=".docx,.doc"
+        className="hidden"
+        onChange={handleRevisedFileSelected}
       />
     </>
   )
