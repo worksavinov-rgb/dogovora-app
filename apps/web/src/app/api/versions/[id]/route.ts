@@ -70,6 +70,11 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await prisma.version.delete({ where: { id } })
+  // FK purchases→versions = RESTRICT: покупку удаляем до версии. Запись об оплате
+  // в истории остаётся (transactions→versions = SET NULL), деньги не возвращаются.
+  await prisma.$transaction([
+    prisma.purchase.deleteMany({ where: { versionId: id } }),
+    prisma.version.delete({ where: { id } }),
+  ])
   return NextResponse.json({ ok: true })
 }

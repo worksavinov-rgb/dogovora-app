@@ -108,10 +108,17 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true, archived: true })
   }
 
-  // Жёсткое удаление: сначала документы (версии/покупки — каскадом), затем
-  // самого контрагента (связь Document→Counterparty стоит Restrict, поэтому
-  // документы нужно удалить первыми).
+  // Жёсткое удаление. Порядок важен из-за FK-ограничений в БД:
+  //  • purchases→versions = RESTRICT → покупки удаляем первыми;
+  //  • Document→Counterparty = RESTRICT → документы удаляем до контрагента;
+  //  • версии/чат уходят каскадом с документом, записи об оплате в истории
+  //    остаются (transactions→versions = SET NULL), деньги не возвращаются.
+  const docs = await prisma.document.findMany({ where: { counterpartyId: id, userId }, select: { id: true } })
+  const docIds = docs.map((d) => d.id)
+  const versions = await prisma.version.findMany({ where: { documentId: { in: docIds } }, select: { id: true } })
+  const versionIds = versions.map((v) => v.id)
   await prisma.$transaction([
+    prisma.purchase.deleteMany({ where: { versionId: { in: versionIds } } }),
     prisma.document.deleteMany({ where: { counterpartyId: id, userId } }),
     prisma.counterparty.delete({ where: { id } }),
   ])

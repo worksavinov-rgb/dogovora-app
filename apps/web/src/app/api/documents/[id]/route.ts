@@ -114,10 +114,19 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Удаляем документ вместе со всеми потомками (приложения/допсоглашения).
-  // Версии и покупки уходят каскадом; записи об оплате в истории
-  // (Transaction.relatedVersion = SetNull) сохраняются, деньги не возвращаются.
   const descendantIds = await collectDescendantIds(id)
   const allIds = [id, ...descendantIds]
-  await prisma.document.deleteMany({ where: { id: { in: allIds }, userId } })
+
+  // FK purchases→versions = ON DELETE RESTRICT: покупку нужно удалить ДО версии,
+  // иначе каскад Document→Version упрётся в оплаченную версию и всё удаление
+  // упадёт. Записи об оплате в истории платежей не трогаем — их ссылка на версию
+  // обнулится автоматически (FK transactions→versions = SET NULL), деньги не
+  // возвращаются. Версии и чат уходят каскадом при удалении документа.
+  const versions = await prisma.version.findMany({ where: { documentId: { in: allIds } }, select: { id: true } })
+  const versionIds = versions.map((v) => v.id)
+  await prisma.$transaction([
+    prisma.purchase.deleteMany({ where: { versionId: { in: versionIds } } }),
+    prisma.document.deleteMany({ where: { id: { in: allIds }, userId } }),
+  ])
   return NextResponse.json({ ok: true })
 }
