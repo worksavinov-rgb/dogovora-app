@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
+import { stripAiRequisitesBlock } from '@/lib/html-document'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -162,7 +163,11 @@ export async function GET(req: NextRequest, { params }: Params) {
         executor: executorParty,
       } : undefined
 
-      docxBuffer = await convertToDocx(version.content, {
+      // Вырезаем блок реквизитов/подписей который мог быть в оригинальном Word-файле
+      // (загруженные документы хранятся «как есть», без предварительной очистки).
+      const contentForDocx = requisites ? stripAiRequisitesBlock(version.content) : version.content
+
+      docxBuffer = await convertToDocx(contentForDocx, {
         title: version.document.title,
         requisites,
         preamble,

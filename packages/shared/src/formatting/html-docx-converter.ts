@@ -378,24 +378,28 @@ function buildPartyBlock(party: RequisitesParty, title: string, signaturesOnly =
       spacing: { before: 240, after: 80, line: 276 },
       children: [new TextRun({ text: title, font: 'Times New Roman', size: 24, bold: true, allCaps: true })],
     }),
-    // Название
+    // Название: для ИП — всегда с префиксом «ИП», если его ещё нет в строке
     new Paragraph({
       spacing: { before: 0, after: 60, line: 276 },
-      children: [new TextRun({ text: party.name ?? '—', font: 'Times New Roman', size: 24, bold: true })],
-    }),
-    ...requisiteLines,
-    // Строка подписи
-    // Для ИП: просто "ИП" — имя уже указано выше, не дублируем
-    // Для ООО: должность подписанта
-    new Paragraph({
-      spacing: { before: 200, after: 0, line: 276 },
       children: [new TextRun({
-        text: isIP ? 'ИП' : (party.signatorPosition ?? 'Генеральный директор'),
-        font: 'Times New Roman', size: 24,
+        text: isIP
+          ? (/^ИП\s/i.test(party.name ?? '') ? (party.name ?? '—') : `ИП ${party.name ?? '—'}`)
+          : (party.name ?? '—'),
+        font: 'Times New Roman', size: 24, bold: true,
       })],
     }),
+    ...requisiteLines,
+    // Строка подписи: для ООО — должность подписанта отдельным абзацем перед чертой;
+    // для ИП — «ИП» включён в имя выше, отдельный абзац не нужен (он был избыточным).
+    !isIP ? new Paragraph({
+      spacing: { before: 200, after: 0, line: 276 },
+      children: [new TextRun({
+        text: party.signatorPosition ?? 'Генеральный директор',
+        font: 'Times New Roman', size: 24,
+      })],
+    }) : null,
     new Paragraph({
-      spacing: { before: 60, after: 0, line: 276 },
+      spacing: { before: isIP ? 200 : 60, after: 0, line: 276 },
       border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: 'AAAAAA', space: 2 } },
       children: [new TextRun({ text: '', font: 'Times New Roman', size: 24 })],
     }),
