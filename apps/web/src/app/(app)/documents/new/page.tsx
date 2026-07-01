@@ -418,7 +418,7 @@ const DOC_TYPES = [
 ]
 
 const BASE_OPTIONS = [
-  { key: 'scratch' as DocBase, label: 'С нуля по описанию', sub: 'ИИ составит с чистого листа' },
+  { key: 'scratch' as DocBase, label: 'С нуля по описанию', sub: 'Догодок составит с чистого листа' },
   { key: 'template' as DocBase, label: 'Из шаблона', sub: 'Мои загруженные шаблоны' },
   { key: 'upload' as DocBase, label: 'Загрузить файл', sub: 'PDF, DOCX, RTF' },
 ]
@@ -811,7 +811,7 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                   <span className="text-[10px] font-semibold px-[6px] py-[1px] rounded bg-[oklch(0.95_0.015_20)] text-[oklch(0.5_0.1_20)]">Обязательно</span>
                 </div>
                 <p className="text-[12px] text-[var(--ink-4)]">
-                  {data.type === 'APPENDIX' ? 'Приложение' : 'Доп. соглашение'} будет привязано к договору — ИИ использует его содержание и реквизиты.
+                  {data.type === 'APPENDIX' ? 'Приложение' : 'Доп. соглашение'} будет привязано к договору — Догодок использует его содержание и реквизиты.
                 </p>
               </div>
             </div>
@@ -1098,7 +1098,7 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                     ) : data.templateText ? (
                       <>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                        <span className="text-[var(--ok)]">Шаблон загружен — ИИ использует его как основу</span>
+                        <span className="text-[var(--ok)]">Шаблон загружен — Догодок использует его как основу</span>
                       </>
                     ) : null}
                   </div>
@@ -1127,7 +1127,7 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                   <div className="mt-[8px] flex items-start gap-[6px] px-[10px] py-[8px] rounded-[var(--radius-md)] text-[12px] leading-[1.5]"
                     style={{ background: 'oklch(0.96 0.015 260)', color: 'oklch(0.35 0.08 260)' }}>
                     <svg className="shrink-0 mt-[1px]" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    Файл будет использован как бланк-шаблон. ИИ проанализирует его структуру и стиль, затем создаст новый договор на основе этого образца с подстановкой данных сторон и условий.
+                    Файл будет использован как бланк-шаблон. Догодок проанализирует его структуру и стиль, затем создаст новый договор на основе этого образца с подстановкой данных сторон и условий.
                   </div>
                 )}
               </div>
@@ -1146,7 +1146,7 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                 <p className="text-[12px] text-[var(--ink-4)]">PDF, DOCX, RTF, TXT — до 10 МБ</p>
                 {data.type === 'CONTRACT' && (
                   <p className="text-[11px] text-[var(--ink-4)] text-center max-w-[280px] leading-[1.5]">
-                    ИИ сохранит структуру и стиль бланка и сгенерирует договор на его основе
+                    Догодок сохранит структуру и стиль бланка и сгенерирует договор на его основе
                   </p>
                 )}
               </div>
@@ -1193,8 +1193,8 @@ function Step2({ data, onChange }: { data: Step2Data; onChange: (d: Step2Data) =
       <Card>
         <div className="flex items-start justify-between mb-[6px]">
           <div>
-            <p className="text-[13px] font-medium text-[var(--ink)]">Описание для ИИ</p>
-            <p className="text-[12px] text-[var(--ink-3)] mt-[2px]">Опишите суть договора: предмет, стороны, сроки, ключевые условия. ИИ составит документ на основе этого описания.</p>
+            <p className="text-[13px] font-medium text-[var(--ink)]">Описание для Догодка</p>
+            <p className="text-[12px] text-[var(--ink-3)] mt-[2px]">Опишите суть договора: предмет, стороны, сроки, ключевые условия. Догодок составит документ на основе этого описания.</p>
           </div>
           <span className="text-[12px] text-[var(--ink-4)] shrink-0 ml-[12px]" style={{ fontFamily: 'var(--font-mono)' }}>
             {data.description.length} / 4000
@@ -1236,7 +1236,7 @@ function Step2({ data, onChange }: { data: Step2Data; onChange: (d: Step2Data) =
         <div className="flex items-start justify-between mb-[6px]">
           <div>
             <p className="text-[13px] font-medium text-[var(--ink)]">Целевой объём</p>
-            <p className="text-[12px] text-[var(--ink-3)] mt-[2px]">Цифра означает знаков с пробелами. Финальный объём может слегка отличаться — ИИ оптимизирует под смысл.</p>
+            <p className="text-[12px] text-[var(--ink-3)] mt-[2px]">Цифра означает знаков с пробелами. Финальный объём может слегка отличаться — Догодок оптимизирует под смысл.</p>
           </div>
         </div>
         <Slider
@@ -1266,7 +1266,7 @@ function Step2({ data, onChange }: { data: Step2Data; onChange: (d: Step2Data) =
         <div className="flex items-start justify-between mb-[6px]">
           <div>
             <p className="text-[13px] font-medium text-[var(--ink)]">Дополнительная инструкция</p>
-            <p className="text-[12px] text-[var(--ink-3)] mt-[2px]">Опишите особенности этого договора своими словами. ИИ учтёт это при составлении.</p>
+            <p className="text-[12px] text-[var(--ink-3)] mt-[2px]">Опишите особенности этого договора своими словами. Догодок учтёт это при составлении.</p>
           </div>
           <span className="text-[12px] text-[var(--ink-4)] shrink-0 ml-[12px]" style={{ fontFamily:'var(--font-mono)' }}>
             {data.customInstruction.length} / 2000
@@ -1499,7 +1499,7 @@ export default function NewDocumentPage() {
     // В Фазе 7 здесь будет запуск генерации через BullMQ
   }
 
-  const STEPS = ['Основные параметры', 'Настройки ИИ', 'Создание черновика']
+  const STEPS = ['Основные параметры', 'Настройки Догодка', 'Создание черновика']
   const TYPE_LABELS: Record<string, string> = { CONTRACT:'Договор', APPENDIX:'Приложение', AMENDMENT:'Доп. соглашение' }
 
   return (
@@ -1508,11 +1508,11 @@ export default function NewDocumentPage() {
       <div className="mb-[8px]">
         <p className="text-[12px] text-[var(--ink-4)] mb-[4px]">Шаг {step} из 3</p>
         <h2 style={{ fontFamily:'var(--font-display)', fontSize:28, fontWeight:400, marginBottom:6 }}>
-          {step === 1 ? 'Создание документа' : 'Настройки ИИ'}
+          {step === 1 ? 'Создание документа' : 'Настройки Догодка'}
         </h2>
         <p className="text-[14px] text-[var(--ink-3)]">
           {step === 1
-            ? 'Выберите тип, контрагента и базу. ИИ подготовит первый черновик с учётом ваших настроек — это будет версия v.1.'
+            ? 'Выберите тип, контрагента и базу. Догодок подготовит первый черновик с учётом ваших настроек — это будет версия v.1.'
             : 'Задайте, насколько жёстко документ должен защищать ваши интересы и насколько он должен быть объёмным. При желании — добавьте инструкцию своими словами.'}
         </p>
       </div>
@@ -1577,7 +1577,7 @@ export default function NewDocumentPage() {
                   </>
                 ) : (
                   <div className="flex flex-col gap-[6px]">
-                    <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">Стоимость рассчитается на шаге «Настройки ИИ» — зависит от объёма и уровня защищённости.</p>
+                    <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">Стоимость рассчитается на шаге «Настройки Догодка» — зависит от объёма и уровня защищённости.</p>
                   </div>
                 )}
                 <div className="mt-[12px] pt-[12px] border-t border-[var(--line)]">

@@ -537,7 +537,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   function handleUploadRevisedVersion() {
     setConfirmDialog({
       title: 'Загрузить версию с правками',
-      message: 'Загрузите файл Word (.docx) с правками от контрагента — он станет следующей версией документа, которую можно открыть в ИИ-чате. ВАЖНО: перед загрузкой откройте файл в Word и (1) примите все исправления (Рецензирование → Принять → Принять все исправления), (2) удалите все комментарии. Иначе правки и комментарии могут исказить распознавание текста.',
+      message: 'Загрузите файл Word (.docx) с правками от контрагента — он станет следующей версией документа, которую можно открыть в Догодок-чате. ВАЖНО: перед загрузкой откройте файл в Word и (1) примите все исправления (Рецензирование → Принять → Принять все исправления), (2) удалите все комментарии. Иначе правки и комментарии могут исказить распознавание текста.',
       confirmLabel: 'Выбрать файл',
       danger: false,
       onConfirm: () => {
@@ -734,9 +734,9 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
               <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Быстрые действия</p>
               <div className="flex flex-col gap-[6px]">
                 {[
-                  { icon: '✦', label: 'Открыть в ИИ-чате', primary: true, onClick: () => router.push(`/documents/${id}/work`) },
-                  { icon: '⇄', label: 'Сравнить', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/${id}/compare`) },
-                  { icon: '◎', label: 'Проверить риски', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/${id}/check`) },
+                  { icon: '✦', label: 'Открыть в Догодок-чате', primary: true, onClick: () => router.push(`/documents/${id}/work`) },
+                  { icon: '⇄', label: 'Сравнить', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: () => router.push(`/documents/${id}/compare`) },
+                  { icon: '◎', label: 'Проверить риски', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: () => router.push(`/documents/${id}/check`) },
                   { icon: '↑', label: uploadingVersion ? 'Загрузка версии…' : 'Загрузить версию с правками', primary: false, disabled: uploadingVersion, onClick: handleUploadRevisedVersion },
                   ...(currentVersion?.purchase ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
@@ -751,7 +751,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   ] : []),
                   // Для CONTRACT — добавить приложение или ДС
                   ...(doc.type === 'CONTRACT' ? [
-                    { icon: '+', label: 'Создать приложение', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через ИИ-чат', onClick: () => router.push(`/documents/new?parentDocumentId=${id}&type=APPENDIX`) },
+                    { icon: '+', label: 'Создать приложение', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: () => router.push(`/documents/new?parentDocumentId=${id}&type=APPENDIX`) },
                   ] : []),
                 ].map((action) => (
                   <button

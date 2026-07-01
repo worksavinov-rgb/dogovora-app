@@ -25,8 +25,8 @@ const sourceSerif4 = Source_Serif_4({
 })
 
 export const metadata: Metadata = {
-  title: 'Догодок — SaaS для работы с договорами через ИИ',
-  description: 'Создавайте, проверяйте и храните договоры с помощью искусственного интеллекта',
+  title: 'Догодок — SaaS для работы с договорами',
+  description: 'Создавайте, проверяйте и храните договоры вместе с Догодком',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

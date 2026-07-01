@@ -65,7 +65,7 @@ export default function UIKitPage() {
             <Button variant="primary">Утвердить версию</Button>
             <Button variant="secondary">Создать документ</Button>
             <Button variant="ghost">Отмена</Button>
-            <Button variant="accent" icon={<span>✦</span>}>Применить ИИ</Button>
+            <Button variant="accent" icon={<span>✦</span>}>Применить Догодок</Button>
             <Button variant="danger">Удалить</Button>
           </div>
           <div className="flex flex-wrap items-center gap-[12px]">
@@ -122,7 +122,7 @@ export default function UIKitPage() {
           <Field label="С ошибкой" htmlFor="error-field">
             <Input id="error-field" value="неверный ИНН" error="ИНН должен содержать 10 или 12 цифр" readOnly />
           </Field>
-          <Field label="Описание для ИИ" htmlFor="ai-desc">
+          <Field label="Описание для Догодка" htmlFor="ai-desc">
             <Textarea
               id="ai-desc"
               placeholder="Опишите что нужно включить в договор..."

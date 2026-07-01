@@ -639,8 +639,8 @@ export default function UploadPage() {
         </h1>
         <p className="text-[14px] text-[var(--ink-3)]">
           {step === 'result'
-            ? 'ИИ проверил документ и распознал стороны. Сохраните реквизиты и перейдите к редактированию.'
-            : 'ИИ проверит документ и распознает реквизиты сторон для автоматического сохранения.'}
+            ? 'Догодок проверил документ и распознал стороны. Сохраните реквизиты и перейдите к редактированию.'
+            : 'Догодок проверит документ и распознает реквизиты сторон для автоматического сохранения.'}
         </p>
       </div>
 
@@ -701,7 +701,7 @@ export default function UploadPage() {
       {step === 'analyzing' && (
         <div className="rounded-[var(--radius-lg)] p-[48px] flex flex-col items-center gap-[16px]" style={{ background: '#ffffff', border: '1px solid var(--line-2)' }}>
           <div className="w-[48px] h-[48px] rounded-full border-[3px] animate-spin" style={{ borderColor: 'var(--line-2)', borderTopColor: 'var(--accent)' }} />
-          <p className="text-[14px] text-[var(--ink)] font-medium">ИИ анализирует документ…</p>
+          <p className="text-[14px] text-[var(--ink)] font-medium">Догодок анализирует документ…</p>
           <p className="text-[12px] text-[var(--ink-4)]">{analysisProgress}</p>
           <p className="text-[11px] text-[var(--ink-4)] opacity-60">Большие документы — до 60 секунд</p>
         </div>

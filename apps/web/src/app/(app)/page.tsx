@@ -170,9 +170,9 @@ export default function HomePage() {
         <div className="flex flex-col gap-[12px]">
           {/* 3 quick actions */}
           <div className="grid grid-cols-3 gap-[12px]">
-            <QuickAction icon="+" label="Создать договор" sub="Новый документ с ИИ"
+            <QuickAction icon="+" label="Создать договор" sub="Новый документ с Догодком"
               onClick={() => router.push('/documents/new')} />
-            <QuickAction icon="↑" label="Загрузить документ" sub="Анализ и проверка ИИ"
+            <QuickAction icon="↑" label="Загрузить документ" sub="Анализ и проверка Догодком"
               onClick={() => router.push('/documents/upload')} highlight />
             <QuickAction icon="☰" label="Все документы" sub={docs.length > 0 ? `${docs.length} в архиве` : 'Архив договоров'}
               onClick={() => router.push('/documents')} />

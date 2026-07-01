@@ -120,7 +120,7 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
       .then((doc) => {
         const ver = vid ? doc.versions.find((v: { id: string }) => v.id === vid) : doc.versions[0]
         if (!ver) throw new Error('Нет версий для проверки')
-        if (!ver.content) throw new Error('Документ пустой — сначала сгенерируйте его через ИИ-чат')
+        if (!ver.content) throw new Error('Документ пустой — сначала сгенерируйте его через Догодок-чат')
         resolvedVerId = ver.id
         setVersionId(ver.id)
         // Контент хранится как HTML — для построчного просмотра с подсветкой
@@ -347,7 +347,7 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
             }}
             className="w-full h-[38px] rounded-[var(--radius-md)] bg-[var(--ink)] text-[var(--bg)] text-[13px] font-medium hover:opacity-90 transition-opacity cursor-pointer"
           >
-            ✦ Исправить через ИИ-чат
+            ✦ Исправить через Догодок-чат
           </button>
         </div>
       </div>

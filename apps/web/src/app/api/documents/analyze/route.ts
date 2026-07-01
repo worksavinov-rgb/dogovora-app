@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         // ФИО, ИНН, ОГРН, адреса, счета, телефоны → нейтральные метки.
         // ИИ анализирует только юридические условия — фильтр безопасности не срабатывает.
         const anonymizedText = anonymizeForAnalysis(text)
-        send({ type: 'progress', message: 'ИИ анализирует условия договора…' })
+        send({ type: 'progress', message: 'Догодок анализирует условия договора…' })
 
         const aiProvider = getAIProvider()
         const result = await aiProvider.review(anonymizedText, settings)
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
           : msg.includes('auth failed')
           ? 'Ошибка авторизации GigaChat — проверьте GIGACHAT_AUTH_KEY'
           : msg.includes('некорректный JSON') || msg.includes('safety')
-          ? 'ИИ не смог обработать документ — попробуйте ещё раз'
+          ? 'Догодок не смог обработать документ — попробуйте ещё раз'
           : msg
 
         send({ type: 'error', message: userMsg })

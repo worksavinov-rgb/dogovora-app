@@ -127,7 +127,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           console.error('[chat/edit] ERROR:', err)
           // Отправляем ошибку клиенту как читаемое сообщение
           try {
-            const errMsg = err instanceof Error ? err.message : 'Ошибка ИИ'
+            const errMsg = err instanceof Error ? err.message : 'Ошибка Догодка'
             send({ type: 'chat', chunk: `Ошибка: ${errMsg.slice(0, 200)}` })
             controller.enqueue(encoder.encode('data: [DONE]\n\n'))
             controller.close()

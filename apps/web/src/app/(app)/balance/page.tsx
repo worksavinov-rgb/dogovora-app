@@ -238,7 +238,7 @@ export default function BalancePage() {
                   { label: 'Версия договора', value: '540 ₽' },
                   { label: 'Повторное скачивание', value: 'Бесплатно' },
                   { label: 'Проверка рисков', value: 'Бесплатно' },
-                  { label: 'ИИ-чат (правки)', value: 'Бесплатно' },
+                  { label: 'Догодок-чат (правки)', value: 'Бесплатно' },
                 ].map((row) => (
                   <div key={row.label} className="flex justify-between items-center text-[13px]">
                     <p className="text-[var(--ink-4)]">{row.label}</p>
@@ -252,7 +252,7 @@ export default function BalancePage() {
               <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Как работает</p>
               <div className="flex flex-col gap-[6px] text-[12px] text-[var(--ink-3)] leading-[1.6]">
                 <p>Платите только за финальную утверждённую версию.</p>
-                <p>Все правки через ИИ-чат и проверки — бесплатны.</p>
+                <p>Все правки через Догодок-чат и проверки — бесплатны.</p>
                 <p>Купленные версии можно скачивать повторно без доп. оплаты.</p>
               </div>
             </Card>

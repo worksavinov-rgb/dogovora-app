@@ -362,7 +362,7 @@ export default function ComparePage({ params }: { params: Promise<{ id: string }
               Для сравнения нужны минимум две версии
             </p>
             <p className="text-[12px] text-[var(--ink-4)] mb-[16px]">
-              Откройте рабочий экран, попросите ИИ внести правки, затем сохраните как новую версию
+              Откройте рабочий экран, попросите Догодка внести правки, затем сохраните как новую версию
             </p>
             <button
               onClick={() => router.push(`/documents/${id}/work`)}
