@@ -6,8 +6,9 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
-import { DocumentRowSkeleton } from '@/components/ui/skeleton'
+import { DocumentRowSkeleton, Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { useToast } from '@/components/ui/toast'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,13 @@ const PROFILE_TYPE_SHORT: Record<string, string> = {
 const STATUS_MAP: Record<string, 'draft'|'progress'|'review'|'approved'|'paid'|'signed'> = {
   DRAFT:'draft', IN_PROGRESS:'progress', REVIEW:'review', APPROVED:'approved', PAID:'paid', SIGNED:'signed'
 }
+// Статусы, которые можно выставлять вручную (PAID — только через оплату, SIGNED — через подписание)
+const STATUS_FLOW: Array<{ value: string; label: string }> = [
+  { value: 'DRAFT', label: 'Черновик' },
+  { value: 'IN_PROGRESS', label: 'В работе' },
+  { value: 'REVIEW', label: 'На проверке' },
+  { value: 'APPROVED', label: 'Утверждено' },
+]
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -444,11 +452,107 @@ function LinkDocumentModal({ doc, allDocs, onClose, onLinked }: {
   )
 }
 
+// ─── Модалка быстрого просмотра документа (только чтение) ───────────────────
+
+function DocumentPreviewDialog({ doc, onEdit, onClose }: {
+  doc: Document
+  onEdit: () => void
+  onClose: () => void
+}) {
+  const [content, setContent] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const lastVer = doc.versions[0]
+
+  useEffect(() => {
+    if (!lastVer) { setLoading(false); setError(true); return }
+    let active = true
+    setLoading(true)
+    setError(false)
+    fetch(`/api/versions/${lastVer.id}`)
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data: { content: string | null }) => { if (active) setContent(data.content ?? '') })
+      .catch(() => { if (active) setError(true) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [lastVer])
+
+  // Закрытие по Esc
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Сгенерированные DOCX хранятся как HTML, простой текст — как есть.
+  const isHtml = content != null && /<(p|h[1-6]|strong|em|ul|ol|li|table|br|div|span)\b/i.test(content.slice(0, 500))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-[24px]" style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-[var(--radius-xl)] shadow-xl w-full max-w-[760px] max-h-[88vh] flex flex-col overflow-hidden">
+        {/* Шапка */}
+        <div className="flex items-center justify-between gap-[12px] px-[24px] py-[16px] border-b border-[var(--line)] shrink-0">
+          <div className="min-w-0">
+            <p className="text-[14px] font-medium text-[var(--ink)] truncate">{doc.title}</p>
+            <p className="text-[11px] text-[var(--ink-4)] mt-[1px]">
+              Быстрый просмотр{lastVer ? ` · v.${lastVer.number}` : ''} — только чтение
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="shrink-0 w-[30px] h-[30px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Тело — прокручиваемый «лист» */}
+        <div className="flex-1 overflow-y-auto px-[32px] py-[28px]" style={{ background: 'var(--surface)' }}>
+          {loading ? (
+            <div className="flex flex-col gap-[10px]">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <Skeleton key={i} className="h-[14px]" style={{ width: `${60 + ((i * 13) % 35)}%` }} />
+              ))}
+            </div>
+          ) : error ? (
+            <p className="text-[13px] text-[var(--danger)] text-center py-[40px]">Не удалось загрузить документ</p>
+          ) : !content?.trim() ? (
+            <p className="text-[13px] text-[var(--ink-4)] text-center py-[40px]">Документ пуст</p>
+          ) : isHtml ? (
+            <div className="uploaded-doc-html bg-white rounded-[var(--radius-md)] px-[40px] py-[36px]"
+              style={{ border: '1px solid var(--line)' }}
+              dangerouslySetInnerHTML={{ __html: content }} />
+          ) : (
+            <pre className="bg-white rounded-[var(--radius-md)] px-[32px] py-[28px] text-[13px] leading-[1.7] text-[var(--ink)] whitespace-pre-wrap break-words"
+              style={{ border: '1px solid var(--line)', fontFamily: 'var(--font-ui)' }}>
+              {content}
+            </pre>
+          )}
+        </div>
+
+        {/* Подвал */}
+        <div className="flex items-center justify-end gap-[8px] px-[24px] py-[14px] border-t border-[var(--line)] shrink-0">
+          <button onClick={onClose}
+            className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+            Закрыть
+          </button>
+          <button onClick={onEdit}
+            className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer">
+            Редактировать
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Меню трёх точек для строки документа ────────────────────────────────────
 
-function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete, onLink }: {
+function RowMenu({ doc, onStatusChange, onPreview, onEdit, onSign, onDelete, onLink }: {
   doc: Document
   onStatusChange: (docId: string, versionId: string, newStatus: string) => void
+  onPreview: (doc: Document) => void
   onEdit: (doc: Document) => void
   onSign: (doc: Document, versionId: string) => void
   onDelete: (doc: Document) => void
@@ -472,9 +576,9 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete, onLink }: {
     setOpen((v) => !v)
   }
 
-  const canReview = lastVer && !['REVIEW', 'APPROVED', 'PAID', 'SIGNED'].includes(lastVer.status)
-  const canApprove = lastVer && lastVer.status === 'REVIEW'
-  const canSign = lastVer && lastVer.status === 'PAID'
+  const isSigned = lastVer?.status === 'SIGNED'
+  const isPaid = !!lastVer?.purchase || lastVer?.status === 'PAID'
+  const canSign = !!lastVer && isPaid && !isSigned
 
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
@@ -496,6 +600,12 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete, onLink }: {
         >
           <button
             className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+            onClick={() => { onPreview(doc); setOpen(false) }}
+          >
+            Посмотреть
+          </button>
+          <button
+            className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
             onClick={() => { router.push(`/documents/${doc.id}`); setOpen(false) }}
           >
             Открыть
@@ -504,7 +614,7 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete, onLink }: {
             className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
             onClick={() => { router.push(`/documents/${doc.id}/work`); setOpen(false) }}
           >
-            Редактировать в ИИ
+            Редактировать
           </button>
           <button
             className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
@@ -512,36 +622,44 @@ function RowMenu({ doc, onStatusChange, onEdit, onSign, onDelete, onLink }: {
           >
             Открыть карточку
           </button>
-          {canReview && lastVer && (
-            <>
-              <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
-              <button
-                className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-                onClick={() => { onStatusChange(doc.id, lastVer.id, 'REVIEW'); setOpen(false) }}
-              >
-                Отправить на проверку
-              </button>
-            </>
-          )}
-          {canApprove && lastVer && (
-            <button
-              className="w-full text-left px-[14px] py-[8px] text-[13px] text-[oklch(0.45_0.1_145)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer font-medium"
-              onClick={() => { onStatusChange(doc.id, lastVer.id, 'APPROVED'); setOpen(false) }}
-            >
-              ✓ Утвердить
-            </button>
+
+          {/* Выбор статуса */}
+          <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+          <p className="px-[14px] pt-[4px] pb-[2px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">
+            Статус
+          </p>
+          {lastVer && (isSigned || isPaid) ? (
+            <div className="px-[14px] py-[7px] flex items-center gap-[6px] text-[13px] text-[var(--ink-3)]">
+              <span className="font-medium" style={{ color: isSigned ? 'oklch(0.32 0.08 155)' : 'oklch(0.25 0.10 145)' }}>
+                {isSigned ? 'Подписан' : 'Оплачено'}
+              </span>
+              <span className="text-[11px] text-[var(--ink-4)]">— менять нельзя</span>
+            </div>
+          ) : (
+            STATUS_FLOW.map((s) => {
+              const isCurrent = lastVer?.status === s.value
+              return (
+                <button
+                  key={s.value}
+                  disabled={!lastVer || isCurrent}
+                  className="w-full text-left px-[14px] py-[7px] text-[13px] flex items-center gap-[8px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
+                  style={{ color: isCurrent ? 'var(--accent)' : 'var(--ink)' }}
+                  onClick={() => { if (lastVer && !isCurrent) { onStatusChange(doc.id, lastVer.id, s.value); setOpen(false) } }}
+                >
+                  <span className="w-[12px] shrink-0 text-[var(--accent)]">{isCurrent ? '✓' : ''}</span>
+                  {s.label}
+                </button>
+              )
+            })
           )}
           {canSign && lastVer && (
-            <>
-              <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
-              <button
-                className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-                style={{ color: 'oklch(0.32 0.08 155)' }}
-                onClick={() => { onSign(doc, lastVer.id); setOpen(false) }}
-              >
-                ✎ Подписать договор
-              </button>
-            </>
+            <button
+              className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+              style={{ color: 'oklch(0.32 0.08 155)' }}
+              onClick={() => { onSign(doc, lastVer.id); setOpen(false) }}
+            >
+              ✎ Подписать договор
+            </button>
           )}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
           <button
@@ -602,12 +720,14 @@ export default function DocumentsPage() {
   const [sortField, setSortField] = useState<SortField>('updatedAt')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [editingDoc, setEditingDoc] = useState<Document | null>(null)
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null)
   const [signingDoc, setSigningDoc] = useState<{ doc: Document; versionId: string } | null>(null)
   const [linkingDoc, setLinkingDoc] = useState<Document | null>(null)
   const [collapsedRoots, setCollapsedRoots] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 100
   const [deleteConfirm, setDeleteConfirm] = useState<Document | null>(null)
+  const { toast } = useToast()
 
   // Загрузка контрагентов для фильтра
   useEffect(() => {
@@ -642,11 +762,17 @@ export default function DocumentsPage() {
   }
 
   async function handleStatusChange(docId: string, versionId: string, newStatus: string) {
-    await fetch(`/api/versions/${versionId}/status`, {
+    const res = await fetch(`/api/versions/${versionId}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      toast(data.error ?? 'Не удалось изменить статус', 'error')
+      return
+    }
+    toast('Статус обновлён', 'success')
     load()
   }
 
@@ -656,10 +782,21 @@ export default function DocumentsPage() {
 
   async function confirmDelete() {
     if (!deleteConfirm) return
-    await fetch(`/api/documents/${deleteConfirm.id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/documents/${deleteConfirm.id}`, { method: 'DELETE' })
     setDeleteConfirm(null)
+    if (!res.ok) { toast('Не удалось удалить документ', 'error'); return }
+    toast('Документ удалён', 'success')
     load()
   }
+
+  // Текст предупреждения зависит от того, оплачен ли документ и есть ли вложения
+  const delIsPaid = !!deleteConfirm?.versions.some((v) => v.purchase)
+  const delChildCount = deleteConfirm?._count.childDocuments ?? 0
+  const delMessage = [
+    delIsPaid ? 'Это оплаченный документ — списанные средства не возвращаются, но запись об оплате останется в истории платежей.' : 'Будут удалены все версии документа.',
+    delChildCount > 0 ? `Вместе с ним удалятся ${delChildCount} ${delChildCount === 1 ? 'связанный документ' : delChildCount < 5 ? 'связанных документа' : 'связанных документов'} (приложения, допсоглашения).` : null,
+    'Восстановить будет нельзя.',
+  ].filter(Boolean).join(' ')
 
   const tree = buildTree(docs, sortField, sortDir)
   const visibleTree = tree.filter(({ parentId }) => !parentId || !collapsedRoots.has(parentId))
@@ -681,8 +818,8 @@ export default function DocumentsPage() {
     <>
     <ConfirmDialog
       open={!!deleteConfirm}
-      title={`Удалить «${deleteConfirm?.title ?? ''}»?`}
-      message="Будут удалены все версии. Это действие нельзя отменить."
+      title={delIsPaid ? `Удалить оплаченный документ «${deleteConfirm?.title ?? ''}»?` : `Удалить «${deleteConfirm?.title ?? ''}»?`}
+      message={delMessage}
       confirmLabel="Удалить"
       onConfirm={confirmDelete}
       onCancel={() => setDeleteConfirm(null)}
@@ -708,6 +845,13 @@ export default function DocumentsPage() {
         allDocs={docs}
         onClose={() => setLinkingDoc(null)}
         onLinked={load}
+      />
+    )}
+    {previewDoc && (
+      <DocumentPreviewDialog
+        doc={previewDoc}
+        onEdit={() => { const id = previewDoc.id; setPreviewDoc(null); router.push(`/documents/${id}/work`) }}
+        onClose={() => setPreviewDoc(null)}
       />
     )}
     <div className="max-w-[1280px]">
@@ -917,6 +1061,7 @@ export default function DocumentsPage() {
                 <RowMenu
                   doc={doc}
                   onStatusChange={handleStatusChange}
+                  onPreview={setPreviewDoc}
                   onEdit={setEditingDoc}
                   onSign={(d, vId) => setSigningDoc({ doc: d, versionId: vId })}
                   onDelete={handleDelete}
