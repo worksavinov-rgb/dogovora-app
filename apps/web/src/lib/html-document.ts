@@ -341,7 +341,30 @@ export function stripAiPreamble(html: string): string {
  * Нужно, чтобы свой собственный блок (buildRequisitesHtml) не дублировался с тем,
  * что ИИ иногда дописывает в конце документа.
  */
+// Паттерн заголовков-маркеров блока подписей/реквизитов.
+// Используется и при поиске paragraph-маркеров, и при «зачистке» предшествующего заголовка.
+const REQS_HEADER_RE =
+  /^(\d+[\.\)]\s*)?(РЕКВИЗИТЫ|ПОДПИСИ(\s+СТОРОН)?|Реквизиты|Подписи(\s+сторон)?|Заказчик\s*:?\s*$|Исполнитель\s*:?\s*$|Банковские реквизиты|Место нахождения)/i
+
+// Убирает заголовок/абзац-маркер непосредственно перед найденной позицией cutAt.
+// Word-документы часто содержат строку «Подписи сторон» / «1. Подписи сторон» и т.п.
+// ПЕРЕД таблицей/блоком реквизитов — и эту строку тоже нужно вырезать.
+function stripPrecedingHeader(html: string, cutAt: number): number {
+  const before = html.slice(0, cutAt).trimEnd()
+  // Ищем последний блочный тег <h1-4> или <p> перед cutAt
+  const lastBlockRe = /<(h[1-4]|p)[^>]*>([\s\S]*?)<\/\1>\s*$/i
+  const m = before.match(lastBlockRe)
+  if (!m) return cutAt
+  const innerText = m[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
+  if (REQS_HEADER_RE.test(innerText)) {
+    return before.length - m[0].length
+  }
+  return cutAt
+}
+
 export function stripAiRequisitesBlock(html: string): string {
+  // ── Вариант A: подписи оформлены абзацами/заголовками ────────────────────
+  // Ищем первый <h1-4>/<p> чей текст — маркер блока реквизитов/подписей.
   const blockRe = /<(h[1-4]|p)[^>]*>([\s\S]*?)<\/\1>/gi
   let match: RegExpExecArray | null
   while ((match = blockRe.exec(html))) {
@@ -349,19 +372,16 @@ export function stripAiRequisitesBlock(html: string): string {
       .replace(/<[^>]+>/g, '')
       .replace(/&nbsp;/g, ' ')
       .trim()
-    const isRequisitesMarker =
-      /^(РЕКВИЗИТЫ|ПОДПИСИ(\s+СТОРОН)?|Реквизиты|Подписи(\s+сторон)?|Заказчик\s*:?\s*$|Исполнитель\s*:?\s*$|Банковские реквизиты|Место нахождения)/i.test(
-        innerText,
-      )
-    if (isRequisitesMarker) {
+    if (REQS_HEADER_RE.test(innerText)) {
       return html.slice(0, match.index).trimEnd()
     }
   }
 
-  // ИИ иногда оформляет блок реквизитов/подписей не абзацами, а таблицей
-  // (например, две колонки «Исполнитель:» / «Заказчик:» с данными и местом для
-  // подписи). Предыдущий цикл такие таблицы не видит — проверяем их отдельно
-  // по тем же маркерам и по характерным реквизитным реквизитам (ИНН, ОГРН и т.д.).
+  // ── Вариант B: подписи оформлены таблицей ────────────────────────────────
+  // ИИ или оригинальный Word-документ может оформить блок подписей двухколоночной
+  // таблицей «Заказчик | Исполнитель». Предыдущий цикл такие таблицы не видит.
+  // Ищем последнюю таблицу с характерными маркерами и вырезаем её вместе
+  // с заголовком-разделом, который мог стоять ПЕРЕД ней (например «1. Подписи сторон»).
   const REQS_RE = /ИНН|Р\/сч[её]т|ОГРНИП|ОГРН|БИК|К\/сч[её]т|Заказчик\s*:|Исполнитель\s*:/i
   const tableMatches = [...html.matchAll(/<table[\s>]/gi)]
   if (tableMatches.length > 0) {
@@ -370,7 +390,9 @@ export function stripAiRequisitesBlock(html: string): string {
     if (tableEndIdx > tableStart) {
       const tableHtml = html.slice(tableStart, tableEndIdx + '</table>'.length)
       if (REQS_RE.test(tableHtml)) {
-        return html.slice(0, tableStart).trimEnd()
+        // Проверяем, нет ли заголовка-маркера непосредственно перед таблицей
+        const cutAt = stripPrecedingHeader(html, tableStart)
+        return html.slice(0, cutAt).trimEnd()
       }
     }
   }
