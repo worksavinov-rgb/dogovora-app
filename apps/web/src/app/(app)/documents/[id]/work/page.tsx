@@ -324,7 +324,7 @@ function GenerationErrorScreen({ docTitle, onRetry }: { docTitle: string; onRetr
         </p>
         <p className="text-[13px] text-[var(--ink-4)] leading-relaxed mb-[6px]">{docTitle}</p>
         <p className="text-[12px] text-[var(--ink-4)] leading-relaxed">
-          Возможно, ИИ-сервис временно недоступен или перегружен. Это бывает — обычно помогает повторная попытка через минуту.
+          Возможно, сервис Догодок временно недоступен или перегружен. Это бывает — обычно помогает повторная попытка через минуту.
         </p>
       </div>
       <div className="flex flex-col gap-[10px] w-full max-w-[240px]">
@@ -429,6 +429,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [streamingDoc, setStreamingDoc] = useState<string | null>(null) // обновление документа
   const [saving, setSaving] = useState(false)
   const [saveConfirmOpen, setSaveConfirmOpen] = useState(false)
+  const [backConfirmOpen, setBackConfirmOpen] = useState(false) // предупреждение о несохранённых правках при выходе
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false) // есть правки, не зафиксированные как версия
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle') // статус автосохранения
   const [maxVersionNumber, setMaxVersionNumber] = useState<number>(1) // максимальный номер версии по документу
@@ -843,6 +844,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     }
   }
 
+  // Кнопка «Назад»: если ИИ отредактировал документ, но правки не зафиксированы
+  // как версия — предупреждаем и предлагаем сохранить, чтобы не потерять изменения.
+  function handleBack() {
+    if (hasUnsavedEdits) { setBackConfirmOpen(true); return }
+    router.push(`/documents/${id}`)
+  }
+
   async function purchaseVersion() {
     if (!version || purchasing) return
     setPurchasing(true)
@@ -967,7 +975,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       <div className="md:hidden shrink-0 flex" style={{ borderBottom: '1px solid var(--line)' }}>
         {([
           { key: 'doc', label: 'Документ' },
-          { key: 'chat', label: 'ИИ-чат' },
+          { key: 'chat', label: 'Догодок-чат' },
         ] as const).map((tab) => (
           <button
             key={tab.key}
@@ -992,7 +1000,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
           {/* Навигация назад + мета */}
           <button
-            onClick={() => router.push(`/documents/${id}`)}
+            onClick={handleBack}
             className="shrink-0 flex items-center gap-[5px] h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer border border-[var(--line-2)]"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -1212,7 +1220,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 style={{ background: 'var(--ink)', color: 'var(--bg)' }}
               >
                 <div className="w-[10px] h-[10px] rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                <span className="text-[12px] font-medium">ИИ работает над документом…</span>
+                <span className="text-[12px] font-medium">Догодок работает над документом…</span>
               </div>
             )}
 
@@ -1247,7 +1255,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                   return (
                     <div className="flex flex-col items-center justify-center h-[400px] gap-[12px] relative z-[2]">
                       <p className="text-[14px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-serif)' }}>Документ пуст</p>
-                      <p className="text-[12px] text-[var(--ink-4)]">Попросите ИИ создать или отредактировать договор</p>
+                      <p className="text-[12px] text-[var(--ink-4)]">Попросите Догодка создать или отредактировать договор</p>
                     </div>
                   )
                 }
@@ -1275,7 +1283,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               style={{ background: 'var(--accent)' }}>
               <span className="text-[9px] text-white">✦</span>
             </div>
-            <span className="text-[13px] font-medium text-[var(--ink)]">Чат с ИИ</span>
+            <span className="text-[13px] font-medium text-[var(--ink)]">Чат с Догодком</span>
           </div>
           <div className="flex items-center gap-[4px]">
             {canUndo && !streaming && !generating && (
@@ -1296,7 +1304,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                   if (undoStackRef.current.length === 0) setCanUndo(false)
                 }}
                 className="h-[26px] px-[8px] rounded-[var(--radius-md)] text-[11px] font-medium text-[#DC2626] bg-[#FEE2E2] hover:bg-[#FECACA] transition-colors cursor-pointer flex items-center gap-[4px]"
-                title="Отменить последнее изменение ИИ"
+                title="Отменить последнее изменение Догодка"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
                 Отменить
@@ -1409,6 +1417,47 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         </div>
       </div>
     </div>
+
+    {/* Предупреждение о несохранённых правках при выходе «Назад» */}
+    {backConfirmOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setBackConfirmOpen(false)} />
+        <div
+          className="relative z-10 w-[360px] rounded-[var(--radius-xl)] p-[24px] flex flex-col gap-[16px]"
+          style={{ background: 'var(--bg)', border: '1px solid var(--line)', boxShadow: '0 16px 40px rgba(0,0,0,0.14)' }}
+        >
+          <div>
+            <p className="text-[15px] font-semibold text-[var(--ink)] mb-[6px]">Версия не сохранена</p>
+            <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">
+              Документ отредактирован через Догодок, но правки ещё не зафиксированы как версия. Сохраните новую версию, чтобы не потерять изменения.
+            </p>
+          </div>
+          <div className="flex flex-col gap-[8px]">
+            <button
+              onClick={() => { setBackConfirmOpen(false); saveAsNewVersion() }}
+              disabled={saving}
+              className="h-[36px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
+            >
+              {saving ? 'Сохраняю…' : `Сохранить как v.${maxVersionNumber + 1} и выйти`}
+            </button>
+            <div className="flex gap-[8px]">
+              <button
+                onClick={() => setBackConfirmOpen(false)}
+                className="flex-1 h-[34px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                Остаться
+              </button>
+              <button
+                onClick={() => { setBackConfirmOpen(false); router.push(`/documents/${id}`) }}
+                className="flex-1 h-[34px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--danger)] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer"
+              >
+                Выйти без сохранения
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   )
 }
