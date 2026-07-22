@@ -314,6 +314,7 @@ export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null)
   const [role, setRole] = useState<'customer' | 'executor'>('customer')
   const [roleLabel, setRoleLabel] = useState('Заказчик')
+  const [consentPii, setConsentPii] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [docText, setDocText] = useState('')
@@ -413,16 +414,18 @@ export default function UploadPage() {
       setResult(reviewData)
 
       // Параллельно (необязательно — не ломают процесс при ошибке):
-      // извлечение реквизитов + список контрагентов + профили пользователя
+      // извлечение реквизитов (только с согласием на ПДн) + контрагенты + профили
       const [partiesData, cpData, profilesData] = await Promise.all([
-        fetch('/api/documents/extract-parties', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: textForAnalysis }),
-        }).then(async (r) => {
-          if (!r.ok) return null
-          return r.json().catch(() => null) as Promise<ExtractPartiesResult | null>
-        }).catch(() => null),
+        consentPii
+          ? fetch('/api/documents/extract-parties', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: textForAnalysis, consentPii: true }),
+            }).then(async (r) => {
+              if (!r.ok) return null
+              return r.json().catch(() => null) as Promise<ExtractPartiesResult | null>
+            }).catch(() => null)
+          : Promise.resolve(null),
 
         fetch('/api/counterparties').then(async (r) => {
           if (!r.ok) return []
@@ -688,6 +691,19 @@ export default function UploadPage() {
               ))}
             </div>
           </div>
+
+          <label className="flex items-start gap-[10px] rounded-[var(--radius-md)] p-[14px] cursor-pointer" style={{ background: 'var(--surface)', border: '1px solid var(--line-2)' }}>
+            <input
+              type="checkbox"
+              className="mt-[3px] shrink-0"
+              checked={consentPii}
+              onChange={(e) => setConsentPii(e.target.checked)}
+            />
+            <span className="text-[13px] text-[var(--ink-2)] leading-snug">
+              Разрешаю отправить текст договора в ИИ для <strong>извлечения реквизитов сторон</strong>
+              (ИНН, названия, адреса). Без согласия проверка рисков всё равно выполнится, но реквизиты нужно будет ввести вручную.
+            </span>
+          </label>
 
           {error && <p className="text-[13px]" style={{ color: 'var(--danger)' }}>{error}</p>}
 

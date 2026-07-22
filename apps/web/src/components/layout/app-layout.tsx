@@ -3,6 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useAuthStore } from '@/store/auth'
 
 /* ─── Иконки (inline SVG) ─────────────────────────────────────────────────── */
 
@@ -32,6 +33,9 @@ function IconTemplate() {
 }
 function IconSettings() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+}
+function IconSparkles() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>
 }
 function IconPlus() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -104,6 +108,21 @@ function NavLink({ href, label, icon, onClick }: NavItem & { onClick?: () => voi
 /* ─── SidebarContent ──────────────────────────────────────────────────────── */
 
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
+  const isAdmin = useAuthStore((s) => s.user?.isAdmin === true)
+  const groups = React.useMemo(() => {
+    if (!isAdmin) return navGroups
+    return navGroups.map((group) => {
+      if (group.title !== 'Настройки') return group
+      return {
+        ...group,
+        items: [
+          ...group.items,
+          { href: '/admin/ai', label: 'Настройки ИИ', icon: <IconSparkles /> },
+        ],
+      }
+    })
+  }, [isAdmin])
+
   return (
     <>
       {/* Логотип */}
@@ -131,7 +150,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
 
       {/* Навигация */}
       <nav className="flex-1 overflow-y-auto px-[12px] pb-[12px] flex flex-col gap-[20px] pt-[8px]">
-        {navGroups.map((group) => (
+        {groups.map((group) => (
           <div key={group.title}>
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.12em] px-[10px] mb-[4px]">
               {group.title}

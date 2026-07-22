@@ -4,6 +4,7 @@ interface AuthUser {
   id: string
   email: string
   name: string
+  isAdmin?: boolean
   createdAt: string
 }
 
@@ -40,9 +41,17 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
       if (res.ok) {
-        const data = await res.json() as { user: AuthUser & { wallet?: { balance: number } } }
+        const data = await res.json() as {
+          user: AuthUser & { fullName?: string; wallet?: { balance: number } }
+        }
         set({
-          user: data.user,
+          user: {
+            id: data.user.id,
+            email: data.user.email,
+            name: data.user.name || data.user.fullName || data.user.email,
+            isAdmin: data.user.isAdmin === true,
+            createdAt: data.user.createdAt,
+          },
           balance: Number(data.user.wallet?.balance ?? 0),
         })
       } else {

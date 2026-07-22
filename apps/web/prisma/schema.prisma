@@ -15,6 +15,7 @@ model User {
   passwordHash  String
   fullName      String?
   businessScope String?
+  isAdmin       Boolean  @default(false)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -363,4 +364,63 @@ enum StoragePlan {
   STARTER  // Старт
   BUSINESS // Дело
   BUREAU   // Бюро
+}
+
+// ─── Конфигурация ИИ (админ) ─────────────────────────────────────────────────
+
+/// Оператор ИИ: Polza.ai, GigaChat и др.
+model AIOperator {
+  id          String   @id @default(cuid())
+  slug        String   @unique // "polza" | "gigachat" | "mock"
+  name        String
+  isEnabled   Boolean  @default(true)
+  /// Зашифрованный JSON с ключами (apiKey, authKey, scope, baseUrl...)
+  credentials String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  taskRoutes AITaskRoute[]
+  usageLogs  AIUsageLog[]
+
+  @@map("ai_operators")
+}
+
+/// Маршрут: задача → оператор + модель. task="default" — запасной маршрут.
+model AITaskRoute {
+  id             String   @id @default(cuid())
+  task           String   @unique
+  operatorId     String
+  modelId        String
+  temperature    Float    @default(0.7)
+  maxTokens      Int?
+  /// JSON: Polza provider policy { sort, only, ignore, allow_fallbacks }
+  providerPolicy String?
+  isEnabled      Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+
+  operator AIOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@map("ai_task_routes")
+}
+
+/// Лог запросов к ИИ — для дашборда расходов в админке.
+model AIUsageLog {
+  id               String   @id @default(cuid())
+  operatorId       String
+  task             String
+  modelId          String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  costRub          Float?
+  durationMs       Int      @default(0)
+  versionId        String?
+  userId           String?
+  createdAt        DateTime @default(now())
+
+  operator AIOperator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([task])
+  @@map("ai_usage_logs")
 }

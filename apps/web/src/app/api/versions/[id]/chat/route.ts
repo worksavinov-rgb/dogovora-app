@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { getAIProvider } from '@/lib/ai/provider'
+import { withLoggedAIContext } from '@/lib/ai/provider'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
+import { anonymizeForAnalysis } from '@/lib/anonymize'
+import { splitRequisitesBlock } from '@/lib/html-document'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -15,7 +17,7 @@ const msgSchema = z.object({
    *  'edit'  — ИИ редактирует документ, возвращает обновлённый текст + пояснение
    *  'chat'  — обычный вопрос/ответ без изменения документа
    */
-  mode: z.enum(['edit', 'chat']).default('edit'),
+  mode: z.enum(['edit', 'chat', 'quick_analysis']).default('edit'),
 })
 
 // GET /api/versions/:id/chat — история сообщений
@@ -71,12 +73,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     targetSize: aiSettings?.targetSize ?? 8000,
     customInstruction: aiSettings?.customInstruction ?? '',
   }
-  const aiProvider = getAIProvider()
   const rawDoc = data.currentDocument?.trim() || version.content || ''
   // Для edit-режима передаём HTML как есть — editDocument умеет работать с HTML.
-  // Для chat-режима конвертируем в plain text чтобы AI не отвлекался на теги.
+  // Для chat-режима: plain text + маскирование ПДн (документ не перезаписывается).
   const documentText = rawDoc
-  const documentTextForChat = isHtmlString(rawDoc) ? htmlToPlainText(rawDoc) : rawDoc
+  // Чат: без подвала реквизитов + маскирование остаточного ПДн.
+  const bodyForChat = splitRequisitesBlock(rawDoc).body
+  const documentTextForChat = anonymizeForAnalysis(
+    isHtmlString(bodyForChat) ? htmlToPlainText(bodyForChat) : bodyForChat,
+  )
   const encoder = new TextEncoder()
 
   // ─── Режим EDIT: ИИ возвращает обновлённый документ ─────────────────────────
@@ -90,15 +95,17 @@ export async function POST(req: NextRequest, { params }: Params) {
           let updatedDoc = ''
           let failed = false
           console.log('[chat/edit] starting editDocument, docLength=', documentText.length, 'instruction=', data.content.slice(0, 80))
-          const docGen = aiProvider.editDocument(documentText, data.content, settings)
-          for await (const chunk of docGen) {
-            if (chunk === '__EDIT_FAILED__') {
-              failed = true
-            } else {
-              updatedDoc += chunk
-              send({ type: 'doc', chunk })
+          await withLoggedAIContext('edit', { userId, versionId: id }, async ({ provider }) => {
+            const docGen = provider.editDocument(documentText, data.content, settings)
+            for await (const chunk of docGen) {
+              if (chunk === '__EDIT_FAILED__') {
+                failed = true
+              } else {
+                updatedDoc += chunk
+                send({ type: 'doc', chunk })
+              }
             }
-          }
+          })
           console.log('[chat/edit] editDocument done, updatedDocLength=', updatedDoc.length, 'failed=', failed)
 
           if (failed || !updatedDoc.trim()) {
@@ -147,7 +154,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     })
   }
 
-  // ─── Режим CHAT: обычный вопрос без изменения документа ─────────────────────
+  // ─── Режим CHAT / QUICK_ANALYSIS: вопрос без изменения документа ────────────
+  const chatTask = data.mode === 'quick_analysis' ? 'quick_analysis' as const : 'chat' as const
   const history = await prisma.chatMessage.findMany({
     where: { versionId: id },
     orderBy: { createdAt: 'asc' },
@@ -163,11 +171,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       const send = (payload: Record<string, unknown>) =>
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
       try {
-        const generator = aiProvider.chat(messages, settings, documentTextForChat)
-        for await (const chunk of generator) {
-          fullResponse += chunk
-          send({ type: 'chat', chunk })
-        }
+        await withLoggedAIContext(chatTask, { userId, versionId: id }, async ({ provider }) => {
+          const generator = provider.chat(messages, settings, documentTextForChat)
+          for await (const chunk of generator) {
+            fullResponse += chunk
+            send({ type: 'chat', chunk })
+          }
+        })
 
         await prisma.chatMessage.create({
           data: { versionId: id, role: 'AI', content: fullResponse.trim() },

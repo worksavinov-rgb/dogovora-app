@@ -9,11 +9,30 @@ export async function GET(req: NextRequest) {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, fullName: true, businessScope: true, createdAt: true, wallet: { select: { balance: true } } },
+    select: {
+      id: true,
+      email: true,
+      fullName: true,
+      businessScope: true,
+      isAdmin: true,
+      createdAt: true,
+      wallet: { select: { balance: true } },
+    },
   })
   if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
 
-  return NextResponse.json({ user })
+  return NextResponse.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      name: user.fullName ?? user.email,
+      businessScope: user.businessScope,
+      isAdmin: user.isAdmin,
+      createdAt: user.createdAt,
+      wallet: user.wallet,
+    },
+  })
 }
 
 export async function PATCH(req: NextRequest) {

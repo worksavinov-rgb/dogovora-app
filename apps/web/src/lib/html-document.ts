@@ -363,8 +363,15 @@ function stripPrecedingHeader(html: string, cutAt: number): number {
 }
 
 export function stripAiRequisitesBlock(html: string): string {
+  return splitRequisitesBlock(html).body
+}
+
+/**
+ * Отделяет подвал с реквизитами/подписями от тела договора.
+ * Тело можно безопасно отправлять в ИИ; подвал возвращается как есть.
+ */
+export function splitRequisitesBlock(html: string): { body: string; requisites: string } {
   // ── Вариант A: подписи оформлены абзацами/заголовками ────────────────────
-  // Ищем первый <h1-4>/<p> чей текст — маркер блока реквизитов/подписей.
   const blockRe = /<(h[1-4]|p)[^>]*>([\s\S]*?)<\/\1>/gi
   let match: RegExpExecArray | null
   while ((match = blockRe.exec(html))) {
@@ -373,15 +380,14 @@ export function stripAiRequisitesBlock(html: string): string {
       .replace(/&nbsp;/g, ' ')
       .trim()
     if (REQS_HEADER_RE.test(innerText)) {
-      return html.slice(0, match.index).trimEnd()
+      return {
+        body: html.slice(0, match.index).trimEnd(),
+        requisites: html.slice(match.index).trim(),
+      }
     }
   }
 
   // ── Вариант B: подписи оформлены таблицей ────────────────────────────────
-  // ИИ или оригинальный Word-документ может оформить блок подписей двухколоночной
-  // таблицей «Заказчик | Исполнитель». Предыдущий цикл такие таблицы не видит.
-  // Ищем последнюю таблицу с характерными маркерами и вырезаем её вместе
-  // с заголовком-разделом, который мог стоять ПЕРЕД ней (например «1. Подписи сторон»).
   const REQS_RE = /ИНН|Р\/сч[её]т|ОГРНИП|ОГРН|БИК|К\/сч[её]т|Заказчик\s*:|Исполнитель\s*:/i
   const tableMatches = [...html.matchAll(/<table[\s>]/gi)]
   if (tableMatches.length > 0) {
@@ -390,14 +396,26 @@ export function stripAiRequisitesBlock(html: string): string {
     if (tableEndIdx > tableStart) {
       const tableHtml = html.slice(tableStart, tableEndIdx + '</table>'.length)
       if (REQS_RE.test(tableHtml)) {
-        // Проверяем, нет ли заголовка-маркера непосредственно перед таблицей
         const cutAt = stripPrecedingHeader(html, tableStart)
-        return html.slice(0, cutAt).trimEnd()
+        return {
+          body: html.slice(0, cutAt).trimEnd(),
+          requisites: html.slice(cutAt).trim(),
+        }
       }
     }
   }
 
-  return html
+  // ── Вариант C: наш системный блок doc-requisites / layout-table ───────────
+  const layoutMatches = [...html.matchAll(/<div[^>]*class="(?:doc-requisites|doc-layout-table)"[^>]*>/gi)]
+  if (layoutMatches.length > 0) {
+    const divStart = layoutMatches[layoutMatches.length - 1].index!
+    return {
+      body: html.slice(0, divStart).trimEnd(),
+      requisites: html.slice(divStart).trim(),
+    }
+  }
+
+  return { body: html, requisites: '' }
 }
 
 export function buildRequisitesHtml(

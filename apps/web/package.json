@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "worker": "tsx src/worker.ts",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "tsx prisma/seed.ts",
+    "db:seed-ai": "tsx prisma/seed-ai-config.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

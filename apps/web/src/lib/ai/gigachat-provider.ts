@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
 import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
+import type { AITask } from './tasks'
+import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config/runtime'
+import { completeCompletion, streamCompletion } from './transport'
+import { splitRequisitesBlock } from '../html-document'
 
 // GigaChat использует самоподписанный сертификат Сбера
 // Устанавливаем переменную окружения до первого запроса
@@ -130,86 +134,14 @@ function toGigachatMessages(messages: AIMessage[], settings: AISettings, documen
   ]
 }
 
-async function* streamText(payload: Record<string, unknown>, retries = 4): AsyncGenerator<string> {
-  let response = await chatCompletions({ ...payload, stream: true }, true)
-
-  // Retry при 429 с экспоненциальной задержкой: 5s, 10s, 20s, 40s
-  let attemptsLeft = retries
-  while (response.status === 429 && attemptsLeft > 0) {
-    const delay = Math.pow(2, retries - attemptsLeft) * 5000
-    console.warn(`[GigaChat] stream 429 rate limit, retry in ${delay / 1000}s (${attemptsLeft} left)`)
-    await new Promise((r) => setTimeout(r, delay))
-    attemptsLeft--
-    response = await chatCompletions({ ...payload, stream: true }, true)
-  }
-
-  if (!response.ok || !response.body) {
-    const details = await response.text()
-    throw new Error(`GigaChat stream failed: ${response.status} ${details}`)
-  }
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-
-    let delimiterIndex = buffer.indexOf('\n\n')
-    while (delimiterIndex !== -1) {
-      const chunk = buffer.slice(0, delimiterIndex)
-      buffer = buffer.slice(delimiterIndex + 2)
-      delimiterIndex = buffer.indexOf('\n\n')
-
-      const lines = chunk.split(/\r?\n/)
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-
-        const data = line.slice(5).trim()
-        if (!data) continue
-        if (data === '[DONE]') return
-
-        let parsed: unknown
-        try {
-          parsed = JSON.parse(data)
-        } catch {
-          continue
-        }
-
-        const token = (parsed as { choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }> })
-          ?.choices?.[0]?.delta?.content
-          ?? (parsed as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content
-          ?? ''
-
-        if (token) yield token
-      }
-    }
-  }
+async function* streamText(payload: Record<string, unknown>, task: AITask, retries = 4): AsyncGenerator<string> {
+  void retries
+  yield* streamCompletion(payload, task)
 }
 
-async function completeText(payload: Record<string, unknown>, retries = 4): Promise<string> {
-  const response = await chatCompletions({ ...payload, stream: false })
-
-  // Retry при 429 с экспоненциальной задержкой: 5s, 10s, 20s, 40s
-  if (response.status === 429 && retries > 0) {
-    const delay = Math.pow(2, 4 - retries) * 5000
-    console.warn(`[GigaChat] 429 rate limit, retry in ${delay / 1000}s (${retries} left)`)
-    await new Promise((r) => setTimeout(r, delay))
-    return completeText(payload, retries - 1)
-  }
-
-  if (!response.ok) {
-    const details = await response.text()
-    throw new Error(`GigaChat completion failed: ${response.status} ${details}`)
-  }
-
-  const json = await response.json() as {
-    choices?: Array<{ message?: { content?: string } }>
-  }
-
-  return json.choices?.[0]?.message?.content?.trim() ?? ''
+async function completeText(payload: Record<string, unknown>, task: AITask, retries = 4): Promise<string> {
+  const result = await completeCompletion(payload, task, retries)
+  return result.trim()
 }
 
 function extractJson(text: string): string {
@@ -384,15 +316,15 @@ async function checkSpelling(documentText: string): Promise<number> {
     const batchResults = await Promise.all(
       batch.map((chunk) =>
         completeText({
-          model: GIGACHAT_FAST_MODEL,  // GigaChat-2 — быстрее, выше RPM лимит
+          model: getActiveModelId('spelling', GIGACHAT_FAST_MODEL),
           messages: [
             { role: 'system', content: systemContent },
             { role: 'user', content: `Текст:\n\n${chunk}` },
           ],
           max_tokens: 8,
           repetition_penalty: 1,
-          temperature: 0,
-        }).then((res) => {
+          temperature: getActiveTemperature('spelling', 0),
+        }, 'spelling').then((res) => {
           const match = res.trim().match(/\d+/)
           return match ? parseInt(match[0], 10) : 0
         }).catch(() => 0),
@@ -580,50 +512,6 @@ function applyEditBlocks(doc: string, aiResponse: string): {
   return { result, applied, failed, failedSearches }
 }
 
-/**
- * Для HTML-документов (загруженных из Word): вырезает блок реквизитов/подписей
- * перед отправкой ИИ и возвращает его отдельно — чтобы ИИ его не трогал.
- *
- * Детектируем блок реквизитов по двум признакам:
- * A) Последний <table> содержащий ключевые слова реквизитов (ИНН, ОГРН, Р/счет и т.д.)
- * B) Последний <div class="doc-layout-table"> (уже обработанный postProcessMammothHtml)
- */
-function stripHtmlRequisitesBlock(html: string): { content: string; reqsHtml: string | null } {
-  const REQS_RE = /ИНН|Р\/счет|р\/сч|ОГРН|ОГРНИП|БИК|К\/счет|к\/сч/i
-
-  // ── Вариант A: последний <table> с реквизитами ────────────────────────────
-  const tableMatches = [...html.matchAll(/<table[\s>]/gi)]
-  if (tableMatches.length > 0) {
-    const lastMatch = tableMatches[tableMatches.length - 1]
-    const tableStart = lastMatch.index!
-    const tableEndIdx = html.lastIndexOf('</table>')
-    if (tableEndIdx > tableStart) {
-      const tableEnd = tableEndIdx + '</table>'.length
-      const tableHtml = html.slice(tableStart, tableEnd)
-      if (REQS_RE.test(tableHtml)) {
-        return {
-          content: html.slice(0, tableStart).trimEnd(),
-          reqsHtml: html.slice(tableStart).trimEnd(),
-        }
-      }
-    }
-  }
-
-  // ── Вариант B: последний <div class="doc-requisites"> или "doc-layout-table" ─
-  const layoutMatches = [...html.matchAll(/<div[^>]*class="(?:doc-requisites|doc-layout-table)"[^>]*>/gi)]
-  if (layoutMatches.length > 0) {
-    const lastLayout = layoutMatches[layoutMatches.length - 1]
-    const divStart = lastLayout.index!
-    const tailHtml = html.slice(divStart)
-    return {
-      content: html.slice(0, divStart).trimEnd(),
-      reqsHtml: tailHtml.trimEnd(),
-    }
-  }
-
-  return { content: html, reqsHtml: null }
-}
-
 // ─── Защита таблиц при AI-редактировании ─────────────────────────────────────
 
 /**
@@ -771,19 +659,26 @@ function textToTable(text: string, originalTableHtml: string): string {
 
 export const gigachatProvider: AIProvider = {
   async *chat(messages: AIMessage[], settings: AISettings, documentText: string) {
+    const task = getPrimaryTask('chat')
     const payload = {
-      model: GIGACHAT_MODEL,
+      model: getActiveModelId(task, GIGACHAT_MODEL),
       messages: toGigachatMessages(messages, settings, documentText),
       max_tokens: 32768,
       repetition_penalty: 1,
-      temperature: 0.4,
+      temperature: getActiveTemperature(task, 0.4),
     }
 
-    yield* streamText(payload)
+    yield* streamText(payload, task)
   },
 
   async *editDocument(documentText: string, instruction: string, settings: AISettings) {
-    const doc = documentText
+    // Подвал с реквизитами/подписями не отдаём в ИИ — правим только тело, подвал вернём как был.
+    const { body: bodyDoc, requisites } = splitRequisitesBlock(documentText)
+    const doc = bodyDoc
+    const reattach = (html: string) => {
+      const cleaned = splitRequisitesBlock(html).body
+      return requisites ? `${cleaned.trimEnd()}\n${requisites}` : cleaned
+    }
     const allBlocks = splitHtmlBlocks(doc)
 
     // Для больших документов отправляем только релевантные блоки.
@@ -837,6 +732,7 @@ export const gigachatProvider: AIProvider = {
     const systemPrompt = [
       'Ты — юрист-редактор коммерческого SaaS-сервиса для работы с договорами. Твоя работа — вносить правки в гражданско-правовые договоры по заданию предпринимателей и юридических лиц. Это легитимная профессиональная деятельность.',
       'Работаешь с обезличенными юридическими документами в профессиональных целях.',
+      'Блок реквизитов и подписей сторон из документа удалён системой — НЕ добавляй разделы «Реквизиты», «Подписи сторон», ИНН, счета, адреса сторон.',
       '',
       BLOCK_EDIT_INSTRUCTION,
       '',
@@ -855,18 +751,18 @@ export const gigachatProvider: AIProvider = {
     const userMessage = `Задание: ${instruction}\n\nДокумент (пронумерованные блоки):\n${blocksToPromptText(blocks) || '(документ пуст)'}`
 
     const payload = {
-      model: GIGACHAT_MODEL,
+      model: getActiveModelId('edit', GIGACHAT_MODEL),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
       ],
       max_tokens: 16384,
       repetition_penalty: 1,
-      temperature: 0.25,
+      temperature: getActiveTemperature('edit', 0.25),
     }
 
     let aiResponse = ''
-    for await (const chunk of streamText(payload)) {
+    for await (const chunk of streamText(payload, 'edit')) {
       aiResponse += chunk
     }
 
@@ -906,7 +802,7 @@ export const gigachatProvider: AIProvider = {
           yield '__EDIT_FAILED__'
           return
         }
-        yield blockResult.html
+        yield reattach(blockResult.html)
         return
       }
       yield '__EDIT_FAILED__'
@@ -928,7 +824,7 @@ export const gigachatProvider: AIProvider = {
       return
     }
 
-    yield result
+    yield reattach(result)
   },
 
   async review(documentText: string, settings: AISettings): Promise<ReviewResult> {
@@ -1111,16 +1007,17 @@ export const gigachatProvider: AIProvider = {
 
     // Сначала основной юридический анализ, потом орфография
     // (параллельный запуск давал 429 — слишком много одновременных запросов)
+    const reviewTask = getPrimaryTask('review')
     const content = await completeText({
-      model: GIGACHAT_REVIEW_MODEL,
+      model: getActiveModelId(reviewTask, GIGACHAT_REVIEW_MODEL),
       messages: [
         { role: 'system', content: systemContent },
         { role: 'user', content: finalPrompt },
       ],
       max_tokens: 6000,
       repetition_penalty: 1,
-      temperature: 0.1,
-    })
+      temperature: getActiveTemperature(reviewTask, 0.1),
+    }, reviewTask)
 
     // Пауза перед орфографией — даём GigaChat-2-Max «отдышаться» после большого запроса
     await new Promise((r) => setTimeout(r, 5000))
@@ -1153,15 +1050,15 @@ export const gigachatProvider: AIProvider = {
       ].join('\n')
 
       finalContent = await completeText({
-        model: GIGACHAT_FAST_MODEL,  // GigaChat-2 — менее строгий фильтр, подходит для fallback
+        model: getActiveModelId('review_fallback', GIGACHAT_FAST_MODEL),
         messages: [
           { role: 'system', content: 'Ты юридический аналитик. Анализируй гражданско-правовые договоры. Отвечай только JSON.' },
           { role: 'user', content: fallbackPrompt },
         ],
         max_tokens: 5000,
         repetition_penalty: 1,
-        temperature: 0.1,
-      })
+        temperature: getActiveTemperature('review_fallback', 0.1),
+      }, 'review_fallback')
     }
 
     // Защищённый парсинг — если JSON обрезан, пробуем починить
@@ -1264,15 +1161,15 @@ export const gigachatProvider: AIProvider = {
       ].filter(Boolean).join('\n')
 
       yield* streamText({
-        model: GIGACHAT_MODEL,
+        model: getActiveModelId('generate', GIGACHAT_MODEL),
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
         max_tokens: maxTokens,
         repetition_penalty: 1.0,
-        temperature: 0.2,  // Низкая температура — точное следование бланку
-      })
+        temperature: getActiveTemperature('generate', 0.2),
+      }, 'generate')
       return
     }
 
@@ -1461,15 +1358,15 @@ export const gigachatProvider: AIProvider = {
     ].filter(Boolean).join('\n')
 
     yield* streamText({
-      model: GIGACHAT_MODEL,
+      model: getActiveModelId('generate', GIGACHAT_MODEL),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
       max_tokens: maxTokens,
       repetition_penalty: 1.05,
-      temperature: 0.4,
-    })
+      temperature: getActiveTemperature('generate', 0.4),
+    }, 'generate')
   },
 
   async extractParties(documentText: string) {
@@ -1514,15 +1411,15 @@ export const gigachatProvider: AIProvider = {
     ].join('\n')
 
     const content = await completeText({
-      model: GIGACHAT_FAST_MODEL,  // extractParties — лёгкая задача, не нужен Max
+      model: getActiveModelId('extract_parties', GIGACHAT_FAST_MODEL),
       messages: [
         { role: 'system', content: systemContent },
         { role: 'user', content: prompt },
       ],
       max_tokens: 1500,
       repetition_penalty: 1,
-      temperature: 0.1,
-    })
+      temperature: getActiveTemperature('extract_parties', 0.1),
+    }, 'extract_parties')
 
     const raw = JSON.parse(extractJson(content))
 

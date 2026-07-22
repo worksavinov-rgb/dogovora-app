@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getUserId } from '@/lib/api-auth'
-import { getAIProvider } from '@/lib/ai/provider'
+import { withLoggedAIContext } from '@/lib/ai/provider'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 
 export const maxDuration = 180
@@ -46,8 +46,9 @@ export async function POST(req: NextRequest) {
         const anonymizedText = anonymizeForAnalysis(text)
         send({ type: 'progress', message: 'Догодок анализирует условия договора…' })
 
-        const aiProvider = getAIProvider()
-        const result = await aiProvider.review(anonymizedText, settings)
+        const result = await withLoggedAIContext('analyze_upload', { userId }, ({ provider }) =>
+          provider.review(anonymizedText, settings),
+        )
 
         send({ type: 'result', ...result })
       } catch (e) {

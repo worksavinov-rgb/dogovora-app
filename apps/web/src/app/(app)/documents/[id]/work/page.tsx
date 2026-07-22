@@ -41,12 +41,20 @@ interface Version {
 
 // ─── Константы ────────────────────────────────────────────────────────────────
 
-const QUICK_CHIPS = [
+const QUICK_CHIPS_EDIT = [
   'Добавить неустойку',
   'Усилить конфиденциальность',
   'Уточнить сроки оплаты',
   'Добавить форс-мажор',
   'Передача прав на ИС',
+]
+
+const QUICK_CHIPS_CHAT = [
+  'Что означает этот пункт?',
+  'Кто несёт больше рисков?',
+  'Есть ли жёсткие сроки?',
+  'Как расторгнуть договор?',
+  'Что с оплатой?',
 ]
 
 // ─── Компонент сообщения чата ─────────────────────────────────────────────────
@@ -424,6 +432,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
+  const [chatMode, setChatMode] = useState<'edit' | 'chat'>('edit')
   const [streaming, setStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('') // чат-пузырь
   const [streamingDoc, setStreamingDoc] = useState<string | null>(null) // обновление документа
@@ -661,8 +670,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     return () => document.removeEventListener('mousedown', handler)
   }, [statusDropdownOpen])
 
-  // Отправка сообщения в чат (режим edit — ИИ меняет документ)
-  async function sendMessage(overrideText?: string, mode: 'edit' | 'chat' = 'edit') {
+  // Отправка сообщения в чат
+  async function sendMessage(overrideText?: string, mode: 'edit' | 'chat' | 'quick_analysis' = chatMode) {
     const userText = (overrideText ?? input).trim()
     if (!userText || streaming || generating || !version) return
 
@@ -1324,7 +1333,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             )}
             {docContent && !generating && (
               <button
-                onClick={() => sendMessage('Проверь этот договор: укажи 3-5 конкретных слабых места и дай рекомендации по улучшению каждого пункта.', 'chat')}
+                onClick={() => sendMessage('Проверь этот договор: укажи 3-5 конкретных слабых места и дай рекомендации по улучшению каждого пункта.', 'quick_analysis')}
                 disabled={streaming}
                 className="h-[26px] px-[8px] rounded-[var(--radius-md)] text-[11px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer flex items-center gap-[4px] disabled:opacity-50"
               >
@@ -1352,9 +1361,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 <span className="text-[16px]">✦</span>
               </div>
               <div>
-                <p className="text-[14px] font-medium text-[var(--ink)] mb-[4px]">Готов помочь с договором</p>
+                <p className="text-[14px] font-medium text-[var(--ink)] mb-[4px]">
+                  {chatMode === 'edit' ? 'Готов помочь с договором' : 'Могу ответить на вопросы'}
+                </p>
                 <p className="text-[12px] text-[var(--ink-4)] max-w-[240px]">
-                  Попросите внести правку, усилить пункт или переформулировать условие
+                  {chatMode === 'edit'
+                    ? 'Попросите внести правку, усилить пункт или переформулировать условие'
+                    : 'Спросите про смысл пункта, риски или условия — документ не изменится'}
                 </p>
               </div>
             </div>
@@ -1386,9 +1399,41 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           </div>
         </div>
 
+        {/* Режим: правка или вопрос */}
+        <div className="shrink-0 px-[12px] pb-[8px]">
+          <div
+            className="inline-flex p-[3px] rounded-full"
+            style={{ background: 'var(--surface-inset)', border: '1px solid var(--line)' }}
+            role="tablist"
+            aria-label="Режим чата"
+          >
+            {([
+              { id: 'edit' as const, label: 'Правка' },
+              { id: 'chat' as const, label: 'Вопрос' },
+            ]).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={chatMode === tab.id}
+                disabled={streaming || generating}
+                onClick={() => setChatMode(tab.id)}
+                className={[
+                  'h-[28px] px-[14px] rounded-full text-[12px] font-medium transition-colors cursor-pointer disabled:opacity-50',
+                  chatMode === tab.id
+                    ? 'bg-[var(--ink)] text-[var(--bg)]'
+                    : 'text-[var(--ink-3)] hover:text-[var(--ink)]',
+                ].join(' ')}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Быстрые чипы */}
         <div className="shrink-0 px-[12px] pb-[8px] flex gap-[6px] flex-wrap">
-          {QUICK_CHIPS.map((chip) => (
+          {(chatMode === 'edit' ? QUICK_CHIPS_EDIT : QUICK_CHIPS_CHAT).map((chip) => (
             <button key={chip} onClick={() => { setInput(chip); textareaRef.current?.focus() }}
               className="px-[10px] h-[26px] rounded-full text-[11px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap">
               {chip}
@@ -1409,7 +1454,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             <textarea ref={textareaRef} value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder={generating ? 'Документ ещё генерируется…' : 'Попросите внести правку…'}
+              placeholder={
+                generating
+                  ? 'Документ ещё генерируется…'
+                  : chatMode === 'edit'
+                    ? 'Попросите внести правку…'
+                    : 'Задайте вопрос по договору…'
+              }
               rows={1}
               disabled={streaming || generating}
               className="flex-1 resize-none bg-transparent text-[13px] text-[var(--ink)] placeholder:text-[var(--ink-4)] outline-none leading-[1.5] disabled:opacity-50"
@@ -1426,6 +1477,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>
           </div>
+          <p className="mt-[6px] text-[11px] text-[var(--ink-4)] px-[2px]">
+            {chatMode === 'edit'
+              ? 'Режим правки — Догодок изменит текст документа'
+              : 'Режим вопроса — только ответ в чате, документ не меняется'}
+          </p>
         </div>
       </div>
     </div>

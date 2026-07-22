@@ -1,10 +1,11 @@
 import { Queue, Worker, Job } from 'bullmq'
 import { prisma } from './db'
-import { getAIProvider } from './ai/provider'
+import { withLoggedAIContext } from './ai/provider'
 import { saveFile, versionFileKey } from './storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
 import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, stripAiRequisitesBlock, buildContractPreambleHtml, stripAiPreamble } from './html-document'
 import type { CounterpartyData, UserProfileData } from './ai/types'
+import { anonymizeForAnalysis, maskPartyForAI } from './anonymize'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
 
@@ -128,21 +129,37 @@ export function startGenerateWorker() {
       // Стримим генерацию и собираем полный текст
       let fullText = ''
       const settings = { protectionLevel, targetSize, customInstruction }
-      const aiProvider = getAIProvider()
       const cityFromProfile = userProfile?.legalAddress
         ? (userProfile.legalAddress.match(/(?:г\.|город)\s+([А-Яа-яЁё\-]+)/i)?.[1] ?? null)
         : null
       const contractCity = cityFromProfile ?? 'Москва'
-      const generator = aiProvider.generate(enrichedDescription, counterpartyName, settings, userProfile, counterpartyData, parentDocContent, referenceContent, base, userRole, contractCity, signingDate)
-
-      for await (const chunk of generator) {
-        fullText += chunk
-        // Обновляем прогресс примерно каждые 100 символов
-        if (fullText.length % 200 === 0) {
-          const progress = Math.min(90, 10 + Math.floor((fullText.length / targetSize) * 80))
-          await job.updateProgress(progress)
+      // В ИИ уходят маскированные реквизиты; шапка/подвал собираются на сервере из полных данных.
+      const aiUserProfile = maskPartyForAI(userProfile as unknown as Record<string, unknown>) as unknown as UserProfileData | undefined
+      const aiCounterparty = maskPartyForAI(counterpartyData as unknown as Record<string, unknown>) as unknown as CounterpartyData | undefined
+      const aiParent = parentDocContent ? anonymizeForAnalysis(parentDocContent) : parentDocContent
+      const aiReference = referenceContent ? anonymizeForAnalysis(referenceContent) : referenceContent
+      await withLoggedAIContext('generate', { versionId }, async ({ provider }) => {
+        const generator = provider.generate(
+          enrichedDescription,
+          counterpartyName,
+          settings,
+          aiUserProfile,
+          aiCounterparty,
+          aiParent,
+          aiReference,
+          base,
+          userRole,
+          contractCity,
+          signingDate,
+        )
+        for await (const chunk of generator) {
+          fullText += chunk
+          if (fullText.length % 200 === 0) {
+            const progress = Math.min(90, 10 + Math.floor((fullText.length / targetSize) * 80))
+            await job.updateProgress(progress)
+          }
         }
-      }
+      })
 
       // ── Sanitize + normalize HTML ──────────────────────────────────────────
       // AI теперь возвращает HTML. Очищаем и нормализуем перед сохранением.

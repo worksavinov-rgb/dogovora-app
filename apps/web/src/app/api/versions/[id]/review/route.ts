@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { getAIProvider } from '@/lib/ai/provider'
+import { runWithAI } from '@/lib/ai/provider'
+import { anonymizeForAnalysis } from '@/lib/anonymize'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -23,7 +24,8 @@ export async function GET(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
 
-  const aiProvider = getAIProvider()
-  const result = await aiProvider.review(version.content ?? '', settings)
+  const result = await runWithAI('review', { userId, versionId: id }, (aiProvider) =>
+    aiProvider.review(anonymizeForAnalysis(version.content ?? ''), settings),
+  )
   return NextResponse.json(result)
 }
