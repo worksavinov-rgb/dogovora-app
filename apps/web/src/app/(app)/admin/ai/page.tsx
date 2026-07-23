@@ -9,6 +9,7 @@ import {
   POLZA_TASK_MODEL_HINTS,
   pickRecommendedModel,
 } from '@/lib/ai/gigachat-models'
+import { ModelCombobox, type ModelOption } from './model-combobox'
 
 interface OperatorRow {
   id: string
@@ -36,12 +37,6 @@ interface TaskDef {
   description: string
   uiWhere?: string
   primary: boolean
-}
-
-interface ModelOption {
-  id: string
-  name: string
-  description?: string
 }
 
 interface UsageSummary {
@@ -405,19 +400,14 @@ export default function AdminAIPage() {
           </select>
         </td>
         <td className="py-3 pr-4">
-          <select
-            className="h-[32px] px-2 rounded-[var(--radius-md)] border border-[var(--line)] bg-white text-[13px] min-w-[200px] disabled:opacity-50"
+          <ModelCombobox
             value={inherited ? '' : route.modelId}
+            options={inherited ? [] : models}
             disabled={inherited}
-            onChange={(e) => updateRoute(def.task, { modelId: e.target.value, usesDefault: false })}
-          >
-            <option value="">{inherited ? '— как по умолчанию —' : '— выберите модель —'}</option>
-            {!inherited && models.map((m) => (
-              <option key={m.id} value={m.id} title={m.description}>
-                {modelLabel(m, def.task, opSlug)}
-              </option>
-            ))}
-          </select>
+            placeholder={inherited ? '— как по умолчанию —' : '— выберите модель —'}
+            optionLabel={(m) => modelLabel(m, def.task, opSlug)}
+            onChange={(modelId) => updateRoute(def.task, { modelId, usesDefault: false })}
+          />
         </td>
         <td className="py-3 pr-4">
           <input
