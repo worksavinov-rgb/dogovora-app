@@ -191,9 +191,11 @@ export function openrouterDefaultHeaders(): Record<string, string> {
     process.env['OPENROUTER_HTTP_REFERER']
     ?? process.env['NEXTAUTH_URL']
     ?? 'https://app.dogodoc.ru'
+  // Header values must be ByteString (ASCII/Latin-1) — кириллица в X-Title ломает fetch
+  const title = process.env['OPENROUTER_APP_TITLE'] ?? 'Dogodok'
   return {
     'HTTP-Referer': referer,
-    'X-Title': process.env['OPENROUTER_APP_TITLE'] ?? 'Догодок',
+    'X-Title': title.replace(/[^\x20-\x7E]/g, ''),
   }
 }
 
