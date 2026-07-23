@@ -1,12 +1,17 @@
-import { openaiComplete, openaiStream, type OpenAIUsage } from './openai-compatible'
+import { openaiComplete, openaiStream, openrouterDefaultHeaders, type OpenAIUsage } from './openai-compatible'
 import { getActiveGigachatCredentials, getActiveProviderPolicy, getActiveRoute, recordAIUsage } from './config/runtime'
 import type { AITask, OperatorSlug } from './tasks'
-import type { GigachatCredentials, PolzaCredentials } from './config/types'
+import type { GigachatCredentials, OpenAICompatibleCredentials } from './config/types'
 
 const ENV_GIGACHAT_AUTH_URL = process.env['GIGACHAT_AUTH_URL'] ?? 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth'
 const ENV_GIGACHAT_BASE_URL = (process.env['GIGACHAT_BASE_URL'] ?? 'https://gigachat.devices.sberbank.ru/api/v1').replace(/\/+$/, '')
 const ENV_GIGACHAT_SCOPE = process.env['GIGACHAT_SCOPE'] ?? 'GIGACHAT_API_PERS'
 const ENV_GIGACHAT_AUTH_KEY = process.env['GIGACHAT_AUTH_KEY'] ?? ''
+
+const DEFAULT_BASE: Record<'polza' | 'openrouter', string> = {
+  polza: 'https://polza.ai/api/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+}
 
 type AccessTokenCache = { token: string; expiresAtMs: number }
 const tokenCaches = new Map<string, AccessTokenCache>()
@@ -67,24 +72,35 @@ export function resolveActiveOperator(task?: AITask): OperatorSlug {
 
   const env = (process.env['AI_PROVIDER'] ?? 'mock').toLowerCase()
   if (env === 'polza') return 'polza'
+  if (env === 'openrouter') return 'openrouter'
   if (env === 'gigachat') return 'gigachat'
   return 'mock'
 }
 
-function polzaCreds(task?: AITask): PolzaCredentials {
+function isOpenAICompatible(slug: OperatorSlug): slug is 'polza' | 'openrouter' {
+  return slug === 'polza' || slug === 'openrouter'
+}
+
+function openaiCompatibleCreds(slug: 'polza' | 'openrouter', task?: AITask): OpenAICompatibleCredentials {
   if (task) {
     const route = getActiveRoute(task)
-    if (route?.operatorSlug === 'polza') return route.credentials as PolzaCredentials
+    if (route?.operatorSlug === slug) return route.credentials as OpenAICompatibleCredentials
   }
   for (const t of ['generate', 'edit', 'chat', 'review', 'default'] as const) {
     const route = getActiveRoute(t)
-    if (route?.operatorSlug === 'polza') {
-      return route.credentials as PolzaCredentials
+    if (route?.operatorSlug === slug) {
+      return route.credentials as OpenAICompatibleCredentials
+    }
+  }
+  if (slug === 'openrouter') {
+    return {
+      apiKey: process.env['OPENROUTER_API_KEY'] ?? '',
+      baseUrl: process.env['OPENROUTER_BASE_URL'] ?? DEFAULT_BASE.openrouter,
     }
   }
   return {
     apiKey: process.env['POLZA_API_KEY'] ?? process.env['OPENAI_API_KEY'] ?? '',
-    baseUrl: process.env['POLZA_BASE_URL'] ?? 'https://polza.ai/api/v1',
+    baseUrl: process.env['POLZA_BASE_URL'] ?? DEFAULT_BASE.polza,
   }
 }
 
@@ -108,6 +124,32 @@ function parseUsageFromJson(json: unknown): OpenAIUsage {
   return { promptTokens, completionTokens, totalTokens, costRub }
 }
 
+function openaiCompatibleCallOptions(
+  slug: 'polza' | 'openrouter',
+  task: AITask,
+  payload: Record<string, unknown>,
+) {
+  const creds = openaiCompatibleCreds(slug, task)
+  const label = slug === 'openrouter' ? 'OPENROUTER_API_KEY' : 'POLZA_API_KEY'
+  if (!creds.apiKey) throw new Error(`${label} не настроен`)
+  const messages = payload.messages as Array<{ role: string; content: string }>
+  return {
+    baseUrl: creds.baseUrl ?? DEFAULT_BASE[slug],
+    apiKey: creds.apiKey,
+    model: String(payload.model ?? 'openai/gpt-4o-mini'),
+    messages,
+    max_tokens: payload.max_tokens as number | undefined,
+    temperature: payload.temperature as number | undefined,
+    providerPolicy: getActiveProviderPolicy(task),
+    headers: slug === 'openrouter' ? openrouterDefaultHeaders() : undefined,
+    extra: {
+      repetition_penalty: payload.repetition_penalty,
+      frequency_penalty: payload.frequency_penalty,
+      presence_penalty: payload.presence_penalty,
+    },
+  }
+}
+
 export async function* streamCompletion(
   payload: Record<string, unknown>,
   task: AITask = 'default',
@@ -117,23 +159,9 @@ export async function* streamCompletion(
     throw new Error('Mock provider не использует transport.streamCompletion напрямую')
   }
 
-  if (operator === 'polza') {
-    const creds = polzaCreds(task)
-    if (!creds.apiKey) throw new Error('POLZA_API_KEY не настроен')
-    const messages = payload.messages as Array<{ role: string; content: string }>
+  if (isOpenAICompatible(operator)) {
     yield* openaiStream({
-      baseUrl: creds.baseUrl ?? 'https://polza.ai/api/v1',
-      apiKey: creds.apiKey,
-      model: String(payload.model ?? 'openai/gpt-4o-mini'),
-      messages,
-      max_tokens: payload.max_tokens as number | undefined,
-      temperature: payload.temperature as number | undefined,
-      providerPolicy: getActiveProviderPolicy(task),
-      extra: {
-        repetition_penalty: payload.repetition_penalty,
-        frequency_penalty: payload.frequency_penalty,
-        presence_penalty: payload.presence_penalty,
-      },
+      ...openaiCompatibleCallOptions(operator, task, payload),
       onUsage: trackUsage,
     })
     return
@@ -198,19 +226,11 @@ export async function completeCompletion(
     throw new Error('Mock provider не использует transport.completeCompletion напрямую')
   }
 
-  if (operator === 'polza') {
-    const creds = polzaCreds(task)
-    if (!creds.apiKey) throw new Error('POLZA_API_KEY не настроен')
-    const messages = payload.messages as Array<{ role: string; content: string }>
-    const { content, usage } = await openaiComplete({
-      baseUrl: creds.baseUrl ?? 'https://polza.ai/api/v1',
-      apiKey: creds.apiKey,
-      model: String(payload.model ?? 'openai/gpt-4o-mini'),
-      messages,
-      max_tokens: payload.max_tokens as number | undefined,
-      temperature: payload.temperature as number | undefined,
-      providerPolicy: getActiveProviderPolicy(task),
-    }, retries)
+  if (isOpenAICompatible(operator)) {
+    const { content, usage } = await openaiComplete(
+      openaiCompatibleCallOptions(operator, task, payload),
+      retries,
+    )
     trackUsage(usage)
     return content
   }

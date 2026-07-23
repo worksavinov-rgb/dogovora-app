@@ -49,7 +49,7 @@
 | База данных | PostgreSQL через Prisma ORM |
 | Очереди задач | BullMQ + Redis |
 | Файлы | Локальный `STORAGE_DIR` (S3 — на будущее) |
-| ИИ | GigaChat / Polza.ai / mock; маршруты задач в БД или ENV (`AI_PROVIDER`) |
+| ИИ | GigaChat / Polza.ai / OpenRouter / mock; маршруты задач в БД или ENV (`AI_PROVIDER`) |
 
 ---
 
@@ -99,9 +99,9 @@ AIOperator → AIUsageLog (расходы/токены)
 ## Конфигурация ИИ (после MVP)
 
 - **Админка:** `/admin/ai` — только для `User.isAdmin`. Операторы (ключи), маршруты задач, расходы.
-- **Операторы:** `gigachat`, `polza`, `mock`. Ключи в БД шифруются (`AI_CREDENTIALS_ENCRYPTION_KEY` или `JWT_SECRET`).
+- **Операторы:** `gigachat`, `polza`, `openrouter`, `mock`. Ключи в БД шифруются (`AI_CREDENTIALS_ENCRYPTION_KEY` или `JWT_SECRET`).
 - **Задачи:** `generate`, `edit`, `chat`, `quick_analysis`, `review`, `analyze_upload`, `extract_parties`, плюс служебные `spelling` / `review_fallback`. Запасной маршрут — `default`.
-- **Приоритет:** маршрут задачи в БД → `default` в БД → ENV (`AI_PROVIDER`, `AI_MODEL_*`, ключи GigaChat/Polza).
+- **Приоритет:** маршрут задачи в БД → `default` в БД → ENV (`AI_PROVIDER`, `AI_MODEL_*`, ключи GigaChat/Polza/OpenRouter).
 - **Код:** `apps/web/src/lib/ai/` (transport, config, tasks, providers), API `apps/web/src/app/api/admin/ai/`.
 - **ПДн:** перед ИИ маскируются ИНН/счета и т.п. (`anonymize`); при правке блок реквизитов отрезается и возвращается после ответа; извлечение сторон с загрузки — только с `consentPii`.
 - **Чат на рабочем экране:** режимы «Правка» / «Вопрос» + кнопка «Анализ».

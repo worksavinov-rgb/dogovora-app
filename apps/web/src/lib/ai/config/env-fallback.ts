@@ -1,9 +1,15 @@
 import type { AITask } from '../tasks'
-import type { GigachatCredentials, PolzaCredentials, ResolvedAIRoute } from './types'
+import type {
+  GigachatCredentials,
+  OpenAICompatibleCredentials,
+  PolzaCredentials,
+  ResolvedAIRoute,
+} from './types'
 
-function envProvider(): 'polza' | 'gigachat' | 'mock' {
+function envProvider(): 'polza' | 'gigachat' | 'openrouter' | 'mock' {
   const p = (process.env['AI_PROVIDER'] ?? 'mock').toLowerCase()
   if (p === 'polza') return 'polza'
+  if (p === 'openrouter') return 'openrouter'
   if (p === 'gigachat') return 'gigachat'
   return 'mock'
 }
@@ -20,7 +26,8 @@ function envModelForTask(task: AITask): string {
     return process.env['GIGACHAT_FAST_MODEL'] ?? process.env['AI_MODEL_SPELLING'] ?? 'GigaChat-2'
   }
 
-  if (envProvider() === 'polza') {
+  const provider = envProvider()
+  if (provider === 'polza' || provider === 'openrouter') {
     return process.env['AI_MODEL_DEFAULT'] ?? 'openai/gpt-4o-mini'
   }
   return process.env['GIGACHAT_MODEL'] ?? process.env['AI_MODEL_DEFAULT'] ?? 'GigaChat-2-Max'
@@ -33,6 +40,13 @@ function polzaCredentialsFromEnv(): PolzaCredentials {
   }
 }
 
+function openrouterCredentialsFromEnv(): OpenAICompatibleCredentials {
+  return {
+    apiKey: process.env['OPENROUTER_API_KEY'] ?? '',
+    baseUrl: process.env['OPENROUTER_BASE_URL'] ?? 'https://openrouter.ai/api/v1',
+  }
+}
+
 function gigachatCredentialsFromEnv(): GigachatCredentials {
   return {
     authKey: process.env['GIGACHAT_AUTH_KEY'] ?? '',
@@ -42,22 +56,22 @@ function gigachatCredentialsFromEnv(): GigachatCredentials {
   }
 }
 
+function credentialsForEnvSlug(slug: ReturnType<typeof envProvider>) {
+  if (slug === 'polza') return polzaCredentialsFromEnv()
+  if (slug === 'openrouter') return openrouterCredentialsFromEnv()
+  if (slug === 'gigachat') return gigachatCredentialsFromEnv()
+  return {}
+}
+
 /** Маршрут из ENV — используется если в БД нет настроек. */
 export function resolveRouteFromEnv(task: AITask): ResolvedAIRoute {
   const slug = envProvider()
-  const credentials =
-    slug === 'polza'
-      ? polzaCredentialsFromEnv()
-      : slug === 'gigachat'
-        ? gigachatCredentialsFromEnv()
-        : {}
-
   return {
     task,
     operatorSlug: slug,
     modelId: envModelForTask(task),
     temperature: 0.7,
-    credentials,
+    credentials: credentialsForEnvSlug(slug),
   }
 }
 
@@ -67,19 +81,23 @@ export function exportEnvConfig() {
   return {
     operator: {
       slug,
-      credentials:
-        slug === 'polza'
-          ? polzaCredentialsFromEnv()
-          : slug === 'gigachat'
-            ? gigachatCredentialsFromEnv()
-            : {},
+      credentials: credentialsForEnvSlug(slug),
     },
-    routes: (['default', 'generate', 'edit', 'chat', 'quick_analysis', 'review', 'analyze_upload', 'spelling', 'review_fallback', 'extract_parties'] as AITask[]).map(
-      (task) => ({
-        task,
-        modelId: envModelForTask(task),
-        temperature: task === 'edit' ? 0.25 : (task === 'review' || task === 'analyze_upload') ? 0.1 : 0.7,
-      }),
-    ),
+    routes: ([
+      'default',
+      'generate',
+      'edit',
+      'chat',
+      'quick_analysis',
+      'review',
+      'analyze_upload',
+      'spelling',
+      'review_fallback',
+      'extract_parties',
+    ] as AITask[]).map((task) => ({
+      task,
+      modelId: envModelForTask(task),
+      temperature: task === 'edit' ? 0.25 : (task === 'review' || task === 'analyze_upload') ? 0.1 : 0.7,
+    })),
   }
 }

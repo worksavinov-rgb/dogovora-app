@@ -1,9 +1,13 @@
 import type { AITask, OperatorSlug } from '../tasks'
 
-export interface PolzaCredentials {
+/** OpenAI-совместимый оператор (Polza, OpenRouter и т.п.) */
+export interface OpenAICompatibleCredentials {
   apiKey: string
   baseUrl?: string
 }
+
+export type PolzaCredentials = OpenAICompatibleCredentials
+export type OpenRouterCredentials = OpenAICompatibleCredentials
 
 export interface GigachatCredentials {
   authKey: string
@@ -16,7 +20,11 @@ export interface MockCredentials {
   /** mock не требует ключей */
 }
 
-export type OperatorCredentials = PolzaCredentials | GigachatCredentials | MockCredentials
+export type OperatorCredentials =
+  | PolzaCredentials
+  | OpenRouterCredentials
+  | GigachatCredentials
+  | MockCredentials
 
 export interface ProviderPolicy {
   sort?: 'price' | 'latency' | 'throughput'

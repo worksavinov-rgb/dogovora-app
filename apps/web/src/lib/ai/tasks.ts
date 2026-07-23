@@ -97,8 +97,15 @@ export const AI_TASK_DEFINITIONS: AITaskDefinition[] = [
   },
 ]
 
-export const OPERATOR_SLUGS = ['polza', 'gigachat', 'mock'] as const
+export const OPERATOR_SLUGS = ['polza', 'gigachat', 'openrouter', 'mock'] as const
 export type OperatorSlug = (typeof OPERATOR_SLUGS)[number]
+
+/** Операторы, которые всегда видны в админке (даже до первого сохранения в БД). */
+export const OPERATOR_CATALOG: Array<{ slug: Exclude<OperatorSlug, 'mock'>; name: string }> = [
+  { slug: 'polza', name: 'Polza.ai' },
+  { slug: 'gigachat', name: 'GigaChat' },
+  { slug: 'openrouter', name: 'OpenRouter' },
+]
 
 export const GIGACHAT_MODELS = [
   'GigaChat-2',

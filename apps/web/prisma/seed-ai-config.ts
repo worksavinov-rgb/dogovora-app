@@ -5,9 +5,33 @@
 import { PrismaClient } from '@prisma/client'
 import { encryptCredentials } from '../src/lib/ai/config/encryption'
 import { exportEnvConfig } from '../src/lib/ai/config/env-fallback'
-import { AI_TASK_DEFINITIONS } from '../src/lib/ai/tasks'
+import { AI_TASK_DEFINITIONS, OPERATOR_CATALOG } from '../src/lib/ai/tasks'
 
 const prisma = new PrismaClient()
+
+function credentialsFromEnv(slug: string): Record<string, string> {
+  if (slug === 'polza') {
+    return {
+      apiKey: process.env['POLZA_API_KEY'] ?? '',
+      baseUrl: process.env['POLZA_BASE_URL'] ?? 'https://polza.ai/api/v1',
+    }
+  }
+  if (slug === 'openrouter') {
+    return {
+      apiKey: process.env['OPENROUTER_API_KEY'] ?? '',
+      baseUrl: process.env['OPENROUTER_BASE_URL'] ?? 'https://openrouter.ai/api/v1',
+    }
+  }
+  if (slug === 'gigachat') {
+    return {
+      authKey: process.env['GIGACHAT_AUTH_KEY'] ?? '',
+      scope: process.env['GIGACHAT_SCOPE'] ?? 'GIGACHAT_API_PERS',
+      baseUrl: process.env['GIGACHAT_BASE_URL'] ?? 'https://gigachat.devices.sberbank.ru/api/v1',
+      authUrl: process.env['GIGACHAT_AUTH_URL'] ?? 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth',
+    }
+  }
+  return {}
+}
 
 async function main() {
   const env = exportEnvConfig()
@@ -16,6 +40,7 @@ async function main() {
   const operatorNames: Record<string, string> = {
     polza: 'Polza.ai',
     gigachat: 'GigaChat',
+    openrouter: 'OpenRouter',
     mock: 'Mock (dev)',
   }
 
@@ -35,22 +60,15 @@ async function main() {
   })
 
   // Дополнительные операторы (выключены, для настройки в админке)
-  for (const extra of ['polza', 'gigachat'] as const) {
-    if (extra === slug) continue
-    const creds =
-      extra === 'polza'
-        ? { apiKey: process.env['POLZA_API_KEY'] ?? '', baseUrl: 'https://polza.ai/api/v1' }
-        : {
-            authKey: process.env['GIGACHAT_AUTH_KEY'] ?? '',
-            scope: process.env['GIGACHAT_SCOPE'] ?? 'GIGACHAT_API_PERS',
-          }
+  for (const cat of OPERATOR_CATALOG) {
+    if (cat.slug === slug) continue
     await prisma.aIOperator.upsert({
-      where: { slug: extra },
+      where: { slug: cat.slug },
       update: {},
       create: {
-        slug: extra,
-        name: operatorNames[extra],
-        credentials: encryptCredentials(creds),
+        slug: cat.slug,
+        name: cat.name,
+        credentials: encryptCredentials(credentialsFromEnv(cat.slug)),
         isEnabled: false,
       },
     })
@@ -58,26 +76,24 @@ async function main() {
 
   for (const def of AI_TASK_DEFINITIONS) {
     const routeEnv = env.routes.find((r) => r.task === def.task)
-    if (!routeEnv) continue
     await prisma.aITaskRoute.upsert({
       where: { task: def.task },
-      update: {
-        operatorId: operator.id,
-        modelId: routeEnv.modelId,
-        temperature: routeEnv.temperature,
-      },
+      update: {},
       create: {
         task: def.task,
         operatorId: operator.id,
-        modelId: routeEnv.modelId,
-        temperature: routeEnv.temperature,
+        modelId: routeEnv?.modelId ?? 'openai/gpt-4o-mini',
+        temperature: routeEnv?.temperature ?? 0.7,
       },
     })
   }
 
-  console.log(`AI config seeded: operator=${slug}, routes=${env.routes.length}`)
+  console.log(`AI config seeded. Primary operator: ${slug}`)
 }
 
 main()
-  .catch(console.error)
+  .catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
   .finally(() => prisma.$disconnect())

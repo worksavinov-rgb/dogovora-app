@@ -10,14 +10,14 @@ import type { UsageAccumulator } from './config/runtime'
 
 function pickProvider(operatorSlug: string): AIProvider {
   if (operatorSlug === 'mock') return mockProvider
-  // polza и gigachat идут через один provider — транспорт выбирает оператора по маршруту
+  // polza / openrouter / gigachat — один provider, транспорт выбирает оператора
   return gigachatProvider
 }
 
 /** @deprecated Используйте runWithAI(task, meta, fn) */
 export function getAIProvider(): AIProvider {
   const provider = (process.env['AI_PROVIDER'] ?? 'mock').toLowerCase()
-  if (provider === 'gigachat' || provider === 'polza') return gigachatProvider
+  if (provider === 'gigachat' || provider === 'polza' || provider === 'openrouter') return gigachatProvider
   return mockProvider
 }
 

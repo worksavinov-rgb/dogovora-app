@@ -71,6 +71,10 @@ const OPERATOR_FIELDS: Record<string, Array<{ key: string; label: string; secret
     { key: 'apiKey', label: 'API Key', secret: true, hint: 'Ключ из личного кабинета polza.ai → API Keys' },
     { key: 'baseUrl', label: 'Base URL', hint: 'Обычно https://polza.ai/api/v1 — менять не нужно' },
   ],
+  openrouter: [
+    { key: 'apiKey', label: 'API Key', secret: true, hint: 'Ключ из openrouter.ai → Keys' },
+    { key: 'baseUrl', label: 'Base URL', hint: 'Обычно https://openrouter.ai/api/v1 — менять не нужно' },
+  ],
   gigachat: [
     { key: 'authKey', label: 'Auth Key', secret: true, hint: 'Authorization key из кабинета GigaChat (Basic auth)' },
     { key: 'scope', label: 'Scope', hint: 'Область доступа OAuth, обычно GIGACHAT_API_PERS' },
@@ -92,7 +96,7 @@ function HintLabel({ label, hint }: { label: string; hint: string }) {
 
 const ROUTE_HEADER_HINTS = {
   task: 'Какая операция ИИ выполняется в приложении',
-  operator: 'Провайдер: Polza.ai, GigaChat и др.',
+  operator: 'Провайдер: Polza.ai, OpenRouter, GigaChat',
   model: 'Модель для этой задачи. Пусто — берётся из строки «По умолчанию»',
   temperature:
     'Температура (0–2): 0.1–0.2 — точно (проверка, JSON). 0.3–0.5 — правки и генерация. 0.7+ — чат',
@@ -136,6 +140,7 @@ export default function AdminAIPage() {
   const [usage, setUsage] = useState<UsageSummary | null>(null)
   const [gigachatModels, setGigachatModels] = useState<ModelOption[]>([])
   const [polzaModels, setPolzaModels] = useState<ModelOption[]>([])
+  const [openrouterModels, setOpenrouterModels] = useState<ModelOption[]>([])
   const [credForms, setCredForms] = useState<Record<string, Record<string, string>>>({})
   const [saving, setSaving] = useState<string | null>(null)
   /** Развёрнутые карточки операторов (по умолчанию свёрнуты, если ключ уже задан) */
@@ -177,14 +182,25 @@ export default function AdminAIPage() {
 
       if (usageRes.ok) setUsage(await usageRes.json())
 
-      const modelsRes = await fetch('/api/admin/ai/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'list-models', slug: 'polza' }),
-      })
-      if (modelsRes.ok) {
-        const m = await modelsRes.json()
+      const [polzaModelsRes, openrouterModelsRes] = await Promise.all([
+        fetch('/api/admin/ai/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list-models', slug: 'polza' }),
+        }),
+        fetch('/api/admin/ai/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list-models', slug: 'openrouter' }),
+        }),
+      ])
+      if (polzaModelsRes.ok) {
+        const m = await polzaModelsRes.json()
         setPolzaModels(m.models ?? [])
+      }
+      if (openrouterModelsRes.ok) {
+        const m = await openrouterModelsRes.json()
+        setOpenrouterModels(m.models ?? [])
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
@@ -226,6 +242,7 @@ export default function AdminAIPage() {
     if (!res.ok) { toast(`Ошибка сохранения ${slug}`, 'error'); return }
     setCredForms((f) => ({ ...f, [slug]: {} }))
     toast(`${op.name} сохранён`, 'success')
+    await load()
   }
 
   async function testOperator(slug: string) {
@@ -294,12 +311,13 @@ export default function AdminAIPage() {
   function modelsForOperator(slug: string): ModelOption[] {
     if (slug === 'gigachat') return gigachatModels
     if (slug === 'polza') return polzaModels
+    if (slug === 'openrouter') return openrouterModels
     return [{ id: 'mock', name: 'mock' }]
   }
 
   function recommendedFor(task: string, slug: string): string | null {
     if (slug === 'gigachat') return GIGACHAT_TASK_MODEL_HINTS[task] ?? null
-    if (slug === 'polza') return POLZA_TASK_MODEL_HINTS[task]?.[0] ?? null
+    if (slug === 'polza' || slug === 'openrouter') return POLZA_TASK_MODEL_HINTS[task]?.[0] ?? null
     return null
   }
 

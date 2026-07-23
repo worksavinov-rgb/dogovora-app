@@ -123,7 +123,7 @@ export function pickRecommendedModel(
     const hint = GIGACHAT_TASK_MODEL_HINTS[task]
     if (hint && available.some((m) => m.id === hint)) return hint
   }
-  if (operatorSlug === 'polza') {
+  if (operatorSlug === 'polza' || operatorSlug === 'openrouter') {
     const hints = POLZA_TASK_MODEL_HINTS[task] ?? []
     for (const id of hints) {
       if (available.some((m) => m.id === id)) return id

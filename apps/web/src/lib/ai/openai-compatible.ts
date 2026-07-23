@@ -17,6 +17,8 @@ export interface ChatCompletionOptions {
   stream?: boolean
   providerPolicy?: ProviderPolicy
   extra?: Record<string, unknown>
+  /** Доп. заголовки (например HTTP-Referer / X-Title для OpenRouter) */
+  headers?: Record<string, string>
   onUsage?: (usage: OpenAIUsage) => void
 }
 
@@ -39,6 +41,15 @@ function buildBody(options: ChatCompletionOptions, stream: boolean): Record<stri
   return body
 }
 
+function authHeaders(options: ChatCompletionOptions, accept: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Accept: accept,
+    Authorization: `Bearer ${options.apiKey}`,
+    ...options.headers,
+  }
+}
+
 function parseUsage(json: unknown): OpenAIUsage {
   const usage = (json as { usage?: Record<string, unknown> })?.usage
   if (!usage) {
@@ -58,11 +69,7 @@ export async function openaiComplete(options: ChatCompletionOptions, retries = 3
   const url = `${normalizeBaseUrl(options.baseUrl)}/chat/completions`
   let response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${options.apiKey}`,
-    },
+    headers: authHeaders(options, 'application/json'),
     body: JSON.stringify(buildBody(options, false)),
   })
 
@@ -73,11 +80,7 @@ export async function openaiComplete(options: ChatCompletionOptions, retries = 3
     attemptsLeft--
     response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${options.apiKey}`,
-      },
+      headers: authHeaders(options, 'application/json'),
       body: JSON.stringify(buildBody(options, false)),
     })
   }
@@ -99,11 +102,7 @@ export async function* openaiStream(options: ChatCompletionOptions, retries = 3)
   const url = `${normalizeBaseUrl(options.baseUrl)}/chat/completions`
   let response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-      Authorization: `Bearer ${options.apiKey}`,
-    },
+    headers: authHeaders(options, 'text/event-stream'),
     body: JSON.stringify(buildBody(options, true)),
   })
 
@@ -114,11 +113,7 @@ export async function* openaiStream(options: ChatCompletionOptions, retries = 3)
     attemptsLeft--
     response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        Authorization: `Bearer ${options.apiKey}`,
-      },
+      headers: authHeaders(options, 'text/event-stream'),
       body: JSON.stringify(buildBody(options, true)),
     })
   }
@@ -186,5 +181,53 @@ export async function polzaListModels(apiKey: string, type = 'chat'): Promise<un
     throw new Error(`Polza models failed: ${res.status} ${details}`)
   }
   const json = await res.json() as { data?: unknown[] }
+  return json.data ?? []
+}
+
+const OPENROUTER_DEFAULT_BASE = 'https://openrouter.ai/api/v1'
+
+export function openrouterDefaultHeaders(): Record<string, string> {
+  const referer =
+    process.env['OPENROUTER_HTTP_REFERER']
+    ?? process.env['NEXTAUTH_URL']
+    ?? 'https://app.dogodoc.ru'
+  return {
+    'HTTP-Referer': referer,
+    'X-Title': process.env['OPENROUTER_APP_TITLE'] ?? 'Догодок',
+  }
+}
+
+/** Проверка ключа OpenRouter (GET /models) */
+export async function openrouterVerify(
+  apiKey: string,
+  baseUrl = OPENROUTER_DEFAULT_BASE,
+): Promise<void> {
+  const res = await fetch(`${normalizeBaseUrl(baseUrl)}/models`, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      ...openrouterDefaultHeaders(),
+    },
+  })
+  if (!res.ok) {
+    const details = await res.text()
+    throw new Error(`OpenRouter verify failed: ${res.status} ${details}`)
+  }
+}
+
+export async function openrouterListModels(
+  apiKey: string,
+  baseUrl = OPENROUTER_DEFAULT_BASE,
+): Promise<Array<{ id: string; name?: string }>> {
+  const res = await fetch(`${normalizeBaseUrl(baseUrl)}/models`, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      ...openrouterDefaultHeaders(),
+    },
+  })
+  if (!res.ok) {
+    const details = await res.text()
+    throw new Error(`OpenRouter models failed: ${res.status} ${details}`)
+  }
+  const json = await res.json() as { data?: Array<{ id: string; name?: string }> }
   return json.data ?? []
 }

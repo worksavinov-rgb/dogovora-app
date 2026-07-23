@@ -368,7 +368,7 @@ enum StoragePlan {
 
 // ─── Конфигурация ИИ (админ) ─────────────────────────────────────────────────
 
-/// Оператор ИИ: Polza.ai, GigaChat и др.
+/// Оператор ИИ: Polza.ai, OpenRouter, GigaChat и др.
 model AIOperator {
   id          String   @id @default(cuid())
   slug        String   @unique // "polza" | "gigachat" | "mock"

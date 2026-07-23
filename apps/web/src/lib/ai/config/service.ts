@@ -6,6 +6,7 @@ import { resolveRouteFromEnv } from './env-fallback'
 import type {
   GigachatCredentials,
   MockCredentials,
+  OpenAICompatibleCredentials,
   OperatorCredentials,
   PolzaCredentials,
   ProviderPolicy,
@@ -38,6 +39,12 @@ function credentialsForSlug(slug: OperatorSlug, encrypted: string): OperatorCred
       apiKey: data.apiKey ?? '',
       baseUrl: data.baseUrl ?? 'https://polza.ai/api/v1',
     } satisfies PolzaCredentials
+  }
+  if (slug === 'openrouter') {
+    return {
+      apiKey: data.apiKey ?? '',
+      baseUrl: data.baseUrl ?? 'https://openrouter.ai/api/v1',
+    } satisfies OpenAICompatibleCredentials
   }
   if (slug === 'gigachat') {
     return {
