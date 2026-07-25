@@ -5,6 +5,8 @@ import { comparePassword, signAccessToken, signRefreshToken } from '@/lib/auth'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
 import { checkLoginLock, recordLoginFailure, resetLoginFailures } from '@/lib/login-attempts'
 import { recordLoginAudit } from '@/lib/login-audit'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 const LoginSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -92,7 +94,11 @@ export async function POST(req: Request) {
       const firstIssue = err.issues[0]
       return NextResponse.json({ error: firstIssue?.message ?? 'Ошибка валидации' }, { status: 400 })
     }
-    console.error('Login error:', err)
+    logger.error({
+      event: 'auth.login_error',
+      error: err,
+      request_id: getRequestId(req),
+    })
     return NextResponse.json({ error: 'Ошибка сервера' }, { status: 500 })
   }
 }

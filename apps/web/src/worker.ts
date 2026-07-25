@@ -6,10 +6,20 @@
  */
 
 import 'dotenv/config'
+import { getLogConfig, initLogger } from './lib/logger'
 import { startGenerateWorker } from './lib/queue'
 
+const log = initLogger({ name: 'worker', service: 'worker' })
+const logCfg = getLogConfig()
+log.info(
+  `file logging ${logCfg.toFile ? 'on' : 'off'}`,
+  `dir=${logCfg.logDir}`,
+  `level=${logCfg.level}`,
+  `project=${logCfg.project}`,
+)
+
 const worker = startGenerateWorker()
-console.log('[worker] Started — listening for generate-document jobs')
+log.info('Started — listening for generate-document jobs')
 
 process.on('SIGTERM', async () => {
   await worker.close()

@@ -4,6 +4,8 @@ import { prisma } from '@/lib/db'
 import { hashPassword, signAccessToken, signRefreshToken } from '@/lib/auth'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
 import { recordLoginAudit } from '@/lib/login-audit'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 const RegisterSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -132,7 +134,11 @@ export async function POST(req: Request) {
       const firstIssue = err.issues[0]
       return NextResponse.json({ error: firstIssue?.message ?? 'Ошибка валидации' }, { status: 400 })
     }
-    console.error('Register error:', err)
+    logger.error({
+      event: 'auth.register_error',
+      error: err,
+      request_id: getRequestId(req),
+    })
     return NextResponse.json({ error: 'Ошибка сервера' }, { status: 500 })
   }
 }

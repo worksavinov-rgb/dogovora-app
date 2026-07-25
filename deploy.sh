@@ -17,3 +17,4 @@ docker compose -f docker-compose.prod.yml run --rm web \
 docker compose -f docker-compose.prod.yml up -d
 
 echo "=== Готово! https://app.dogodoc.ru ==="
+echo "Логи: ./logs/app.log и ./logs/error.log (tail -f logs/app.log)"

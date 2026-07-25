@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/db'
+import { logger } from '@/lib/logger'
 
 // ─── Аудит входов ───────────────────────────────────────────────────────────────
 // Серверный лог попыток входа/выхода для обнаружения и расследования атак.
-// Запись не должна ломать сам вход — при ошибке только логируем в консоль.
+// Запись не должна ломать сам вход — при ошибке только логируем.
 
 export type AuditResult = 'SUCCESS' | 'FAIL' | 'LOCKED' | 'LOGOUT'
 
@@ -24,6 +25,6 @@ export async function recordLoginAudit(params: {
       },
     })
   } catch (e) {
-    console.error('[audit] не удалось записать событие входа:', e)
+    logger.error({ event: 'auth.audit_write_failed', error: e })
   }
 }

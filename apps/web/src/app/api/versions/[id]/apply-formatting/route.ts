@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx } from '@shared/formatting/html-docx-converter'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -47,7 +49,13 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     return NextResponse.json({ success: true })
   } catch (err) {
-    console.error('[apply-formatting] Error:', err)
+    logger.error({
+      event: 'versions.apply_formatting_failed',
+      error: err,
+      request_id: getRequestId(req),
+      user_id: userId,
+      version_id: id,
+    })
     return NextResponse.json({ error: 'Ошибка форматирования' }, { status: 500 })
   }
 }

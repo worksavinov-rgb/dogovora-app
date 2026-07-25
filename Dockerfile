@@ -38,6 +38,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma ./node_modules/.pnpm/@prisma+client@5.22.0_prisma@5.22.0/node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/prisma ./apps/web/prisma
 
+# Файловые логи: /app/logs → ./logs на хосте
+RUN mkdir -p /app/logs && chown nextjs:nodejs /app/logs
+ENV LOG_DIR=/app/logs
+ENV LOG_TO_FILE=true
+
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000

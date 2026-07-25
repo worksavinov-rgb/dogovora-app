@@ -6,6 +6,8 @@ import { withLoggedAIContext } from '@/lib/ai/provider'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { splitRequisitesBlock } from '@/lib/html-document'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -131,7 +133,13 @@ export async function POST(req: NextRequest, { params }: Params) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {
-          console.error('[chat/edit] ERROR:', err)
+          logger.error({
+            event: 'versions.chat_edit_failed',
+            error: err,
+            request_id: getRequestId(req),
+            user_id: userId,
+            version_id: id,
+          })
           // Отправляем ошибку клиенту как читаемое сообщение
           try {
             const errMsg = err instanceof Error ? err.message : 'Ошибка Догодка'

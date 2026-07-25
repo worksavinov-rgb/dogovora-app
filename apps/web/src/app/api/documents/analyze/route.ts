@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server'
 import { getUserId } from '@/lib/api-auth'
 import { withLoggedAIContext } from '@/lib/ai/provider'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 export const maxDuration = 180
 
@@ -53,7 +55,12 @@ export async function POST(req: NextRequest) {
         send({ type: 'result', ...result })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        console.error('[analyze] failed:', msg)
+        logger.error({
+          event: 'documents.analyze_failed',
+          error: e,
+          request_id: getRequestId(req),
+          user_id: userId,
+        })
 
         // Человекочитаемые сообщения для частых ошибок
         const userMsg = msg.includes('429')

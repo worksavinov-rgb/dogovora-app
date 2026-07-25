@@ -12,8 +12,16 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       NODE_ENV: production
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      LOG_DIR: ${LOG_DIR:-/app/logs}
+      LOG_TO_FILE: ${LOG_TO_FILE:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_PROJECT: ${LOG_PROJECT:-dogovora}
+      LOG_SERVICE: web
+      LOG_ENV: ${LOG_ENV:-production}
     ports:
       - "3000:3000"
+    volumes:
+      - ${LOGS_HOST_DIR:-./logs}:/app/logs
     depends_on:
       db:
         condition: service_healthy
@@ -33,6 +41,14 @@ services:
       GIGACHAT_AUTH_KEY: ${GIGACHAT_AUTH_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       NODE_ENV: production
+      LOG_DIR: ${LOG_DIR:-/app/logs}
+      LOG_TO_FILE: ${LOG_TO_FILE:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_PROJECT: ${LOG_PROJECT:-dogovora}
+      LOG_SERVICE: worker
+      LOG_ENV: ${LOG_ENV:-production}
+    volumes:
+      - ${LOGS_HOST_DIR:-./logs}:/app/logs
     depends_on:
       db:
         condition: service_healthy

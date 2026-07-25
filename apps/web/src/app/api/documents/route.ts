@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 const createSchema = z.object({
   type: z.enum(['CONTRACT', 'APPENDIX', 'AMENDMENT']),
@@ -175,7 +177,12 @@ export async function POST(req: NextRequest) {
   })
 
   } catch (err) {
-    console.error('[POST /api/documents] DB error:', err)
+    logger.error({
+      event: 'documents.create_error',
+      error: err,
+      request_id: getRequestId(req),
+      user_id: userId,
+    })
     return NextResponse.json({ error: 'Ошибка создания документа' }, { status: 500 })
   }
 

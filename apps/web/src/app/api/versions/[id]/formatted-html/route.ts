@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -46,7 +48,13 @@ export async function GET(req: NextRequest, { params }: Params) {
       { headers: { 'Cache-Control': 'private, max-age=300' } },
     )
   } catch (err) {
-    console.error('[formatted-html] mammoth error:', err)
+    logger.error({
+      event: 'versions.formatted_html_failed',
+      error: err,
+      request_id: getRequestId(req),
+      user_id: userId,
+      version_id: id,
+    })
     return NextResponse.json({ error: 'Ошибка конвертации DOCX в HTML' }, { status: 500 })
   }
 }

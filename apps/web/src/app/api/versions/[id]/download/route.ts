@@ -4,6 +4,8 @@ import { getUserId } from '@/lib/api-auth'
 import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
 import { stripAiRequisitesBlock } from '@/lib/html-document'
+import { logger } from '@/lib/logger'
+import { getRequestId } from '@/lib/request-context'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -182,7 +184,13 @@ export async function GET(req: NextRequest, { params }: Params) {
         },
       })
     } catch (err) {
-      console.error('[download] Formatter error:', err)
+      logger.error({
+        event: 'versions.download_format_failed',
+        error: err,
+        request_id: getRequestId(req),
+        user_id: userId,
+        version_id: id,
+      })
       return NextResponse.json({ error: 'Ошибка создания файла' }, { status: 500 })
     }
   }

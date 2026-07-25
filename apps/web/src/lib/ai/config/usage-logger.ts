@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db'
+import { logger } from '@/lib/logger'
 import type { AIUsageMeta, AIUsageResult } from './types'
 
 export async function logAIUsage(meta: AIUsageMeta, result: AIUsageResult): Promise<void> {
@@ -27,7 +28,12 @@ export async function logAIUsage(meta: AIUsageMeta, result: AIUsageResult): Prom
       },
     })
   } catch (err) {
-    console.error('[AIUsageLog] failed to write:', err)
+    logger.error({
+      event: 'ai.usage_log_failed',
+      error: err,
+      user_id: meta.userId,
+      task: meta.task,
+    })
   }
 }
 

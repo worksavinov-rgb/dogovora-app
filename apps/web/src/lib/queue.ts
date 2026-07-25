@@ -6,6 +6,7 @@ import { DocumentFormatter } from '@shared/formatting/document-formatter'
 import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, stripAiRequisitesBlock, buildContractPreambleHtml, stripAiPreamble } from './html-document'
 import type { CounterpartyData, UserProfileData } from './ai/types'
 import { anonymizeForAnalysis, maskPartyForAI } from './anonymize'
+import { logger } from './logger'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
 
@@ -261,11 +262,16 @@ export function startGenerateWorker() {
   )
 
   worker.on('completed', (job) => {
-    console.log(`[worker] Job ${job.id} completed: ${job.returnvalue?.chars} chars`)
+    logger.info(`Job ${job.id} completed: ${job.returnvalue?.chars} chars`)
   })
 
   worker.on('failed', (job, err) => {
-    console.error(`[worker] Job ${job?.id} failed:`, err.message, err.stack)
+    logger.error({
+      event: 'worker.job_failed',
+      error: err,
+      job_id: job?.id,
+      version_id: job?.data?.versionId,
+    })
   })
 
   return worker

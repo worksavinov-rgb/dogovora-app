@@ -25,6 +25,7 @@ const csp = [
 const nextConfig: NextConfig = {
   output: 'standalone',
   poweredByHeader: false, // не раскрываем стек через X-Powered-By
+  // instrumentation.ts — файловый логгер (logs/app.log, logs/error.log)
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
   async headers() {

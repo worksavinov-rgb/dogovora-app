@@ -50,6 +50,7 @@
 | Очереди задач | BullMQ + Redis |
 | Файлы | Локальный `STORAGE_DIR` (S3 — на будущее) |
 | ИИ | GigaChat / Polza.ai / OpenRouter / mock; маршруты задач в БД или ENV (`AI_PROVIDER`) |
+| Логи | Файлы `logs/app.log` + `logs/error.log` (JSONL ERROR; `LOG_*`; `docs/LOG_EVENTS.md`) |
 
 ---
 

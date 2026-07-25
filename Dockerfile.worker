@@ -11,5 +11,10 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter web exec prisma generate
 
+# Файловые логи: /app/logs → ./logs на хосте
+RUN mkdir -p /app/logs
+ENV LOG_DIR=/app/logs
+ENV LOG_TO_FILE=true
+
 WORKDIR /app/apps/web
 CMD ["npx", "tsx", "src/worker.ts"]

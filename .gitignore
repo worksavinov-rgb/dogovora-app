@@ -7,7 +7,11 @@ node_modules/
 .next/
 dist/
 build/
-logs/
+# Runtime logs (rotating app.log / error.log)
+logs/*.log
+logs/*.log.*
+!logs/
+!logs/.gitkeep
 *.log
 
 # Файловое хранилище (загруженные/сгенерированные файлы)
