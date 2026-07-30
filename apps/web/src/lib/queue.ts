@@ -212,6 +212,16 @@ export function startGenerateWorker() {
         finalText += `\n${reqsHtml}`
       }
 
+      // Защита от пустого результата. Некоторые модели (напр. reasoning-модели
+      // вроде DeepSeek V4 на генерации приложений/ДС) иногда возвращают ответ в
+      // reasoning-поле, а `content` приходит пустым — тогда воркер сохранял пустой
+      // черновик, и пользователь видел «Документ пуст» без ошибки. Бросаем ошибку,
+      // чтобы BullMQ повторил задачу (attempts:3), а не сохранял пустышку.
+      const plainLen = finalText.replace(/<[^>]+>/g, '').replace(/\s+/g, '').length
+      if (plainLen < 200) {
+        throw new Error(`Пустой результат генерации (${plainLen} симв. без разметки): модель вернула недостаточно контента для версии ${versionId}`)
+      }
+
       // Сохраняем текст в БД (поле content в Version)
       const trimmedText = finalText
       const fileSize = Buffer.byteLength(trimmedText, 'utf8')
