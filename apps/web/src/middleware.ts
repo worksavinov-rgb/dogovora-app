@@ -49,6 +49,20 @@ export function middleware(req: NextRequest) {
     if (pathname.startsWith('/api/')) {
       return attach(NextResponse.json({ error: 'Не авторизован' }, { status: 401 }))
     }
+
+    // Access-cookie живёт 15 мин, refresh — 30 дней. Если access истёк, но
+    // refresh ещё есть — НЕ выкидываем на /login (это выбрасывало активного
+    // пользователя посреди работы). Тихо обновляем сессию через GET-refresh и
+    // возвращаем на исходную страницу. Только для GET-навигаций — иначе метод
+    // и тело потерялись бы при редиректе.
+    const hasRefresh = Boolean(req.cookies.get('refresh_token')?.value)
+    if (hasRefresh && req.method === 'GET') {
+      const nextPath = pathname + (req.nextUrl.search || '')
+      const refreshUrl = new URL('/api/auth/refresh', req.url)
+      refreshUrl.searchParams.set('next', nextPath)
+      return attach(NextResponse.redirect(refreshUrl))
+    }
+
     return attach(NextResponse.redirect(new URL('/login', req.url)))
   }
 
