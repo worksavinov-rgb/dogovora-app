@@ -5,11 +5,18 @@ import { useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
 import { useAuthStore } from '@/store/auth'
 import { useTopbarStore } from '@/store/topbar'
+import { installFetchAuthRetry } from '@/lib/install-fetch-auth'
 
 export default function AppGroupLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const { user, balance, isInitialized, initialize } = useAuthStore()
   const pageTitle = useTopbarStore((s) => s.pageTitle)
+
+  // Глобально включаем авто-обновление сессии при 401 для всех страниц за логином:
+  // истёкший 15-мин токен больше не роняет запросы (админка, баланс, сохранения и т.д.).
+  useEffect(() => {
+    installFetchAuthRetry()
+  }, [])
 
   useEffect(() => {
     initialize()
