@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
-import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
+import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
 import type { AITask } from './tasks'
 import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config/runtime'
 import { completeCompletion, streamCompletion } from './transport'
@@ -679,6 +679,57 @@ export const gigachatProvider: AIProvider = {
       const cleaned = splitRequisitesBlock(html).body
       return requisites ? `${cleaned.trimEnd()}\n${requisites}` : cleaned
     }
+
+    // ── Таблично-специфичная правка ──────────────────────────────────────────
+    // Модели на правку таблицы часто возвращают ТОЛЬКО изменённую строку <tr>,
+    // а не всю таблицу. Блочный REPLACE такой голый <tr> отклоняет (невалиден
+    // вне <table>), и правка «не находит фрагмент» (подтверждено: правка ячейки
+    // таблицы падала и на DeepSeek, и на Qwen). Поэтому если задание про таблицу,
+    // а в документе ровно ОДНА таблица — редактируем её отдельно: даём модели
+    // только таблицу и просим вернуть её ЦЕЛИКОМ (простая задача → модель
+    // отдаёт полную таблицу). Не вышло — падаем в общий блочный путь ниже.
+    if (isTableEditInstruction(instruction)) {
+      const { tables } = extractTables(doc)
+      if (tables.length === 1) {
+        const original = tables[0]!
+        const origRows = (original.match(/<tr\b/gi) || []).length
+        const sys = [
+          'Ты редактируешь ОДНУ HTML-таблицу договора по заданию.',
+          'Верни ТОЛЬКО обновлённую таблицу целиком: <table>…</table> со ВСЕМИ строками (и изменёнными, и неизменёнными), сохрани столбцы и структуру.',
+          'Разрешены теги: table, thead, tbody, tr, th, td. ЗАПРЕЩЕНЫ markdown (**, |, #, ```), любые пояснения и текст вне <table>.',
+          'Если задание меняет число — пересчитай зависимые ячейки: Сумма = Кол-во × Цена; строка ИТОГО = сумма всех строк.',
+        ].join('\n')
+        const usr = `Задание: ${instruction}\n\nТаблица:\n${original}`
+        let resp = ''
+        for await (const chunk of streamText({
+          model: getActiveModelId('edit', GIGACHAT_MODEL),
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: usr },
+          ],
+          max_tokens: 8192,
+          repetition_penalty: 1,
+          temperature: getActiveTemperature('edit', 0.2),
+        }, 'edit')) {
+          resp += chunk
+        }
+        resp = resp.replace(/```\w*\s*/g, '').replace(/```/g, '').trim()
+        const m = resp.match(/<table[\s\S]*<\/table>/i)
+        if (m) {
+          const newTable = m[0]
+          const newRows = (newTable.match(/<tr\b/gi) || []).length
+          const v = validateHtmlFragment(newTable)
+          // Принимаем только валидную таблицу, которая не схлопнулась (строк не
+          // меньше, чем было − 1). Иначе — общий путь.
+          if (v.ok && newRows >= Math.max(2, origRows - 1)) {
+            yield reattach(doc.replace(original, newTable))
+            return
+          }
+        }
+        // не получилось — продолжаем обычным блочным путём
+      }
+    }
+
     const allBlocks = splitHtmlBlocks(doc)
 
     // Для больших документов отправляем только релевантные блоки.
