@@ -3,6 +3,10 @@
 import { useState, useEffect, useRef, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { calcVersionPrice } from '@/lib/pricing'
+// apiFetch: при 401 (истёк 15-мин access-токен) прозрачно обновляет сессию через
+// /api/auth/refresh и повторяет запрос — иначе автосейв/правки/генерация падали
+// с «Ошибка соединения»/«Ошибка сохранения», если токен истёк во время работы.
+import { apiFetch } from '@/lib/api-client'
 import { DocumentViewer } from '@/components/document-viewer'
 // marked нужен для LEGACY DocumentRenderer_LEGACY (старые markdown-документы)
 import { marked } from 'marked'
@@ -473,13 +477,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     }
 
     try {
-      const res = await fetch(`/api/jobs/${jobId}`)
+      const res = await apiFetch(`/api/jobs/${jobId}`)
       if (!res.ok) return
 
       const job = await res.json()
 
       if (job.state === 'completed') {
-        const vRes = await fetch(`/api/documents/${id}`)
+        const vRes = await apiFetch(`/api/documents/${id}`)
         if (vRes.ok) {
           const doc = await vRes.json()
           const ver = doc.versions.find((v: Version) => v.id === versionId)
@@ -510,7 +514,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     const searchParams = new URLSearchParams(window.location.search)
     const versionId = searchParams.get('version')
 
-    fetch(`/api/documents/${id}`)
+    apiFetch(`/api/documents/${id}`)
       .then((r) => r.ok ? r.json() : Promise.reject())
       .then(async (doc) => {
         const ver: Version = versionId
@@ -536,7 +540,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         lastSavedContentRef.current = ver.content ?? null
 
         // Загружаем историю чата
-        fetch(`/api/versions/${ver.id}/chat`)
+        apiFetch(`/api/versions/${ver.id}/chat`)
           .then((r) => r.ok ? r.json() : [])
           .then(setMessages)
           .catch(() => {})
@@ -545,7 +549,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         let draftContent: string | null = null
         if (isLatest) {
           try {
-            const draftRes = await fetch(`/api/documents/${id}/draft`)
+            const draftRes = await apiFetch(`/api/documents/${id}/draft`)
             if (draftRes.ok) {
               const draft = await draftRes.json() as { content: string; revision: number } | null
               if (draft && typeof draft.content === 'string') {
@@ -571,7 +575,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           setGenError(false)
           genStartRef.current = Date.now()
           genVersionIdRef.current = ver.id
-          const genRes = await fetch(`/api/versions/${ver.id}/generate`, { method: 'POST' })
+          const genRes = await apiFetch(`/api/versions/${ver.id}/generate`, { method: 'POST' })
           if (genRes.ok) {
             const { jobId, status } = await genRes.json()
             if (status === 'already_generated') {
@@ -623,7 +627,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   async function saveDraft(content: string) {
     try {
       setSaveStatus('saving')
-      const res = await fetch(`/api/documents/${id}/draft`, {
+      const res = await apiFetch(`/api/documents/${id}/draft`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -689,7 +693,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     setMessages((prev) => [...prev, tempUserMsg])
 
     try {
-      const response = await fetch(`/api/versions/${version.id}/chat`, {
+      const response = await apiFetch(`/api/versions/${version.id}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -813,7 +817,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     const carryOverStatus = (version.status === 'PAID' || version.status === 'SIGNED')
       ? 'IN_PROGRESS'
       : version.status
-    const res = await fetch(`/api/documents/${id}/versions`, {
+    const res = await apiFetch(`/api/documents/${id}/versions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -835,9 +839,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
     dirtyRef.current = false
     draftRevisionRef.current = 0
-    await fetch(`/api/documents/${id}/draft`, { method: 'DELETE' }).catch(() => {})
+    await apiFetch(`/api/documents/${id}/draft`, { method: 'DELETE' }).catch(() => {})
     // A.6: фоновое применение форматирования к новой версии (не блокирует переход)
-    fetch(`/api/versions/${newVersion.id}/apply-formatting`, { method: 'POST' }).catch(() => {})
+    apiFetch(`/api/versions/${newVersion.id}/apply-formatting`, { method: 'POST' }).catch(() => {})
     return newVersion.id
   }
 
@@ -874,7 +878,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         targetVersionId = newVersionId
       }
 
-      const res = await fetch(`/api/versions/${targetVersionId}/purchase`, { method: 'POST' })
+      const res = await apiFetch(`/api/versions/${targetVersionId}/purchase`, { method: 'POST' })
       if (res.ok) {
         setPurchased(true)
         setVersion((prev) => prev ? {
@@ -895,7 +899,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     setStatusChanging(true)
     setStatusDropdownOpen(false)
     try {
-      const res = await fetch(`/api/versions/${version.id}/status`, {
+      const res = await apiFetch(`/api/versions/${version.id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -912,7 +916,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     if (!version || downloading) return
     setDownloading(true)
     try {
-      const res = await fetch(`/api/versions/${version.id}/download`)
+      const res = await apiFetch(`/api/versions/${version.id}/download`)
       if (!res.ok) return
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
@@ -1201,7 +1205,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             const vId = genVersionIdRef.current
             if (!vId) return
             // Сначала проверяем — вдруг документ уже сгенерирован (таймаут сработал раньше)
-            const checkRes = await fetch(`/api/documents/${id}`)
+            const checkRes = await apiFetch(`/api/documents/${id}`)
             if (checkRes.ok) {
               const doc = await checkRes.json()
               const ver = doc.versions.find((v: Version) => v.id === vId)
@@ -1216,7 +1220,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             setGenerating(true)
             setGenProgress(0)
             genStartRef.current = Date.now()
-            const genRes = await fetch(`/api/versions/${vId}/generate`, { method: 'POST' })
+            const genRes = await apiFetch(`/api/versions/${vId}/generate`, { method: 'POST' })
             if (genRes.ok) {
               const { jobId, status } = await genRes.json()
               if (status === 'already_generated') {
