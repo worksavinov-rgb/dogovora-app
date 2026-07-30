@@ -1170,6 +1170,9 @@ export const gigachatProvider: AIProvider = {
     const maxTokens = Math.min(Math.max(estimatedTokens, 12000), 32768)
 
     const isChildDoc = parentDocContent && parentDocContent.trim().length > 0
+    // Приложения/ДС — короткие документы: ограничиваем вывод, чтобы модель не
+    // растекалась на объём полноценного договора (наблюдалось ~18k знаков вместо ~8k).
+    const genMaxTokens = isChildDoc ? Math.min(maxTokens, 6500) : maxTokens
     const parentSnippet = isChildDoc ? parentDocContent!.slice(0, 10000) : null
     const referenceSnippet = referenceContent && referenceContent.trim().length > 0
       ? referenceContent.trim().slice(0, 8000)
@@ -1222,7 +1225,7 @@ export const gigachatProvider: AIProvider = {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        max_tokens: maxTokens,
+        max_tokens: genMaxTokens,
         repetition_penalty: 1.0,
         temperature: getActiveTemperature('generate', 0.2),
       }, 'generate')
@@ -1277,16 +1280,18 @@ export const gigachatProvider: AIProvider = {
 
     const systemPrompt = isChildDoc
       ? [
-          'Ты опытный юрист. Составляешь юридически грамотное приложение или дополнительное соглашение к договору на русском языке. Опираешься на условия основного договора.',
+          'Ты опытный юрист. Составляешь КОМПАКТНОЕ приложение или дополнительное соглашение к договору на русском языке. Опираешься на условия основного договора.',
+          'Это НЕ полноценный договор, а короткий сопутствующий документ — пиши сжато, только по существу задания.',
           '',
           structureRequirement,
           '',
           'СТАНДАРТЫ КАЧЕСТВА:',
-          '- Ссылайся на нормы ГК РФ где уместно.',
+          '- Ссылайся на конкретные пункты основного договора и нормы ГК РФ где уместно.',
           '- НЕ пиши «согласно законодательству», «в установленном порядке» — всегда конкретика.',
           '- НЕ оставляй незаполненных заглушек типа «___», «N руб.», «дата».',
+          '- НЕ дублируй условия основного договора — только новые/изменяемые.',
           '',
-          `ОБЯЗАТЕЛЬНЫЙ МИНИМАЛЬНЫЙ ОБЪЁМ: НЕ МЕНЕЕ ${settings.targetSize} знаков.`,
+          `ОБЪЁМ: КОМПАКТНО, ориентир около ${Math.min(settings.targetSize, 6000)} знаков. НЕ раздувай текст, НЕ добавляй лишние разделы и вводные фразы. Лучше короче и по делу.`,
           'Верни ТОЛЬКО текст документа — без пояснений, без комментариев.',
           'ФОРМАТИРОВАНИЕ — СТРОГО HTML: заголовки разделов в <h2>, пункты в <p>, таблицы в <table>. Нумерация 1.1. 1.2. в тексте <p>. ЗАПРЕЩЕНО использовать markdown-символы. ЗАПРЕЩЕНО inline-стили.',
         ].join('\n')
@@ -1421,7 +1426,7 @@ export const gigachatProvider: AIProvider = {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: maxTokens,
+      max_tokens: genMaxTokens,
       repetition_penalty: 1.05,
       temperature: getActiveTemperature('generate', 0.4),
     }, 'generate')
