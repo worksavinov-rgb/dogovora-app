@@ -725,8 +725,9 @@ export const gigachatProvider: AIProvider = {
             yield reattach(doc.replace(original, newTable))
             return
           }
+          throw new Error(`TBLDBG hasTable=1 rows=${newRows}/${origRows} valid=${v.ok} vErr=${v.error ?? '-'} first=${newTable.slice(0, 120)}`)
         }
-        // не получилось — продолжаем обычным блочным путём
+        throw new Error(`TBLDBG hasTable=0 respLen=${resp.length} first=${resp.slice(0, 160)}`)
       }
     }
 
