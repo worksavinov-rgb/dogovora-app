@@ -264,14 +264,14 @@ function buildBasisPhrase(
  * Собирается детерминированно из данных профиля/контрагента — НЕ зависит от того,
  * напишет ли её ИИ сам (промпт просит его не писать преамбулу, но это ненадёжно).
  */
-export function buildContractPreambleHtml(
+// Собирает предложения-«представления» сторон (без финального «заключили…»).
+// Общее для основного договора и для приложений/допсоглашений.
+function buildPartyPreambleParts(
   userProfile: UserProfileData,
   counterparty: CounterpartyData,
   role1: string,
   role2: string,
-  city?: string,
-  signingDate?: string,
-): string {
+): string[] {
   const p1Type = userProfile.type
   const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
   const p1FullName = partyFullName(userProfile.name, p1Type)
@@ -301,15 +301,59 @@ export function buildContractPreambleHtml(
     parts.push(`${esc(p2FullName)} ${signPhrase} именуемое в дальнейшем «${esc(role2)}», с другой стороны,`)
   }
 
-  parts.push('совместно именуемые «Стороны», заключили настоящий договор (далее — «Договор») о нижеследующем:')
+  return parts
+}
 
+function preambleMetaLine(city?: string, signingDate?: string): string {
   const cityLine = `г. ${esc(city ?? 'Москва')}`
   const dateLine = signingDate
     ? esc(new Date(signingDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }))
     : '«___» ____________ 202__ г.'
+  return `<p class="doc-preamble-meta">${cityLine}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${dateLine}</p>`
+}
 
+export function buildContractPreambleHtml(
+  userProfile: UserProfileData,
+  counterparty: CounterpartyData,
+  role1: string,
+  role2: string,
+  city?: string,
+  signingDate?: string,
+): string {
+  const parts = buildPartyPreambleParts(userProfile, counterparty, role1, role2)
+  parts.push('совместно именуемые «Стороны», заключили настоящий договор (далее — «Договор») о нижеследующем:')
   return [
-    `<p class="doc-preamble-meta">${cityLine}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${dateLine}</p>`,
+    preambleMetaLine(city, signingDate),
+    `<p class="doc-preamble">${parts.join(' ')}</p>`,
+  ].join('\n')
+}
+
+// Шапка-преамбула для ПРИЛОЖЕНИЙ и ДОПСОГЛАШЕНИЙ: заголовок «Приложение/
+// Дополнительное соглашение № N к Договору № X» + представление сторон +
+// «заключили настоящее Приложение/Дополнительное соглашение». Раньше дочерние
+// документы вообще не получали шапку (только основные договоры), из-за чего
+// приложение/ДС начиналось прямо с раздела «Реквизиты документа» без шапки.
+export function buildChildDocPreambleHtml(
+  userProfile: UserProfileData,
+  counterparty: CounterpartyData,
+  role1: string,
+  role2: string,
+  docType: string,
+  documentNumber?: number,
+  parentNumber?: string,
+  parentTitle?: string,
+  city?: string,
+  signingDate?: string,
+): string {
+  const label = docType === 'AMENDMENT' ? 'Дополнительное соглашение' : 'Приложение'
+  const num = documentNumber ? ` № ${documentNumber}` : ''
+  const parentRef = parentNumber ? `№ ${esc(parentNumber)}` : (parentTitle ? `«${esc(parentTitle)}»` : '')
+  const titleLine = `${label}${num} к Договору ${parentRef}`.replace(/\s+/g, ' ').trim()
+  const parts = buildPartyPreambleParts(userProfile, counterparty, role1, role2)
+  parts.push(`совместно именуемые «Стороны», заключили настоящее ${label} о нижеследующем:`)
+  return [
+    `<p class="doc-preamble-title"><strong>${esc(titleLine)}</strong></p>`,
+    preambleMetaLine(city, signingDate),
     `<p class="doc-preamble">${parts.join(' ')}</p>`,
   ].join('\n')
 }

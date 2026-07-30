@@ -3,7 +3,7 @@ import { prisma } from './db'
 import { withLoggedAIContext } from './ai/provider'
 import { saveFile, versionFileKey } from './storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
-import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, stripAiRequisitesBlock, buildContractPreambleHtml, stripAiPreamble } from './html-document'
+import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, stripAiRequisitesBlock, buildContractPreambleHtml, buildChildDocPreambleHtml, stripAiPreamble } from './html-document'
 import type { CounterpartyData, UserProfileData } from './ai/types'
 import { anonymizeForAnalysis, maskPartyForAI } from './anonymize'
 import { logger } from './logger'
@@ -169,9 +169,12 @@ export function startGenerateWorker() {
         finalText = normalizeLegalHtml(sanitizeHtml(finalText))
       }
 
-      // ── Блок реквизитов (ТОЛЬКО для основных договоров CONTRACT) ───────────
+      // ── Шапка (преамбула) + блок реквизитов — для договоров И для приложений/ДС ──
+      // Раньше это делалось ТОЛЬКО для основных договоров, поэтому приложения и
+      // допсоглашения выходили без шапки (начинались сразу с раздела). Теперь
+      // дочерние документы тоже получают шапку со ссылкой на родительский договор.
       const isMainContract = !docType || docType === 'CONTRACT'
-      if (isMainContract && userProfile && counterpartyData) {
+      if (userProfile && counterpartyData) {
         const role1 = userRole === 'executor' ? 'Исполнитель' : 'Заказчик'
         const role2 = userRole === 'executor' ? 'Заказчик' : 'Исполнитель'
 
@@ -198,17 +201,19 @@ export function startGenerateWorker() {
           .trimEnd()
 
         // Удаляем преамбулу, если ИИ всё-таки написал её сам (вопреки инструкции
-        // «преамбулу не пиши — вставляется системой») — и подставляем детерминированную,
-        // собранную из тех же данных профиля/контрагента, что и реквизиты в подвале.
+        // «преамбулу не пиши — вставляется системой») — и подставляем детерминированную.
         finalText = stripAiPreamble(finalText)
-        // Если шапка/реквизиты были заморожены на шаге настройки документа — используем
-        // их как есть. Иначе (старые документы, созданные до этой фичи) — собираем
-        // на лету из текущих данных профиля/контрагента, как раньше.
-        const preambleHtml = frozenPreambleHtml ?? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, contractCity, signingDate)
+
+        // Шапка: для основного договора — договорная (можно взять замороженную с шага
+        // настройки); для приложения/ДС — со ссылкой на родительский договор и текстом
+        // «заключили настоящее Приложение/Дополнительное соглашение».
+        const preambleHtml = isMainContract
+          ? (frozenPreambleHtml ?? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, contractCity, signingDate))
+          : buildChildDocPreambleHtml(userProfile, counterpartyData, role1, role2, docType ?? 'APPENDIX', documentNumber, parentDocNumber, parentDocTitle, contractCity, signingDate)
         finalText = `${preambleHtml}\n${finalText}`
 
-        // Добавляем HTML-блок реквизитов
-        const reqsHtml = frozenRequisitesHtml ?? buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
+        // Блок реквизитов/подписей — и для договора, и для дочерних документов.
+        const reqsHtml = (isMainContract ? frozenRequisitesHtml : undefined) ?? buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
         finalText += `\n${reqsHtml}`
       }
 
