@@ -690,6 +690,7 @@ export const gigachatProvider: AIProvider = {
     // отдаёт полную таблицу). Не вышло — падаем в общий блочный путь ниже.
     if (isTableEditInstruction(instruction)) {
       const { tables } = extractTables(doc)
+      throw new Error(`TBLDBG2 tables=${tables.length} docLen=${doc.length} hasTableTag=${/<table/i.test(doc)} snip=${doc.slice(0, 140)}`)
       if (tables.length === 1) {
         const original = tables[0]!
         const origRows = (original.match(/<tr\b/gi) || []).length
