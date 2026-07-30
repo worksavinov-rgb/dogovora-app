@@ -690,7 +690,6 @@ export const gigachatProvider: AIProvider = {
     // отдаёт полную таблицу). Не вышло — падаем в общий блочный путь ниже.
     if (isTableEditInstruction(instruction)) {
       const { tables } = extractTables(doc)
-      throw new Error(`TBLDBG2 tables=${tables.length} docLen=${doc.length} hasTableTag=${/<table/i.test(doc)} snip=${doc.slice(0, 140)}`)
       if (tables.length === 1) {
         const original = tables[0]!
         const origRows = (original.match(/<tr\b/gi) || []).length
@@ -726,9 +725,8 @@ export const gigachatProvider: AIProvider = {
             yield reattach(doc.replace(original, newTable))
             return
           }
-          throw new Error(`TBLDBG hasTable=1 rows=${newRows}/${origRows} valid=${v.ok} vErr=${v.error ?? '-'} first=${newTable.slice(0, 120)}`)
         }
-        throw new Error(`TBLDBG hasTable=0 respLen=${resp.length} first=${resp.slice(0, 160)}`)
+        // не получилось — продолжаем обычным блочным путём ниже
       }
     }
 
