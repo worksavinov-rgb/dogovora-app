@@ -240,6 +240,31 @@ export default function AdminAIPage() {
     await load()
   }
 
+  // Мгновенно сохраняет вкл/выкл оператора по клику галочки — без раскрытия
+  // карточки и отдельной кнопки «Сохранить» (её раньше не было видно в свёрнутом
+  // виде, и отключить оператора было невозможно). PUT мержит credentials, поэтому
+  // пустой credForms не затирает сохранённый ключ.
+  async function toggleOperatorEnabled(slug: string, isEnabled: boolean) {
+    const op = operators.find((o) => o.slug === slug)
+    if (!op) return
+    // оптимистично обновляем локально
+    setOperators((list) => list.map((o) => o.slug === slug ? { ...o, isEnabled } : o))
+    setSaving(`op-${slug}`)
+    const res = await fetch('/api/admin/ai/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, name: op.name, isEnabled, credentials: credForms[slug] ?? {} }),
+    })
+    setSaving(null)
+    if (!res.ok) {
+      // откат при ошибке
+      setOperators((list) => list.map((o) => o.slug === slug ? { ...o, isEnabled: !isEnabled } : o))
+      toast(`Не удалось ${isEnabled ? 'включить' : 'выключить'} ${op.name}`, 'error')
+      return
+    }
+    toast(`${op.name} ${isEnabled ? 'включён' : 'выключен'}`, 'success')
+  }
+
   async function testOperator(slug: string) {
     setSaving(`test-${slug}`)
     const res = await fetch('/api/admin/ai/config', {
@@ -536,7 +561,8 @@ export default function AdminAIPage() {
                     <input
                       type="checkbox"
                       checked={op.isEnabled}
-                      onChange={(e) => setOperators((list) => list.map((o) => o.id === op.id ? { ...o, isEnabled: e.target.checked } : o))}
+                      disabled={saving === `op-${op.slug}`}
+                      onChange={(e) => toggleOperatorEnabled(op.slug, e.target.checked)}
                     />
                     Включён
                   </label>

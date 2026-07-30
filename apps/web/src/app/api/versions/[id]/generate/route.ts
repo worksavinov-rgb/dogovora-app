@@ -153,12 +153,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     parentDocTitle: doc.parentDocument?.title ?? undefined,
     parentDocNumber: doc.parentDocument?.number ?? undefined,
     parentDocContent,
-    // Источник истины — Document.userRole (enum, задаётся один раз при создании документа).
-    // Раньше брали aiSettings?.userRole из JSON, но zod-схема при сохранении документа
-    // (apps/web/src/app/api/documents/route.ts) не объявляла это поле внутри aiSettings —
-    // оно тихо отбрасывалось при парсинге, и роль всегда падала в дефолт 'customer'
-    // независимо от того, что выбрал пользователь в мастере создания документа.
-    userRole: 'executor',
+    // Роль пользователя (Заказчик/Исполнитель) — из выбора в мастере, сохранённого
+    // в aiSettings.userRole (zod-схема documents/route.ts его принимает). Нормализуем
+    // регистр; дефолт — 'customer' (в мастере предвыбран «Я — Заказчик»).
+    // РАНЬШЕ здесь был хардкод 'executor' — он переворачивал стороны в каждом
+    // договоре, где пользователь Заказчик (подтверждено на живом прогоне).
+    userRole: (String(aiSettings?.userRole ?? '').toLowerCase() === 'executor'
+      ? 'executor'
+      : 'customer') as 'customer' | 'executor',
     userProfile,
     counterpartyData,
   })
