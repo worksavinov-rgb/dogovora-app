@@ -8,8 +8,17 @@ import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { splitRequisitesBlock } from '@/lib/html-document'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
+import { rateLimit } from '@/lib/rate-limit'
 
 type Params = { params: Promise<{ id: string }> }
+
+// Защита от злоупотребления бесплатными ИИ-запросами (правки/вопросы стоят нам денег,
+// а внутри версии они бесплатны для пользователя — платит только за покупку версии).
+// - лимит бесплатных ИИ-запросов на ОДНУ неоплаченную версию (после покупки правки
+//   создают новую версию с собственным лимитом);
+// - rate-limit по частоте (защита от скриптового флуда чата).
+const FREE_AI_REQUESTS_PER_VERSION = Number(process.env.FREE_AI_EDITS_PER_VERSION ?? 20)
+const CHAT_RATE_PER_MIN = Number(process.env.CHAT_RATE_PER_MIN ?? 15)
 
 const msgSchema = z.object({
   content: z.string().min(1).max(4000),
@@ -51,7 +60,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
   const version = await prisma.version.findFirst({
     where: { id, document: { userId } },
-    include: { document: { include: { counterparty: true } } },
+    include: { document: { include: { counterparty: true } }, purchase: { select: { id: true } } },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -62,6 +71,33 @@ export async function POST(req: NextRequest, { params }: Params) {
   } catch (err: unknown) {
     if (err instanceof z.ZodError) return NextResponse.json({ error: err.issues[0]?.message }, { status: 400 })
     throw err
+  }
+
+  // ─── Защита от злоупотребления ──────────────────────────────────────────────
+  // 1) Частотный лимит (защита от скриптового флуда): N запросов/мин на пользователя.
+  const rl = await rateLimit(`chat:${userId}`, CHAT_RATE_PER_MIN, 60_000)
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: `Слишком много запросов подряд. Подождите ${rl.retryAfterSec} сек. и попробуйте снова.`, code: 'RATE_LIMITED' },
+      { status: 429 },
+    )
+  }
+  // 2) Лимит бесплатных ИИ-запросов на неоплаченную версию.
+  //    Купленная версия лимита не имеет; правки после покупки создают новую версию
+  //    (у неё будет собственный лимит), поэтому «купите версию» — валидный выход.
+  if (!version.purchase) {
+    const usedRequests = await prisma.chatMessage.count({
+      where: { versionId: id, role: 'USER' },
+    })
+    if (usedRequests >= FREE_AI_REQUESTS_PER_VERSION) {
+      return NextResponse.json(
+        {
+          error: `Вы использовали ${FREE_AI_REQUESTS_PER_VERSION} бесплатных ИИ-правок для этой версии. Купите версию, чтобы продолжить редактирование — после покупки правки снова доступны.`,
+          code: 'FREE_LIMIT_REACHED',
+        },
+        { status: 402 },
+      )
+    }
   }
 
   // Сохраняем сообщение пользователя

@@ -707,9 +707,15 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       })
 
       if (!response.ok || !response.body) {
+        // Лимит бесплатных правок / частотный лимит приходят как JSON {error}.
+        let warnText = 'Ошибка соединения. Попробуйте ещё раз.'
+        try {
+          const errJson = await response.json() as { error?: string }
+          if (errJson?.error) warnText = errJson.error
+        } catch { /* тело не JSON — оставляем дефолт */ }
         setMessages((prev) => [
           ...prev,
-          { id: `err-${Date.now()}`, role: 'WARNING', content: 'Ошибка соединения. Попробуйте ещё раз.', createdAt: new Date().toISOString() },
+          { id: `err-${Date.now()}`, role: 'WARNING', content: warnText, createdAt: new Date().toISOString() },
         ])
         return
       }
@@ -976,6 +982,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const paidClean = isPurchased && !hasUnsavedEdits
   const docType = version.document?.type ?? 'CONTRACT'
   const versionPrice = calcVersionPrice(docType, charCount)
+
+  // Остаток бесплатных ИИ-правок на неоплаченную версию (лимит от злоупотреблений;
+  // синхронизирован с FREE_AI_EDITS_PER_VERSION в API чата). Купленная версия — без лимита.
+  const FREE_AI_REQUESTS_PER_VERSION = 20
+  const freeRequestsUsed = messages.filter((m) => m.role === 'USER').length
+  const freeRequestsLeft = Math.max(0, FREE_AI_REQUESTS_PER_VERSION - freeRequestsUsed)
+  const showFreeLimitHint = !isPurchased && freeRequestsLeft <= 5
 
   const STATUS_OPTIONS = [
     { value: 'DRAFT', label: 'Черновик', color: 'var(--ink-3)' },
@@ -1415,7 +1428,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         </div>
 
         {/* Режим: правка или вопрос */}
-        <div className="shrink-0 px-[12px] pb-[8px]">
+        <div className="shrink-0 px-[12px] pb-[8px] flex items-center justify-between gap-[8px]">
           <div
             className="inline-flex p-[3px] rounded-full"
             style={{ background: 'var(--surface-inset)', border: '1px solid var(--line)' }}
@@ -1444,6 +1457,19 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </button>
             ))}
           </div>
+
+          {/* Остаток бесплатных ИИ-правок (показываем ближе к лимиту) */}
+          {showFreeLimitHint && (
+            <span
+              className="text-[11px] font-medium whitespace-nowrap"
+              style={{ color: freeRequestsLeft === 0 ? 'var(--danger)' : 'var(--ink-4)' }}
+              title="После лимита купите версию, чтобы продолжить редактирование"
+            >
+              {freeRequestsLeft === 0
+                ? 'Лимит бесплатных правок исчерпан'
+                : `Бесплатных правок осталось: ${freeRequestsLeft}`}
+            </span>
+          )}
         </div>
 
         {/* Быстрые чипы */}
