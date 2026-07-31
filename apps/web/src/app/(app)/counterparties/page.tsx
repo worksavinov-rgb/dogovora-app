@@ -18,10 +18,15 @@ interface Counterparty {
   versionCount: number
 }
 
+const KNOWN_ORG_FORMS = ['ООО', 'ОАО', 'АО', 'ПАО', 'ЗАО', 'АНО', 'НКО', 'ИП', 'ФГУП', 'МУП', 'ГУП', 'ТСЖ']
+
 function guessOrgForm(cp: Counterparty): string {
-  if (!cp.inn) return ''
-  if (cp.inn.length === 10) return 'ООО'
-  if (cp.inn.length === 12) return 'ИП'
+  // Сначала пытаемся взять реальную юр-форму из названия («АНО «…»», «ИП …»).
+  const first = (cp.name ?? '').trim().split(/\s+/)[0]?.replace(/[«»"'.,]/g, '').toUpperCase() ?? ''
+  if (KNOWN_ORG_FORMS.includes(first)) return first
+  // Иначе — по длине ИНН: 12 → ИП, 10 → организация (НЕ обязательно ООО).
+  if (cp.inn?.length === 12) return 'ИП'
+  if (cp.inn?.length === 10) return 'Организация'
   return ''
 }
 
