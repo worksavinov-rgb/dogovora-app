@@ -729,8 +729,11 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
       </Card>
 
       {/* Шапка договора и реквизиты — автозаполняются, можно отредактировать вручную.
-          Зафиксируются за документом навсегда после перехода к шагу 2. */}
-      {selectedProfile && selectedCounterparty && (
+          Показываем только для основного договора. Для Приложения и Доп.соглашения
+          шапка/реквизиты/подписи подставляются системой при скачивании из
+          профиля+контрагента (для приложения — только подписи сторон), поэтому
+          редактировать их здесь не нужно — блок только путал бы. */}
+      {selectedProfile && selectedCounterparty && data.type === 'CONTRACT' && (
         <Card>
           <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Шапка договора и реквизиты</p>
           <div className="flex flex-col gap-[12px]">
