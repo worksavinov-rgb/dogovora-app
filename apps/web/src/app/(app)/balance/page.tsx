@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
+import { useAuthStore } from '@/store/auth'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,10 @@ interface Transaction {
 // ─── Константы ────────────────────────────────────────────────────────────────
 
 const TOPUP_AMOUNTS = [500, 1000, 2000, 5000, 10000, 20000]
+
+// Ориентир средней цены версии для оценки «хватит примерно на N».
+// Реальная цена считается calcVersionPrice (40–100 ₽) в момент покупки.
+const AVG_VERSION_PRICE = 60
 
 function formatMoney(n: number): string {
   return n.toLocaleString('ru', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
@@ -118,6 +123,8 @@ export default function BalancePage() {
       if (res.ok) {
         const data = await res.json()
         setBalance(data.balance)
+        // Синхронизируем баланс в шапке (authStore), иначе там осталось бы старое значение.
+        if (typeof data.balance === 'number') useAuthStore.getState().setBalance(data.balance)
         setSuccessMsg(`Баланс пополнен на ${formatMoney(selectedAmount)} ₽`)
         setTimeout(() => setSuccessMsg(null), 4000)
         await loadData()
@@ -168,7 +175,7 @@ export default function BalancePage() {
                 <span className="text-[var(--ink-3)] ml-[6px]" style={{ fontSize: 28 }}>₽</span>
               </p>
               <p className="text-[12px] text-[var(--ink-4)]">
-                Хватит примерно на {Math.floor((balance ?? 0) / 540)} {pluralVersions(Math.floor((balance ?? 0) / 540))} договоров
+                Хватит примерно на {Math.floor((balance ?? 0) / AVG_VERSION_PRICE)} {pluralVersions(Math.floor((balance ?? 0) / AVG_VERSION_PRICE))} документов
               </p>
             </Card>
 
@@ -235,7 +242,8 @@ export default function BalancePage() {
               <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Стоимость</p>
               <div className="flex flex-col gap-[8px]">
                 {[
-                  { label: 'Версия договора', value: '540 ₽' },
+                  { label: 'Договор', value: '50–100 ₽' },
+                  { label: 'Приложение / ДС', value: '40–100 ₽' },
                   { label: 'Повторное скачивание', value: 'Бесплатно' },
                   { label: 'Проверка рисков', value: 'Бесплатно' },
                   { label: 'Догодок-чат (правки)', value: 'Бесплатно' },

@@ -316,7 +316,7 @@ export default function HomePage() {
                     {pendingCount} {pendingCount === 1 ? 'версия ждёт' : 'версии ждут'} оплаты
                   </p>
                   <p className="text-[11px] mt-[2px]" style={{ color: 'oklch(0.6 0.06 60)' }}>
-                    Спишется {(pendingCount * 540).toLocaleString('ru')} ₽ — на балансе {wallet ? (wallet.balance - pendingCount * 540 > 0 ? 'хватает' : 'не хватает') : '…'}
+                    Спишется ~{(pendingCount * 60).toLocaleString('ru')} ₽ — на балансе {wallet ? (wallet.balance - pendingCount * 60 > 0 ? 'хватает' : 'не хватает') : '…'}
                   </p>
                 </div>
               </div>

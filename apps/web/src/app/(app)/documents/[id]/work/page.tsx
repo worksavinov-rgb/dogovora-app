@@ -7,6 +7,7 @@ import { calcVersionPrice } from '@/lib/pricing'
 // /api/auth/refresh и повторяет запрос — иначе автосейв/правки/генерация падали
 // с «Ошибка соединения»/«Ошибка сохранения», если токен истёк во время работы.
 import { apiFetch } from '@/lib/api-client'
+import { useAuthStore } from '@/store/auth'
 import { DocumentViewer } from '@/components/document-viewer'
 // marked нужен для LEGACY DocumentRenderer_LEGACY (старые markdown-документы)
 import { marked } from 'marked'
@@ -449,6 +450,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [downloading, setDownloading] = useState(false)
   const [purchasing, setPurchasing] = useState(false)
   const [purchased, setPurchased] = useState(false)
+  const [purchaseConfirmOpen, setPurchaseConfirmOpen] = useState(false) // модалка подтверждения покупки
+  const authBalance = useAuthStore((s) => s.balance)
   const [statusChanging, setStatusChanging] = useState(false)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
@@ -866,6 +869,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   async function purchaseVersion() {
     if (!version || purchasing) return
+    setPurchaseConfirmOpen(false)
     setPurchasing(true)
     try {
       // Если в чате/редакторе есть несохранённые правки — сначала фиксируем их
@@ -888,6 +892,13 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           purchase: { id: 'done' },
           status: 'PAID',
         } : prev)
+        // Синхронизируем баланс в шапке (authStore) — иначе там висело старое значение.
+        try {
+          const data = await res.json()
+          if (typeof data?.balance === 'number') {
+            useAuthStore.getState().setBalance(data.balance)
+          }
+        } catch { /* тело ответа необязательно */ }
       }
     } finally {
       setPurchasing(false)
@@ -1152,7 +1163,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 внесли правки — тогда покупается новая версия с текущим текстом. */}
             {!paidClean && !generating && docContent && (
               <button
-                onClick={purchaseVersion}
+                onClick={() => setPurchaseConfirmOpen(true)}
                 disabled={purchasing}
                 className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 flex items-center gap-[5px]"
                 style={{ background: 'var(--ok)' }}
@@ -1491,6 +1502,78 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     </div>
 
     {/* Предупреждение о несохранённых правках при выходе «Назад» */}
+    {purchaseConfirmOpen && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setPurchaseConfirmOpen(false)} />
+        <div
+          className="relative z-10 w-[380px] rounded-[var(--radius-xl)] p-[24px] flex flex-col gap-[16px]"
+          style={{ background: 'var(--bg)', border: '1px solid var(--line)', boxShadow: '0 16px 40px rgba(0,0,0,0.14)' }}
+        >
+          <div>
+            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">
+              Подтверждение покупки
+            </p>
+            <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">
+              {isPurchased
+                ? 'Правки после покупки создают новую платную версию. Списываем стоимость этой версии.'
+                : 'Оплачивается финальная версия. Купленную версию можно скачивать повторно бесплатно, правки и проверки — бесплатны.'}
+            </p>
+          </div>
+          <div className="rounded-[var(--radius-md)]" style={{ background: 'var(--surface-inset)', padding: '12px 14px' }}>
+            {[
+              { label: 'Стоимость версии', value: `${versionPrice} ₽`, bold: false, danger: false },
+              { label: 'Баланс сейчас', value: `${authBalance.toLocaleString('ru')} ₽`, bold: false, danger: false },
+              { label: 'Останется', value: `${(authBalance - versionPrice).toLocaleString('ru')} ₽`, bold: true, danger: authBalance < versionPrice },
+            ].map((row) => (
+              <div key={row.label} className="flex justify-between items-center py-[5px]">
+                <p className="text-[12px] text-[var(--ink-4)]">{row.label}</p>
+                <p className={['text-[13px]', row.bold ? 'font-medium' : '', row.danger ? 'text-[var(--danger)]' : 'text-[var(--ink)]'].join(' ')}
+                  style={{ fontFamily: 'var(--font-mono)' }}>
+                  {row.value}
+                </p>
+              </div>
+            ))}
+          </div>
+          {authBalance < versionPrice ? (
+            <div className="flex flex-col gap-[8px]">
+              <p className="text-[12px] text-[var(--danger)]">Недостаточно средств на балансе.</p>
+              <div className="flex gap-[8px]">
+                <button
+                  onClick={() => setPurchaseConfirmOpen(false)}
+                  className="flex-1 h-[38px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-2)] bg-[var(--surface)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={() => { setPurchaseConfirmOpen(false); router.push('/balance') }}
+                  className="flex-1 h-[38px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  Пополнить баланс
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-[8px]">
+              <button
+                onClick={() => setPurchaseConfirmOpen(false)}
+                className="flex-1 h-[40px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-2)] bg-[var(--surface)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={purchaseVersion}
+                disabled={purchasing}
+                className="flex-1 h-[40px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
+                style={{ background: 'var(--ok)' }}
+              >
+                {purchasing ? 'Покупаю…' : `Купить · ${versionPrice} ₽`}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
     {backConfirmOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center">
         <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setBackConfirmOpen(false)} />

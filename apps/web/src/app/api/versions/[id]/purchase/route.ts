@@ -22,12 +22,14 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   // Идемпотентность — уже куплено
   if (version.purchase) {
+    const currentWallet = await prisma.wallet.findUnique({ where: { userId } })
     return NextResponse.json({
       purchase: {
         id: version.purchase.id,
         amount: Number(version.purchase.amount),
         purchasedAt: version.purchase.purchasedAt,
       },
+      balance: Number(currentWallet?.balance ?? 0),
       alreadyPurchased: true,
     })
   }
@@ -51,10 +53,15 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   // ACID-транзакция: списание + создание Purchase + обновление статуса версии
-  const [, purchase] = await prisma.$transaction(async (tx) => {
-    // Повторно читаем кошелёк внутри транзакции (эмуляция SELECT FOR UPDATE)
-    const lockedWallet = await tx.wallet.findUniqueOrThrow({ where: { id: wallet.id } })
-    if (Number(lockedWallet.balance) < price) {
+  const [updatedWallet, purchase] = await prisma.$transaction(async (tx) => {
+    // Настоящая блокировка строки кошелька: SELECT ... FOR UPDATE.
+    // Параллельная покупка на том же кошельке ждёт, пока эта транзакция
+    // не завершится, — баланс не может уйти в минус при гонке.
+    const locked = await tx.$queryRaw<{ balance: string }[]>`
+      SELECT balance FROM "wallets" WHERE id = ${wallet.id} FOR UPDATE
+    `
+    const lockedBalance = Number(locked[0]?.balance ?? 0)
+    if (lockedBalance < price) {
       throw new Error('Insufficient funds')
     }
 
@@ -91,6 +98,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       amount: Number(purchase.amount),
       purchasedAt: purchase.purchasedAt,
     },
+    balance: Number(updatedWallet.balance),
     alreadyPurchased: false,
   }, { status: 201 })
 }

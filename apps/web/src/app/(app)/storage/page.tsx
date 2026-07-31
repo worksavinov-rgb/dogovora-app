@@ -359,15 +359,16 @@ export default function StoragePage() {
               </div>
 
               <button
-                disabled={isCurrent}
-                className="w-full h-[34px] rounded-[var(--radius-md)] text-[12px] font-medium transition-all cursor-pointer disabled:cursor-default"
+                disabled
+                title={isCurrent ? undefined : 'Платные тарифы появятся позже'}
+                className="w-full h-[34px] rounded-[var(--radius-md)] text-[12px] font-medium transition-all cursor-default"
                 style={{
-                  background: isCurrent ? 'transparent' : 'var(--ink)',
-                  color: isCurrent ? 'var(--ink-4)' : 'var(--bg)',
-                  border: isCurrent ? '1px solid var(--line)' : 'none',
+                  background: 'transparent',
+                  color: 'var(--ink-4)',
+                  border: '1px solid var(--line)',
                 }}
               >
-                {isCurrent ? 'Активен' : 'Перейти'}
+                {isCurrent ? 'Активен' : 'Скоро'}
               </button>
             </div>
           )
@@ -390,9 +391,11 @@ export default function StoragePage() {
             490 ₽/мес
           </p>
           <button
-            className="h-[34px] px-[14px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
+            disabled
+            title="Платные тарифы появятся позже"
+            className="h-[34px] px-[14px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--surface-inset)] text-[var(--ink-4)] cursor-default"
           >
-            Добавить
+            Скоро
           </button>
         </div>
       </div>
