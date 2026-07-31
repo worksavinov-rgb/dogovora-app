@@ -165,6 +165,20 @@ function headingFor(tag: string) {
 }
 
 /** Преобразует список блочных узлов в массив docx-параграфов/таблиц. */
+// Абзац основного текста: выключка по ширине, красная строка (~1,25 см) и
+// межстрочный интервал 1,5 — так документ выглядит как аккуратно свёрстанный
+// договор, а не «стена текста». Заголовки/таблицы/реквизиты идут своим путём.
+const BODY_FIRST_LINE = 709 // twips ≈ 1,25 см
+const BODY_LINE_SPACING = 360 // 240 = одинарный, 360 = 1,5
+function bodyParagraph(runs: TextRun[]): Paragraph {
+  return new Paragraph({
+    children: runs,
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { after: 120, line: BODY_LINE_SPACING },
+    indent: { firstLine: BODY_FIRST_LINE },
+  })
+}
+
 function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = []
 
@@ -176,7 +190,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
       // пустой абзац с одним пробелом, и интервалы между пунктами визуально удваиваются.
       if (!n.text.trim()) continue
       const runs = collectRuns([n])
-      if (!isBlank(runs)) out.push(new Paragraph({ children: runs, alignment: AlignmentType.JUSTIFIED, spacing: { after: 60 } }))
+      if (!isBlank(runs)) out.push(bodyParagraph(runs))
       continue
     }
 
@@ -185,13 +199,13 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         const { heading, align } = headingFor(n.tag)
         out.push(new Paragraph({
           children: collectRuns(n.children, { bold: true }),
-          heading, alignment: align, spacing: { before: 120, after: 60 },
+          heading, alignment: align, spacing: { before: 220, after: 100 },
         }))
         break
       }
       case 'p': {
         const runs = collectRuns(n.children)
-        out.push(new Paragraph({ children: runs, alignment: AlignmentType.JUSTIFIED, spacing: { after: 60 } }))
+        out.push(bodyParagraph(runs))
         break
       }
       case 'ul': case 'ol': {
