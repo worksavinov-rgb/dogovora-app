@@ -246,6 +246,16 @@ function partyFullName(name: string, type: string): string {
   return `${t} ${name}`
 }
 
+// Коды основания полномочий (enum подписанта) → родительный падеж для оборота
+// «действующий на основании …». Иначе в преамбуле светился сырой код (CERTIFICATE).
+const BASIS_GENITIVE: Record<string, string> = {
+  CHARTER: 'Устава',
+  POA: 'Доверенности',
+  CERTIFICATE: 'Свидетельства о государственной регистрации',
+  REGULATION: 'Положения',
+  OTHER: 'иного документа',
+}
+
 function buildBasisPhrase(
   type: string,
   ogrn: string | null | undefined,
@@ -256,7 +266,11 @@ function buildBasisPhrase(
     if (type === 'SOLE_PROPRIETOR') return ogrnDate ? `ОГРНИП ${signatorBasis} от ${ogrnDate} г.` : `ОГРНИП ${signatorBasis}`
     return `ОГРН ${signatorBasis}`
   }
-  if (signatorBasis) return signatorBasis
+  if (signatorBasis) {
+    // Известный код основания — переводим; произвольный текст оставляем как есть.
+    const key = signatorBasis.trim().toUpperCase()
+    return BASIS_GENITIVE[key] ?? signatorBasis
+  }
   if (type === 'SOLE_PROPRIETOR' && ogrn) return ogrnDate ? `ОГРНИП ${ogrn} от ${ogrnDate} г.` : `ОГРНИП ${ogrn}`
   return 'Устава'
 }
