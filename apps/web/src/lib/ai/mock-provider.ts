@@ -212,4 +212,15 @@ ${counterpartyName}, именуемый в дальнейшем «Заказчи
       },
     }
   },
+
+  async detectHeadings(candidates: string[]): Promise<{ title: number | null; headings: number[] }> {
+    await new Promise((r) => setTimeout(r, 200))
+    // Мок: простая эвристика — короткие строки без завершающей точки считаем заголовками.
+    const title = candidates.findIndex((t) => /^(договор|приложение|дополнительное соглашение)/i.test(t.trim()))
+    const headings = candidates
+      .map((t, i) => ({ t: t.trim(), i }))
+      .filter(({ t, i }) => i !== title && t.length <= 60 && !/[.:]$/.test(t) && !/^\d+\.\d/.test(t))
+      .map(({ i }) => i)
+    return { title: title >= 0 ? title : null, headings }
+  },
 }

@@ -10,6 +10,7 @@ export const AI_TASKS = [
   'spelling',
   'review_fallback',
   'extract_parties',
+  'detect_headings',
 ] as const
 
 export type AITask = (typeof AI_TASKS)[number]
@@ -93,6 +94,13 @@ export const AI_TASK_DEFINITIONS: AITaskDefinition[] = [
     label: 'Проверка (запасной)',
     description: 'Повтор при отказе фильтра безопасности',
     uiWhere: 'Автоматически внутри проверки, если основной запрос отклонён',
+    primary: false,
+  },
+  {
+    task: 'detect_headings',
+    label: 'Распознавание заголовков',
+    description: 'Определяет название и разделы в загруженном Word для красивого предпросмотра (текст не меняется)',
+    uiWhere: 'Автоматически при открытии/скачивании загруженного документа',
     primary: false,
   },
 ]

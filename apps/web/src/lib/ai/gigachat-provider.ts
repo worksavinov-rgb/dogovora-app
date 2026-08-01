@@ -817,7 +817,7 @@ export const gigachatProvider: AIProvider = {
       aiResponse += chunk
     }
 
-    console.log('[editDocument] raw AI response length:', aiResponse.length, 'first 200:', aiResponse.slice(0, 200))
+    console.log('[editDocument] raw AI response length:', aiResponse.length)
 
     // Предохранитель от разрушительных правок: если результат внезапно стал
     // кардинально короче оригинала — это почти наверняка ошибка модели
@@ -862,7 +862,8 @@ export const gigachatProvider: AIProvider = {
 
     // ── Фоллбэк: модель ответила в старом формате SEARCH/REPLACE ──
     const { result, applied, failed, failedSearches } = applyEditBlocks(doc, aiResponse)
-    console.log(`[editDocument] fallback search/replace: applied=${applied} failed=${failed}`, failed > 0 ? failedSearches : '')
+    // failedSearches содержит фрагменты договора — в лог идёт только их количество.
+    console.log(`[editDocument] fallback search/replace: applied=${applied} failed=${failed} failedSearches=${failedSearches.length}`)
 
     if (applied === 0) {
       yield '__EDIT_FAILED__'
@@ -1492,5 +1493,48 @@ export const gigachatProvider: AIProvider = {
       party1: raw.party1 ?? { name: 'Сторона 1' },
       party2: raw.party2 ?? { name: 'Сторона 2' },
     }
+  },
+
+  async detectHeadings(candidates: string[]): Promise<{ title: number | null; headings: number[] }> {
+    if (!candidates.length) return { title: null, headings: [] }
+
+    const systemContent = [
+      'Ты структурный анализатор договоров. Тебе дают пронумерованный список строк документа.',
+      'Определи, какие строки являются ЗАГОЛОВКАМИ: название документа и заголовки разделов.',
+      'Возвращай ТОЛЬКО валидный JSON без markdown-обёртки и пояснений.',
+    ].join('\n')
+
+    const list = candidates.map((t, i) => `${i}: ${t.replace(/\s+/g, ' ').trim().slice(0, 140)}`).join('\n')
+    const prompt = [
+      'Верни строго в формате: {"title": <номер строки-названия или null>, "headings": [<номера строк-заголовков разделов>]}',
+      '',
+      'Правила:',
+      '- title — строка с названием документа («Договор …», «Дополнительное соглашение …», «Приложение …»). Если явного названия нет — null.',
+      '- headings — строки, которые называют РАЗДЕЛ договора: «Предмет договора», «1. Ответственность сторон», «Порядок расчётов», «Статья 5. …», «Раздел II …» и т.п. Формат нумерации любой или её нет.',
+      '- НЕ заголовки: подпункты («1.1.», «2.3.4.»), обычный текст условий, строки с реквизитами (ИНН/ОГРН/БИК/счёт), город и дата, представление сторон («… в лице …, действующего …»).',
+      '- Заголовок — это короткая строка-название части документа, а не предложение с условием.',
+      '- Возвращай только номера из списка. Ничего не выдумывай.',
+      '',
+      'Строки:',
+      list,
+    ].join('\n')
+
+    const content = await completeText({
+      model: getActiveModelId('detect_headings', GIGACHAT_MODEL),
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 800,
+      repetition_penalty: 1,
+      temperature: getActiveTemperature('detect_headings', 0),
+    }, 'detect_headings')
+
+    const raw = JSON.parse(extractJson(content))
+    const n = candidates.length
+    const valid = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < n
+    const title = valid(raw?.title) ? raw.title as number : null
+    const headings = Array.isArray(raw?.headings) ? [...new Set((raw.headings as unknown[]).filter(valid) as number[])] : []
+    return { title, headings }
   },
 }

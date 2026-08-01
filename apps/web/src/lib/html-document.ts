@@ -226,6 +226,41 @@ export function maybePromoteHeadings(html: string): string {
   return promoteHeadings(html)
 }
 
+/**
+ * Собирает короткие <p>-строки — кандидаты в заголовки (заголовки всегда короткие).
+ * Возвращает тексты и глобальные индексы <p> (для точной обратной обёртки без
+ * изменения текста). Ограничение по длине заодно минимизирует объём и ПДн, уходящие в ИИ.
+ */
+export function collectHeadingCandidates(html: string): { texts: string[]; globalIndex: number[] } {
+  const texts: string[] = []
+  const globalIndex: number[] = []
+  let j = -1
+  html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (_full, inner: string) => {
+    j++
+    const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text.length >= 3 && text.length <= 90) { texts.push(text); globalIndex.push(j) }
+    return _full
+  })
+  return { texts, globalIndex }
+}
+
+/**
+ * Оборачивает <p> с указанными глобальными индексами в <h1> (название) / <h2> (разделы).
+ * Текст НЕ меняется — только тег. Должна применяться к тому же HTML, из которого
+ * собирались кандидаты (индексы <p> совпадают).
+ */
+export function applyHeadingIndices(html: string, titleGlobalIdx: number | null, headingGlobalIdx: Set<number>): string {
+  let j = -1
+  return html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (full, inner: string) => {
+    j++
+    const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (!text) return full
+    if (j === titleGlobalIdx) return `<h1>${text}</h1>`
+    if (headingGlobalIdx.has(j)) return `<h2>${text}</h2>`
+    return full
+  })
+}
+
 // ─── markdownToLegalHtml ──────────────────────────────────────────────────────
 
 /**

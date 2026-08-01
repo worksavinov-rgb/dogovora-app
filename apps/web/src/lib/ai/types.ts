@@ -129,6 +129,13 @@ export interface AIProvider {
   /** Извлечение реквизитов сторон из текста договора */
   extractParties(documentText: string): Promise<ExtractPartiesResult>
 
+  /**
+   * Определяет, какие из строк-кандидатов — заголовки документа.
+   * Возвращает индекс названия (title) и индексы разделов (headings) в переданном
+   * массиве. Текст НЕ меняется — только классификация по индексам.
+   */
+  detectHeadings(candidates: string[]): Promise<{ title: number | null; headings: number[] }>
+
   /** Генерация первого черновика */
   generate(
     description: string,

@@ -3,7 +3,8 @@ import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
-import { stripAiRequisitesBlock, maybePromoteHeadings } from '@/lib/html-document'
+import { stripAiRequisitesBlock } from '@/lib/html-document'
+import { getStructuredContentCached } from '@/lib/structure-uploaded'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 
@@ -165,9 +166,9 @@ export async function GET(req: NextRequest, { params }: Params) {
         executor: executorParty,
       } : undefined
 
-      // Для ранее загруженных документов без заголовков достраиваем <h1>/<h2>
-      // на лету (не меняя оригинал), чтобы разделы центрировались и в Word.
-      const contentPromoted = maybePromoteHeadings(version.content ?? '')
+      // Для загруженных документов достраиваем заголовки (эвристика + ИИ, с кэшем —
+      // тем же, что предпросмотр), чтобы разделы центрировались и в Word. Оригинал цел.
+      const contentPromoted = await getStructuredContentCached(id, version.content, userId)
       // Вырезаем блок реквизитов/подписей который мог быть в оригинальном Word-файле
       // (загруженные документы хранятся «как есть», без предварительной очистки).
       const contentForDocx = requisites ? stripAiRequisitesBlock(contentPromoted) : contentPromoted
