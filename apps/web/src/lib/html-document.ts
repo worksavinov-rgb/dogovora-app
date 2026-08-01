@@ -589,6 +589,28 @@ export function stripAiRequisitesBlock(html: string): string {
 }
 
 /**
+ * Есть ли после позиции `fromIdx` начало нового раздела или приложения.
+ * Нужно, чтобы не принять раздел в СЕРЕДИНЕ договора (например
+ * «13. Место нахождения и банковские реквизиты Сторон») за подвал документа
+ * и не отрезать вместе с ним приложения, которые идут дальше.
+ * NB: \b не работает с кириллицей в JS-regex — используем lookahead.
+ */
+function hasSectionsAfter(html: string, fromIdx: number): boolean {
+  const tail = html.slice(fromIdx)
+  const blockRe = /<(h[1-4]|p)[^>]*>([\s\S]*?)<\/\1>/gi
+  let m: RegExpExecArray | null
+  while ((m = blockRe.exec(tail))) {
+    const t = m[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (!t) continue
+    // Начало приложения/допсоглашения
+    if (/^(приложение|дополнительное\s+соглашение|доп\.?\s*соглашение|спецификация)(?=\s|№|\d|:|$)/i.test(t)) return true
+    // Заголовок нумерованного раздела («2. Спецификация», «3. Стоимость услуг»)
+    if (/^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(t)) return true
+  }
+  return false
+}
+
+/**
  * Отделяет подвал с реквизитами/подписями от тела договора.
  * Тело можно безопасно отправлять в ИИ; подвал возвращается как есть.
  */
@@ -602,6 +624,10 @@ export function splitRequisitesBlock(html: string): { body: string; requisites: 
       .replace(/&nbsp;/g, ' ')
       .trim()
     if (REQS_HEADER_RE.test(innerText)) {
+      // Подвал — это ХВОСТ документа. Если после найденного заголовка идут новые
+      // разделы или приложения («13. Место нахождения…», а дальше «Приложение №1»),
+      // то это НЕ подвал, а раздел в середине — иначе мы отрезали бы приложения.
+      if (hasSectionsAfter(html, match.index + match[0].length)) continue
       return {
         body: html.slice(0, match.index).trimEnd(),
         requisites: html.slice(match.index).trim(),

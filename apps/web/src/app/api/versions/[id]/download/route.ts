@@ -4,7 +4,7 @@ import { getUserId } from '@/lib/api-auth'
 import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
 import { stripAiRequisitesBlock } from '@/lib/html-document'
-import { getStructuredContentCached } from '@/lib/structure-uploaded'
+import { getStructuredContentCached, looksLikeUpload } from '@/lib/structure-uploaded'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 
@@ -141,10 +141,14 @@ export async function GET(req: NextRequest, { params }: Params) {
       // Если пользователь Исполнитель → наоборот.
       const customerParty = isCustomer ? myParty : cpParty
       const executorParty = isCustomer ? cpParty : myParty
+      // ЗАГРУЖЕННЫЙ документ уже содержит собственные шапку, реквизиты и приложения —
+      // системные не подставляем: иначе получались дубль шапки и обрезка «подвала»
+      // вместе со всем, что идёт после него (приложения).
+      const isUploadedDoc = looksLikeUpload(version.content ?? '')
       // Финальный раздел ставим всегда: для договора — полные реквизиты,
       // для приложения/допсоглашения — только подписи сторон (по docType).
       // Колонки в привычном порядке: слева Заказчик, справа Исполнитель.
-      const requisites = (profile || counterparty) ? {
+      const requisites = (!isUploadedDoc && (profile || counterparty)) ? {
         left: customerParty,
         right: executorParty,
         leftTitle: 'Заказчик',
@@ -157,7 +161,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       const signingDate = version.document.signingDate
         ? new Date(version.document.signingDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
         : null
-      const preamble = version.document.type === 'CONTRACT' && (profile || counterparty) ? {
+      const preamble = !isUploadedDoc && version.document.type === 'CONTRACT' && (profile || counterparty) ? {
         docTitle: version.document.title || 'Договор оказания услуг',
         docNumber: version.document.number,
         city: null,
