@@ -164,6 +164,18 @@ export function promoteHeadings(html: string): string {
   if (!html) return ''
   let titleAssigned = false
   let idx = 0
+
+  // Заголовки, которые Word пронумеровал списком (mammoth → <ol><li>Заголовок</li></ol>).
+  // Одиночный короткий пункт-заголовок без завершающей пунктуации → <h2>.
+  html = html.replace(/<ol\b[^>]*>\s*<li\b[^>]*>([\s\S]*?)<\/li>\s*<\/ol>/gi, (full, inner: string) => {
+    if (/<(ol|ul|p|table)\b/i.test(inner)) return full // вложенные списки/блоки — это настоящий список
+    const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (text.length >= 3 && text.length <= 60 && !/[.:;]$/.test(text) && /^[А-ЯЁA-Z0-9]/.test(text) && !/^\d+\.\d/.test(text)) {
+      return `<h2>${text}</h2>`
+    }
+    return full
+  })
+
   return html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (full, inner: string) => {
     idx++
     const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
@@ -185,17 +197,33 @@ export function promoteHeadings(html: string): string {
     if (len < 3 || len > 80) return full
     if (/^г\.\s/i.test(text)) return full                                   // город
     if (/«___»|«\d|20\d\d\s*г\.?$|\d{1,2}\.\d{1,2}\.20\d\d/.test(text)) return full // дата
-    if (/(ИНН|КПП|ОГРН|БИК|счёт|счет|\bр\/с|\bк\/с)/i.test(text)) return full       // реквизиты
+    if (/(ИНН|КПП|ОГРН|БИК|р\/сч|к\/сч|расч[её]тный сч|корр[.\s])/i.test(text)) return full // реквизиты (не ловим «расчётов»)
     if (/:$/.test(text)) return full                                        // «Исполнитель вправе:»
     if (/^\d+\.\d/.test(text)) return full                                  // подпункт 1.1 / 2.1.3
 
     // Признаки заголовка раздела:
-    const numbered = /^\d{1,2}[.)]\s+[А-ЯЁA-Z]/.test(text)                  // «1. ПРЕДМЕТ …»
+    const numbered = /^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(text)                  // «1. ПРЕДМЕТ …» / «4.Стоимость»
     const allCaps = /[А-ЯЁA-Z]/.test(text) && text === text.toUpperCase() && !/[a-zа-яё]/.test(text)
     const boldNoun = fullyBold && !/[.]$/.test(text)                        // жирная короткая строка без точки
     if (numbered || allCaps || boldNoun) return `<h2>${text}</h2>`
     return full
   })
+}
+
+/**
+ * Достраивает заголовки только если их ещё нет в документе. Безопасно для:
+ * — сгенерированных с нуля (уже содержат <h1>/<h2> → не трогаем);
+ * — новых загрузок (заголовки достроены при загрузке → не трогаем);
+ * — УЖЕ ЗАГРУЖЕННЫХ ранее (заголовков нет → достраиваем на лету при открытии/скачивании,
+ *   не переписывая оригинал в базе).
+ */
+export function maybePromoteHeadings(html: string): string {
+  if (!html) return ''
+  // Системно-сгенерированные документы уже со структурой — у них есть классы
+  // преамбулы/реквизитов. Их не трогаем. У загруженных (mammoth) таких классов нет,
+  // поэтому достраиваем заголовки — даже если часть разделов уже размечена стилями Word.
+  if (/class="[^"]*doc-(?:preamble|requisites)/i.test(html)) return html
+  return promoteHeadings(html)
 }
 
 // ─── markdownToLegalHtml ──────────────────────────────────────────────────────
