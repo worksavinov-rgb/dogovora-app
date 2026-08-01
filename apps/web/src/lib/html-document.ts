@@ -173,14 +173,32 @@ function isNonHeadingLine(text: string): boolean {
     || /^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+$/.test(text)           // ФИО три слова
 }
 
+// Прячет таблицы за плейсхолдерами (внутри таблиц ничего не делаем заголовком —
+// это данные/спецификации/цены). Возврат — маскированный HTML + список таблиц.
+export function maskTables(html: string): { masked: string; tables: string[] } {
+  const tables: string[] = []
+  const masked = html.replace(/<table[\s\S]*?<\/table>/gi, (m) => {
+    tables.push(m)
+    return `@@TBLH${tables.length - 1}@@`
+  })
+  return { masked, tables }
+}
+export function restoreTables(html: string, tables: string[]): string {
+  return html.replace(/@@TBLH(\d+)@@/g, (_m, i: string) => tables[Number(i)] ?? '')
+}
+
 export function promoteHeadings(html: string, opts: { conservative?: boolean } = {}): string {
   if (!html) return ''
   // conservative=true — помечаем только ОДНОЗНАЧНЫЕ заголовки (название, номерные
   // разделы, заголовки-списком). Неоднозначные (жирные/заглавные строки) НЕ трогаем —
   // их отдаём на решение ИИ. Так эвристика не «переразмечает» встроенные формы.
   const conservative = opts.conservative === true
+  // Таблицы не трогаем — их ячейки не должны становиться заголовками.
+  const masked = maskTables(html)
+  const tables = masked.tables
   let titleAssigned = false
   let idx = 0
+  html = masked.masked
 
   // Заголовки, которые Word пронумеровал списком (mammoth → <ol><li>Заголовок</li></ol>).
   // Одиночный короткий пункт-заголовок без завершающей пунктуации → <h2>.
@@ -193,7 +211,7 @@ export function promoteHeadings(html: string, opts: { conservative?: boolean } =
     return full
   })
 
-  return html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (full, inner: string) => {
+  html = html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (full, inner: string) => {
     idx++
     const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
     if (!text) return full
@@ -229,6 +247,8 @@ export function promoteHeadings(html: string, opts: { conservative?: boolean } =
     if (allCaps || boldNoun) return `<h2>${text}</h2>`
     return full
   })
+
+  return restoreTables(html, tables)
 }
 
 /**

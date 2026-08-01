@@ -7,7 +7,7 @@
 // Результат кэшируется в хранилище (один ИИ-проход на версию), оригинал в БД не меняется.
 
 import { runWithAI } from './ai/provider'
-import { promoteHeadings, collectHeadingCandidates, applyHeadingIndices } from './html-document'
+import { promoteHeadings, collectHeadingCandidates, applyHeadingIndices, maskTables, restoreTables } from './html-document'
 import { readFile, saveFile, fileExists, versionFileKey } from './storage'
 import { logger } from './logger'
 
@@ -30,9 +30,11 @@ export async function structureUploadedHtml(html: string, userId: string): Promi
   //    Так эвристика не «переразмечает» встроенные формы, и лимит не нужен.
   const base = promoteHeadings(html, { conservative: true })
 
-  // 2) ИИ решает, какие из оставшихся коротких строк — заголовки. Без лимита:
-  //    сколько ИИ определил настоящих заголовков — столько и ставим.
-  const { texts, globalIndex } = collectHeadingCandidates(base)
+  // 2) ИИ решает, какие из оставшихся коротких строк — заголовки. Без лимита.
+  //    Таблицы маскируем — их ячейки (цены/спецификации) не должны попадать
+  //    ни в кандидаты, ни под обёртку заголовком.
+  const { masked, tables } = maskTables(base)
+  const { texts, globalIndex } = collectHeadingCandidates(masked)
   if (!texts.length) return { html: base, aiApplied: false }
 
   try {
@@ -43,7 +45,7 @@ export async function structureUploadedHtml(html: string, userId: string): Promi
       if (g !== undefined) set.add(g)
     }
     const titleGlobal = ai.title != null && globalIndex[ai.title] !== undefined ? globalIndex[ai.title]! : null
-    const out = applyHeadingIndices(base, titleGlobal, set)
+    const out = restoreTables(applyHeadingIndices(masked, titleGlobal, set), tables)
     return { html: out, aiApplied: true }
   } catch (err) {
     // ИИ недоступен — запасной вариант: полная эвристика (жирные/заглавные тоже),
@@ -64,7 +66,7 @@ export async function getStructuredContentCached(versionId: string, content: str
 
   // Версия в имени кэша: при изменении алгоритма распознавания бампаем суффикс,
   // чтобы прод пересчитал (старый кэш игнорируется).
-  const key = versionFileKey(versionId, 'structured-v6.html')
+  const key = versionFileKey(versionId, 'structured-v7.html')
   try {
     if (await fileExists(key)) return (await readFile(key)).toString('utf8')
   } catch { /* нет кэша — считаем ниже */ }
