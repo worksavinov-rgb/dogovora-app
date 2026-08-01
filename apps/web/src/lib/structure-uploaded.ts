@@ -78,7 +78,7 @@ export async function getStructuredContentCached(versionId: string, content: str
 
   // Версия в имени кэша: при изменении алгоритма распознавания бампаем суффикс,
   // чтобы прод пересчитал (старый кэш игнорируется).
-  const key = versionFileKey(versionId, 'structured-v3.html')
+  const key = versionFileKey(versionId, 'structured-v4.html')
   try {
     if (await fileExists(key)) return (await readFile(key)).toString('utf8')
   } catch { /* нет кэша — считаем ниже */ }
