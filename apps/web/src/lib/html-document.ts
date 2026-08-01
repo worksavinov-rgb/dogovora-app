@@ -160,6 +160,17 @@ export function normalizeLegalHtml(html: string): string {
  * оформления (центрирование, разрядка) — как у сгенерированных с нуля документов.
  * Чистая строковая функция (без DOM) — работает и на клиенте, и на сервере, тестируема.
  */
+// Строки, которые точно НЕ заголовки разделов (подписи, ФИО, названия сторон,
+// реквизиты, поля-заполнители). Используется и эвристикой, и отбором кандидатов для ИИ.
+function isNonHeadingLine(text: string): boolean {
+  return /_{3,}/.test(text)                                                   // прочерки-заполнители
+    || /(ИНН|КПП|ОГРН|БИК|р\/сч|к\/сч)/i.test(text)                           // реквизиты
+    || /^(ИП|ООО|ОАО|АО|ПАО|ЗАО|АНО|НКО|ФГУП|МУП|ГУП|ТСЖ)\s/i.test(text)      // название стороны: «ИП Савинов …»
+    || /^(генеральный|исполнительный|финансовый|коммерческий|технический)\s+директор$|^директор$|^индивидуальный предприниматель$/i.test(text) // должность в подписи
+    || /^[А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.?$/.test(text)                    // «Камолов Б.Ш.»
+    || /^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+$/.test(text)           // ФИО три слова
+}
+
 export function promoteHeadings(html: string): string {
   if (!html) return ''
   let titleAssigned = false
@@ -200,6 +211,7 @@ export function promoteHeadings(html: string): string {
     if (/(ИНН|КПП|ОГРН|БИК|р\/сч|к\/сч|расч[её]тный сч|корр[.\s])/i.test(text)) return full // реквизиты (не ловим «расчётов»)
     if (/:$/.test(text)) return full                                        // «Исполнитель вправе:»
     if (/^\d+\.\d/.test(text)) return full                                  // подпункт 1.1 / 2.1.3
+    if (isNonHeadingLine(text)) return full                                 // подписи/ФИО/названия сторон/реквизиты
 
     // Признаки заголовка раздела:
     const numbered = /^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(text)                  // «1. ПРЕДМЕТ …» / «4.Стоимость»
@@ -238,7 +250,10 @@ export function collectHeadingCandidates(html: string): { texts: string[]; globa
   html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (_full, inner: string) => {
     j++
     const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-    if (text.length >= 3 && text.length <= 90) { texts.push(text); globalIndex.push(j) }
+    if (text.length < 3 || text.length > 90) return _full
+    // Не кандидаты: подписи/ФИО/названия сторон/реквизиты/строки-заполнители.
+    if (isNonHeadingLine(text)) return _full
+    texts.push(text); globalIndex.push(j)
     return _full
   })
   return { texts, globalIndex }

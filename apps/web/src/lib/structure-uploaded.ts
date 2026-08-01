@@ -33,6 +33,14 @@ export async function structureUploadedHtml(html: string, userId: string): Promi
 
   try {
     const ai = await runWithAI('detect_headings', { userId }, (p) => p.detectHeadings(texts))
+    // Защита от переразметки: у договора разделов немного. Если ИИ пометил слишком
+    // много строк как заголовки (частая ошибка на документах со встроенными формами/
+    // заявками и блоками подписей) — не доверяем ИИ и остаёмся на эвристике.
+    const MAX_AI_HEADINGS = 22
+    if (ai.headings.length > MAX_AI_HEADINGS) {
+      logger.error({ event: 'structure.detect_headings_too_many', count: ai.headings.length, user_id: userId })
+      return { html: out, aiApplied: true } // кэшируем эвристику — стабильно и без «частокола» заголовков
+    }
     const set = new Set<number>()
     for (const li of ai.headings) {
       const g = globalIndex[li]
@@ -56,7 +64,9 @@ export async function getStructuredContentCached(versionId: string, content: str
   const html = content ?? ''
   if (!looksLikeUpload(html)) return html
 
-  const key = versionFileKey(versionId, 'structured.html')
+  // Версия в имени кэша: при изменении алгоритма распознавания бампаем суффикс,
+  // чтобы прод пересчитал (старый кэш игнорируется).
+  const key = versionFileKey(versionId, 'structured-v2.html')
   try {
     if (await fileExists(key)) return (await readFile(key)).toString('utf8')
   } catch { /* нет кэша — считаем ниже */ }
