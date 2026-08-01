@@ -19,6 +19,18 @@ export function looksLikeUpload(html: string): boolean {
   return !!html && /<[a-z]/i.test(html) && !SYSTEM_CLASS_RE.test(html)
 }
 
+// У договора разделов немного. Если распозналось больше (обычно из-за встроенных
+// форм/заявок с десятками жирных меток), «хвост» сверх лимита возвращаем в абзацы —
+// реальные разделы договора идут первыми, поэтому не теряем их. Защита от «частокола».
+const MAX_TOTAL_H2 = 18
+function capHeadings(html: string): string {
+  let n = 0
+  return html.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, (full, inner: string) => {
+    n++
+    return n > MAX_TOTAL_H2 ? `<p>${inner}</p>` : full
+  })
+}
+
 /**
  * Структурирует HTML загруженного документа: эвристика + ИИ.
  * Возвращает готовый HTML и флаг, применялся ли ИИ (для решения о кэшировании).
@@ -66,15 +78,16 @@ export async function getStructuredContentCached(versionId: string, content: str
 
   // Версия в имени кэша: при изменении алгоритма распознавания бампаем суффикс,
   // чтобы прод пересчитал (старый кэш игнорируется).
-  const key = versionFileKey(versionId, 'structured-v2.html')
+  const key = versionFileKey(versionId, 'structured-v3.html')
   try {
     if (await fileExists(key)) return (await readFile(key)).toString('utf8')
   } catch { /* нет кэша — считаем ниже */ }
 
   const { html: structured, aiApplied } = await structureUploadedHtml(html, userId)
+  const capped = capHeadings(structured) // защита от «частокола» заголовков
   // Кэшируем только успешный ИИ-проход, чтобы после временного сбоя ИИ можно было повторить.
   if (aiApplied) {
-    try { await saveFile(key, Buffer.from(structured, 'utf8')) } catch { /* кэш необязателен */ }
+    try { await saveFile(key, Buffer.from(capped, 'utf8')) } catch { /* кэш необязателен */ }
   }
-  return structured
+  return capped
 }
