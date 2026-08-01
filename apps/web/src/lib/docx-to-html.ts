@@ -61,6 +61,7 @@ function postProcessMammothHtml(html: string): string {
 // динамически, только в браузере.
 export async function parseDocxToHtml(file: File): Promise<string> {
   const mammoth = await import('mammoth')
+  const { promoteHeadings } = await import('./html-document')
   const arrayBuffer = await file.arrayBuffer()
   const result = await mammoth.convertToHtml({ arrayBuffer }, {
     styleMap: [
@@ -74,5 +75,8 @@ export async function parseDocxToHtml(file: File): Promise<string> {
       "p[style-name='Название'] => h1:fresh",
     ],
   })
-  return postProcessMammothHtml(result.value)
+  // Word часто оформляет заголовки просто жирным абзацем (не «стилем заголовка»),
+  // тогда mammoth не делает из них <h1>/<h2>. Достраиваем заголовки эвристикой,
+  // чтобы загруженный документ выглядел в предпросмотре так же, как сгенерированный.
+  return promoteHeadings(postProcessMammothHtml(result.value))
 }

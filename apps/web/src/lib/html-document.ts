@@ -152,6 +152,52 @@ export function normalizeLegalHtml(html: string): string {
   return result.trim()
 }
 
+/**
+ * Распознаёт заголовки в HTML, полученном из загруженного Word (mammoth), где
+ * разделы часто приходят обычными жирными абзацами (`<p><strong>…</strong></p>`),
+ * а не тегами заголовков — из-за чего в предпросмотре выглядят «сухо». Приводит их
+ * к <h1> (название документа) / <h2> (разделы), чтобы применились единые стили
+ * оформления (центрирование, разрядка) — как у сгенерированных с нуля документов.
+ * Чистая строковая функция (без DOM) — работает и на клиенте, и на сервере, тестируема.
+ */
+export function promoteHeadings(html: string): string {
+  if (!html) return ''
+  let titleAssigned = false
+  let idx = 0
+  return html.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, (full, inner: string) => {
+    idx++
+    const text = inner.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (!text) return full
+    const len = text.length
+    // Абзац целиком жирный (mammoth: <p><strong>Заголовок</strong></p>)
+    const fullyBold = /^<(?:strong|b)>[\s\S]*<\/(?:strong|b)>$/i.test(inner.trim())
+
+    // 1) Название документа → h1 (в первых блоках, короткое, без «в лице/именуемый»)
+    // NB: \b не работает с кириллицей в JS-regex — используем lookahead на пробел/№/конец.
+    if (!titleAssigned && idx <= 4 && len <= 80 &&
+        /^(договор|дополнительное соглашение|доп\.?\s*соглашение|приложение|соглашение)(?=\s|№|$)/i.test(text) &&
+        !/в лице|именуем|действующ/i.test(text)) {
+      titleAssigned = true
+      return `<h1>${text}</h1>`
+    }
+
+    // Исключения — точно не заголовки разделов:
+    if (len < 3 || len > 80) return full
+    if (/^г\.\s/i.test(text)) return full                                   // город
+    if (/«___»|«\d|20\d\d\s*г\.?$|\d{1,2}\.\d{1,2}\.20\d\d/.test(text)) return full // дата
+    if (/(ИНН|КПП|ОГРН|БИК|счёт|счет|\bр\/с|\bк\/с)/i.test(text)) return full       // реквизиты
+    if (/:$/.test(text)) return full                                        // «Исполнитель вправе:»
+    if (/^\d+\.\d/.test(text)) return full                                  // подпункт 1.1 / 2.1.3
+
+    // Признаки заголовка раздела:
+    const numbered = /^\d{1,2}[.)]\s+[А-ЯЁA-Z]/.test(text)                  // «1. ПРЕДМЕТ …»
+    const allCaps = /[А-ЯЁA-Z]/.test(text) && text === text.toUpperCase() && !/[a-zа-яё]/.test(text)
+    const boldNoun = fullyBold && !/[.]$/.test(text)                        // жирная короткая строка без точки
+    if (numbered || allCaps || boldNoun) return `<h2>${text}</h2>`
+    return full
+  })
+}
+
 // ─── markdownToLegalHtml ──────────────────────────────────────────────────────
 
 /**
