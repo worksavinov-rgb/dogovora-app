@@ -169,7 +169,13 @@ function headingFor(tag: string) {
 // межстрочный интервал 1,5 — так документ выглядит как аккуратно свёрстанный
 // договор, а не «стена текста». Заголовки/таблицы/реквизиты идут своим путём.
 const BODY_FIRST_LINE = 709 // twips ≈ 1,25 см
-const BODY_LINE_SPACING = 360 // 240 = одинарный, 360 = 1,5
+const BODY_LINE_SPACING = 276 // 240 = одинарный, 276 ≈ 1,15, 360 = 1,5
+
+/** Плоский текст узла (для строк, где нужен таб между частями). */
+function nodeText(n: Node): string {
+  if (n.type === 'text') return n.text ?? ''
+  return (n.children ?? []).map(nodeText).join('')
+}
 function bodyParagraph(runs: TextRun[]): Paragraph {
   return new Paragraph({
     children: runs,
@@ -204,6 +210,18 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         break
       }
       case 'p': {
+        // Строка «город … дата» преамбулы: город слева, дата справа (правый таб-стоп).
+        if ((n.attribs['class'] ?? '').includes('doc-preamble-meta')) {
+          const spans = n.children.filter((c): c is ElNode => c.type === 'el')
+          const cityTxt = (spans[0] ? nodeText(spans[0]) : nodeText(n)).trim()
+          const dateTxt = spans[1] ? nodeText(spans[1]).trim() : ''
+          out.push(new Paragraph({
+            spacing: { after: 120, line: BODY_LINE_SPACING },
+            tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
+            children: [new TextRun({ text: dateTxt ? `${cityTxt}\t${dateTxt}` : cityTxt })],
+          }))
+          break
+        }
         const runs = collectRuns(n.children)
         out.push(bodyParagraph(runs))
         break

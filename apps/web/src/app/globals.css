@@ -548,3 +548,12 @@ button { font-family: inherit; }
   margin-bottom: 24px;
   font-style: italic;
 }
+
+/* Строка «город … дата»: город слева, дата справа (как в бумажном договоре). */
+.document-viewer .doc-preamble-meta,
+.document-viewer .ProseMirror .doc-preamble-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}

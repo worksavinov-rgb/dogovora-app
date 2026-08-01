@@ -312,7 +312,9 @@ function preambleMetaLine(city?: string, signingDate?: string): string {
   const dateLine = signingDate
     ? esc(new Date(signingDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }))
     : '«___» ____________ 202__ г.'
-  return `<p class="doc-preamble-meta">${cityLine}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${dateLine}</p>`
+  // Город слева, дата справа: два span'а. На экране разводит CSS (flex space-between),
+  // при выгрузке в Word — правый таб-стоп (см. html-docx-converter, doc-preamble-meta).
+  return `<p class="doc-preamble-meta"><span class="doc-preamble-city">${cityLine}</span><span class="doc-preamble-date">${dateLine}</span></p>`
 }
 
 export function buildContractPreambleHtml(
