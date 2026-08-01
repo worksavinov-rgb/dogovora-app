@@ -172,8 +172,12 @@ function isNonHeadingLine(text: string): boolean {
     || /^[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+$/.test(text)           // ФИО три слова
 }
 
-export function promoteHeadings(html: string): string {
+export function promoteHeadings(html: string, opts: { conservative?: boolean } = {}): string {
   if (!html) return ''
+  // conservative=true — помечаем только ОДНОЗНАЧНЫЕ заголовки (название, номерные
+  // разделы, заголовки-списком). Неоднозначные (жирные/заглавные строки) НЕ трогаем —
+  // их отдаём на решение ИИ. Так эвристика не «переразмечает» встроенные формы.
+  const conservative = opts.conservative === true
   let titleAssigned = false
   let idx = 0
 
@@ -214,11 +218,14 @@ export function promoteHeadings(html: string): string {
     if (/^\d+\.\d/.test(text)) return full                                  // подпункт 1.1 / 2.1.3
     if (isNonHeadingLine(text)) return full                                 // подписи/ФИО/названия сторон/реквизиты
 
-    // Признаки заголовка раздела:
-    const numbered = /^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(text)                  // «1. ПРЕДМЕТ …» / «4.Стоимость»
+    // Однозначный заголовок: номерной раздел («1. ПРЕДМЕТ …» / «4.Стоимость»).
+    const numbered = /^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(text)
+    if (numbered) return `<h2>${text}</h2>`
+    // В консервативном режиме неоднозначные строки не трогаем — решит ИИ.
+    if (conservative) return full
     const allCaps = /[А-ЯЁA-Z]/.test(text) && text === text.toUpperCase() && !/[a-zа-яё]/.test(text)
     const boldNoun = fullyBold && !/[.]$/.test(text)                        // жирная короткая строка без точки
-    if (numbered || allCaps || boldNoun) return `<h2>${text}</h2>`
+    if (allCaps || boldNoun) return `<h2>${text}</h2>`
     return full
   })
 }

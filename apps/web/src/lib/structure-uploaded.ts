@@ -19,51 +19,37 @@ export function looksLikeUpload(html: string): boolean {
   return !!html && /<[a-z]/i.test(html) && !SYSTEM_CLASS_RE.test(html)
 }
 
-// У договора разделов немного. Если распозналось больше (обычно из-за встроенных
-// форм/заявок с десятками жирных меток), «хвост» сверх лимита возвращаем в абзацы —
-// реальные разделы договора идут первыми, поэтому не теряем их. Защита от «частокола».
-const MAX_TOTAL_H2 = 18
-function capHeadings(html: string): string {
-  let n = 0
-  return html.replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, (full, inner: string) => {
-    n++
-    return n > MAX_TOTAL_H2 ? `<p>${inner}</p>` : full
-  })
-}
 
 /**
  * Структурирует HTML загруженного документа: эвристика + ИИ.
  * Возвращает готовый HTML и флаг, применялся ли ИИ (для решения о кэшировании).
  */
 export async function structureUploadedHtml(html: string, userId: string): Promise<{ html: string; aiApplied: boolean }> {
-  // 1) Эвристика
-  let out = promoteHeadings(html)
+  // 1) База — только ОДНОЗНАЧНЫЕ заголовки (название, номерные разделы, списком).
+  //    Неоднозначные жирные/заглавные строки НЕ помечаем — это решит ИИ семантически.
+  //    Так эвристика не «переразмечает» встроенные формы, и лимит не нужен.
+  const base = promoteHeadings(html, { conservative: true })
 
-  // 2) ИИ добирает пропущенные заголовки среди оставшихся коротких <p>
-  const { texts, globalIndex } = collectHeadingCandidates(out)
-  if (!texts.length) return { html: out, aiApplied: false }
+  // 2) ИИ решает, какие из оставшихся коротких строк — заголовки. Без лимита:
+  //    сколько ИИ определил настоящих заголовков — столько и ставим.
+  const { texts, globalIndex } = collectHeadingCandidates(base)
+  if (!texts.length) return { html: base, aiApplied: false }
 
   try {
     const ai = await runWithAI('detect_headings', { userId }, (p) => p.detectHeadings(texts))
-    // Защита от переразметки: у договора разделов немного. Если ИИ пометил слишком
-    // много строк как заголовки (частая ошибка на документах со встроенными формами/
-    // заявками и блоками подписей) — не доверяем ИИ и остаёмся на эвристике.
-    const MAX_AI_HEADINGS = 22
-    if (ai.headings.length > MAX_AI_HEADINGS) {
-      logger.error({ event: 'structure.detect_headings_too_many', count: ai.headings.length, user_id: userId })
-      return { html: out, aiApplied: true } // кэшируем эвристику — стабильно и без «частокола» заголовков
-    }
     const set = new Set<number>()
     for (const li of ai.headings) {
       const g = globalIndex[li]
       if (g !== undefined) set.add(g)
     }
     const titleGlobal = ai.title != null && globalIndex[ai.title] !== undefined ? globalIndex[ai.title]! : null
-    out = applyHeadingIndices(out, titleGlobal, set)
+    const out = applyHeadingIndices(base, titleGlobal, set)
     return { html: out, aiApplied: true }
   } catch (err) {
+    // ИИ недоступен — запасной вариант: полная эвристика (жирные/заглавные тоже),
+    // как лучшее приближение без ИИ.
     logger.error({ event: 'structure.detect_headings_failed', error: err, user_id: userId })
-    return { html: out, aiApplied: false } // мягкий откат на эвристику
+    return { html: promoteHeadings(html), aiApplied: false }
   }
 }
 
@@ -78,16 +64,15 @@ export async function getStructuredContentCached(versionId: string, content: str
 
   // Версия в имени кэша: при изменении алгоритма распознавания бампаем суффикс,
   // чтобы прод пересчитал (старый кэш игнорируется).
-  const key = versionFileKey(versionId, 'structured-v4.html')
+  const key = versionFileKey(versionId, 'structured-v5.html')
   try {
     if (await fileExists(key)) return (await readFile(key)).toString('utf8')
   } catch { /* нет кэша — считаем ниже */ }
 
   const { html: structured, aiApplied } = await structureUploadedHtml(html, userId)
-  const capped = capHeadings(structured) // защита от «частокола» заголовков
   // Кэшируем только успешный ИИ-проход, чтобы после временного сбоя ИИ можно было повторить.
   if (aiApplied) {
-    try { await saveFile(key, Buffer.from(capped, 'utf8')) } catch { /* кэш необязателен */ }
+    try { await saveFile(key, Buffer.from(structured, 'utf8')) } catch { /* кэш необязателен */ }
   }
-  return capped
+  return structured
 }
