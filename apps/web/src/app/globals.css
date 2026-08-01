@@ -416,6 +416,7 @@ button { font-family: inherit; }
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  text-align: center;
   margin: 28px 0 10px;
   line-height: 1.5;
 }
@@ -423,12 +424,14 @@ button { font-family: inherit; }
 .document-viewer .ProseMirror h3 {
   font-size: 13px;
   font-weight: 600;
+  text-align: center;
   margin: 18px 0 6px;
 }
 .document-viewer h4,
 .document-viewer .ProseMirror h4 {
   font-size: 13px;
   font-weight: 600;
+  text-align: center;
   margin: 14px 0 4px;
 }
 

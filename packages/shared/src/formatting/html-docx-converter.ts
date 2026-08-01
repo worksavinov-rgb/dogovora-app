@@ -158,10 +158,11 @@ const SINGLE_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' }
 const CELL_BORDERS = { top: SINGLE_BORDER, bottom: SINGLE_BORDER, left: SINGLE_BORDER, right: SINGLE_BORDER }
 
 function headingFor(tag: string) {
+  // Заголовки разделов в договорах принято центрировать (как и название документа).
   if (tag === 'h1') return { heading: HeadingLevel.HEADING_1, align: AlignmentType.CENTER }
-  if (tag === 'h2') return { heading: HeadingLevel.HEADING_2, align: AlignmentType.LEFT }
-  if (tag === 'h3') return { heading: HeadingLevel.HEADING_3, align: AlignmentType.LEFT }
-  return { heading: HeadingLevel.HEADING_4, align: AlignmentType.LEFT }
+  if (tag === 'h2') return { heading: HeadingLevel.HEADING_2, align: AlignmentType.CENTER }
+  if (tag === 'h3') return { heading: HeadingLevel.HEADING_3, align: AlignmentType.CENTER }
+  return { heading: HeadingLevel.HEADING_4, align: AlignmentType.CENTER }
 }
 
 /** Преобразует список блочных узлов в массив docx-параграфов/таблиц. */
