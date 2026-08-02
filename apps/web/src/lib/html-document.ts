@@ -237,6 +237,13 @@ export function promoteHeadings(html: string, opts: { conservative?: boolean } =
     if (/^\d+\.\d/.test(text)) return full                                  // подпункт 1.1 / 2.1.3
     if (isNonHeadingLine(text)) return full                                 // подписи/ФИО/названия сторон/реквизиты
 
+    // Начало приложения/допсоглашения внутри документа — заголовок части
+    // («Приложение № 1», «Дополнительное соглашение № 2»). В Word такие части
+    // ещё и переносятся на новую страницу (см. html-docx-converter).
+    if (/^(приложение|дополнительное\s+соглашение|доп\.?\s*соглашение)\s*(№|N)?\s*\d/i.test(text)) {
+      return `<h2>${text}</h2>`
+    }
+
     // Однозначный заголовок: номерной раздел («1. ПРЕДМЕТ …» / «4.Стоимость»).
     const numbered = /^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(text)
     if (numbered) return `<h2>${text}</h2>`

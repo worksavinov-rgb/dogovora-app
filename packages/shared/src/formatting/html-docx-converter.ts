@@ -186,6 +186,20 @@ function bodyParagraph(runs: TextRun[]): Paragraph {
   })
 }
 
+// Начало приложения/допсоглашения («Приложение № 1», «Дополнительное соглашение № 2»).
+// Такие части документа принято начинать с новой страницы.
+// NB: \b не работает с кириллицей в JS-regex — сравниваем по началу строки.
+function isAttachmentStart(text: string): boolean {
+  const t = text.trim()
+  if (t.length > 60) return false
+  return /^(приложение|дополнительное\s+соглашение|доп\.?\s*соглашение)\s*(№|N|#)?\s*\d/i.test(t)
+}
+
+// Счётчик обработанных блоков документа: нужен, чтобы не ставить разрыв страницы
+// перед САМЫМ первым блоком (иначе документ-приложение начинался бы с пустой страницы).
+// Сбрасывается в convertToDocx.
+let processedBlocks = 0
+
 function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = []
 
@@ -201,12 +215,17 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
       continue
     }
 
+    const isDocumentStart = processedBlocks === 0
+    processedBlocks++
+
     switch (n.tag) {
       case 'h1': case 'h2': case 'h3': case 'h4': {
         const { heading, align } = headingFor(n.tag)
         out.push(new Paragraph({
           children: collectRuns(n.children, { bold: true }),
           heading, alignment: align, spacing: { before: 220, after: 100 },
+          // Приложение/допсоглашение начинаем с новой страницы
+          pageBreakBefore: !isDocumentStart && isAttachmentStart(nodeText(n)),
         }))
         break
       }
@@ -220,6 +239,18 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
             spacing: { after: 120, line: BODY_LINE_SPACING },
             tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
             children: [new TextRun({ text: dateTxt ? `${cityTxt}\t${dateTxt}` : cityTxt })],
+          }))
+          break
+        }
+        // «Приложение № N» обычным абзацем — оформляем как заголовок части
+        // документа: с новой страницы, по центру, жирным.
+        const pText = nodeText(n)
+        if (isAttachmentStart(pText)) {
+          out.push(new Paragraph({
+            children: collectRuns(n.children, { bold: true }),
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 220, after: 100, line: BODY_LINE_SPACING },
+            pageBreakBefore: !isDocumentStart,
           }))
           break
         }
@@ -251,8 +282,12 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         break
       }
       case 'div': {
-        // doc-requisites рендерим как 2-колоночную таблицу без рамок
-        if ((n.attribs['class'] ?? '').includes('doc-requisites')) {
+        // Реквизиты/подписи — 2-колоночная таблица без рамок.
+        // doc-requisites — наш системный блок; doc-layout-table — реквизиты из
+        // загруженного Word (mammoth разворачивает layout-таблицу в такой div).
+        // Без этой ветки колонки схлопывались в один столбик.
+        const cls = n.attribs['class'] ?? ''
+        if (cls.includes('doc-requisites') || cls.includes('doc-layout-table')) {
           out.push(buildRequisitesTable(n))
         } else {
           out.push(...buildBlocks(n.children))
@@ -696,6 +731,7 @@ export async function convertToDocx(content: string, opts: DocxOptions = {}): Pr
   }
 
   const nodes = parseHtml(html)
+  processedBlocks = 0 // чтобы разрыв страницы не встал перед первым блоком документа
   const children = buildBlocks(nodes)
   if (children.length === 0) children.push(new Paragraph({ children: [new TextRun('')] }))
 
