@@ -258,6 +258,75 @@ export function promoteHeadings(html: string, opts: { conservative?: boolean } =
   return restoreTables(html, tables)
 }
 
+// Маркер стороны в блоке реквизитов: отдельный абзац «Заказчик:» / «Исполнитель:».
+const PARTY_MARKER_RE = /^(заказчик|исполнитель|поставщик|подрядчик|покупатель|продавец|арендатор|арендодатель|клиент|агент|принципал)\s*:?\s*$/i
+// Признаки того, что это действительно реквизиты, а не просто слово «Заказчик:».
+const REQ_SIGNAL_RE = /(ИНН|КПП|ОГРН|ОГРНИП|БИК|р\/сч|к\/сч|счёт|счет|адрес|банк)/i
+
+/**
+ * Группирует блок реквизитов сторон в две колонки.
+ * Во многих загруженных документах реквизиты идут простыми абзацами подряд
+ * («Заказчик:» … «Исполнитель:» …) — в Word это выглядит одним столбиком.
+ * Оборачиваем такие пары в `doc-layout-table` с двумя ячейками: предпросмотр
+ * (CSS grid) и Word (2-колоночная таблица) рисуют их рядом.
+ * Текст не меняется — только группировка блоков.
+ */
+export function groupRequisitesColumns(html: string): string {
+  if (!html || /doc-layout-table|doc-requisites/i.test(html)) return html
+
+  type Blk = { start: number; end: number; tag: string; text: string }
+  const blocks: Blk[] = []
+  const re = /<(p|h[1-4]|table|div|ul|ol)\b[^>]*>[\s\S]*?<\/\1>/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    const text = m[0].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    blocks.push({ start: m.index, end: m.index + m[0].length, tag: m[1].toLowerCase(), text })
+  }
+
+  const edits: { start: number; end: number; html: string }[] = []
+  for (let i = 0; i < blocks.length; i++) {
+    const a = blocks[i]
+    if (a.tag !== 'p' || !PARTY_MARKER_RE.test(a.text)) continue
+    const partyA = a.text.replace(/[:\s]/g, '').toLowerCase()
+
+    // Ищем маркер ВТОРОЙ стороны — только через абзацы (без заголовков/таблиц между).
+    let j = -1
+    for (let k = i + 1; k < blocks.length; k++) {
+      if (blocks[k].tag !== 'p') break
+      const t = blocks[k].text
+      if (PARTY_MARKER_RE.test(t) && t.replace(/[:\s]/g, '').toLowerCase() !== partyA) { j = k; break }
+    }
+    if (j < 0) continue
+
+    // Конец второй колонки — до заголовка/таблицы или до конца документа.
+    let end = j
+    while (end + 1 < blocks.length && blocks[end + 1].tag === 'p') end++
+
+    const colA = blocks.slice(i, j)
+    const colB = blocks.slice(j, end + 1)
+    const allText = [...colA, ...colB].map((b) => b.text).join(' ')
+    // Требуем реальных признаков реквизитов — иначе это не блок реквизитов.
+    if ((allText.match(REQ_SIGNAL_RE) || []).length === 0 || !/ИНН|ОГРН|БИК|счёт|счет/i.test(allText)) continue
+
+    const cell = (arr: Blk[]) => `<div class="doc-layout-cell">${html.slice(arr[0].start, arr[arr.length - 1].end)}</div>`
+    edits.push({
+      start: colA[0].start,
+      end: colB[colB.length - 1].end,
+      html: `<div class="doc-layout-table">${cell(colA)}${cell(colB)}</div>`,
+    })
+    i = end // продолжаем после обработанного блока
+  }
+
+  if (!edits.length) return html
+  let out = ''
+  let pos = 0
+  for (const e of edits) {
+    out += html.slice(pos, e.start) + e.html
+    pos = e.end
+  }
+  return out + html.slice(pos)
+}
+
 /**
  * Достраивает заголовки только если их ещё нет в документе. Безопасно для:
  * — сгенерированных с нуля (уже содержат <h1>/<h2> → не трогаем);

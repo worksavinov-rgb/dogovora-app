@@ -7,7 +7,7 @@
 // Результат кэшируется в хранилище (один ИИ-проход на версию), оригинал в БД не меняется.
 
 import { runWithAI } from './ai/provider'
-import { promoteHeadings, collectHeadingCandidates, applyHeadingIndices, maskTables, restoreTables } from './html-document'
+import { promoteHeadings, collectHeadingCandidates, applyHeadingIndices, maskTables, restoreTables, groupRequisitesColumns } from './html-document'
 import { readFile, saveFile, fileExists, versionFileKey } from './storage'
 import { logger } from './logger'
 
@@ -28,7 +28,8 @@ export async function structureUploadedHtml(html: string, userId: string): Promi
   // 1) База — только ОДНОЗНАЧНЫЕ заголовки (название, номерные разделы, списком).
   //    Неоднозначные жирные/заглавные строки НЕ помечаем — это решит ИИ семантически.
   //    Так эвристика не «переразмечает» встроенные формы, и лимит не нужен.
-  const base = promoteHeadings(html, { conservative: true })
+  // Реквизиты, идущие простыми абзацами, группируем в две колонки (и предпросмотр, и Word).
+  const base = promoteHeadings(groupRequisitesColumns(html), { conservative: true })
 
   // 2) ИИ решает, какие из оставшихся коротких строк — заголовки. Без лимита.
   //    Таблицы маскируем — их ячейки (цены/спецификации) не должны попадать
@@ -66,7 +67,7 @@ export async function getStructuredContentCached(versionId: string, content: str
 
   // Версия в имени кэша: при изменении алгоритма распознавания бампаем суффикс,
   // чтобы прод пересчитал (старый кэш игнорируется).
-  const key = versionFileKey(versionId, 'structured-v9.html')
+  const key = versionFileKey(versionId, 'structured-v10.html')
   try {
     if (await fileExists(key)) return (await readFile(key)).toString('utf8')
   } catch { /* нет кэша — считаем ниже */ }
