@@ -492,6 +492,21 @@ button { font-family: inherit; }
   background: #f6f3ec;
   font-weight: 600;
 }
+
+/* Блок реквизитов/подписей — таблица из одной строки: показываем колонки рядом,
+   но без рамок и заливки (это не таблица данных, а вёрстка подписей сторон).
+   Определяем структурно (:has), т.к. редактор не сохраняет класс. */
+.document-viewer table:has(> tbody > tr:only-child):has(td + td),
+.document-viewer .ProseMirror table:has(> tbody > tr:only-child):has(td + td) {
+  margin-top: 22px;
+}
+.document-viewer table:has(> tbody > tr:only-child):has(td + td) td,
+.document-viewer .ProseMirror table:has(> tbody > tr:only-child):has(td + td) td {
+  border: none;
+  background: transparent;
+  padding: 0 18px 0 0;
+  width: 50%;
+}
 .document-viewer tr:nth-child(even) td,
 .document-viewer .ProseMirror tr:nth-child(even) td {
   background: #faf8f3;

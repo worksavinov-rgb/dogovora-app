@@ -328,6 +328,70 @@ export function groupRequisitesColumns(html: string): string {
 }
 
 /**
+ * Превращает блок реквизитов `div.doc-layout-table` в настоящую <table> с одной
+ * строкой и двумя ячейками.
+ * Зачем: предпросмотр рендерится через TipTap, а его схема не знает тега <div> —
+ * такие блоки разворачивались в один столбик. Таблицы TipTap сохраняет, поэтому
+ * для показа переводим блок в таблицу (в Word и так 2 колонки).
+ */
+/** Находит конец блока <div…>, корректно считая вложенные div. Возвращает индекс ПОСЛЕ `</div>`. */
+function findDivEnd(html: string, afterOpenTag: number): number {
+  const tagRe = /<div\b[^>]*>|<\/div\s*>/gi
+  tagRe.lastIndex = afterOpenTag
+  let depth = 1
+  let t: RegExpExecArray | null
+  while ((t = tagRe.exec(html))) {
+    if (t[0].startsWith('</')) {
+      depth--
+      if (depth === 0) return t.index + t[0].length
+    } else depth++
+  }
+  return -1
+}
+
+/** Внутренности верхнеуровневых <div> внутри переданного фрагмента. */
+function topLevelDivContents(inner: string): string[] {
+  const out: string[] = []
+  const openRe = /<div\b[^>]*>/gi
+  let m: RegExpExecArray | null
+  let pos = 0
+  while ((m = openRe.exec(inner))) {
+    if (m.index < pos) continue // внутри уже разобранного блока
+    const contentStart = m.index + m[0].length
+    const end = findDivEnd(inner, contentStart)
+    if (end < 0) break
+    out.push(inner.slice(contentStart, end - inner.slice(0, end).match(/<\/div\s*>$/i)![0].length))
+    pos = end
+    openRe.lastIndex = end
+  }
+  return out
+}
+
+export function layoutDivsToTables(html: string): string {
+  if (!html || !/doc-layout-table/i.test(html)) return html
+  const openRe = /<div[^>]*class="[^"]*doc-layout-table[^"]*"[^>]*>/gi
+  let out = ''
+  let pos = 0
+  let m: RegExpExecArray | null
+  while ((m = openRe.exec(html))) {
+    if (m.index < pos) continue
+    const contentStart = m.index + m[0].length
+    const end = findDivEnd(html, contentStart)
+    if (end < 0) break
+    const closeLen = html.slice(0, end).match(/<\/div\s*>$/i)![0].length
+    const inner = html.slice(contentStart, end - closeLen)
+    const cells = topLevelDivContents(inner)
+    out += html.slice(pos, m.index)
+    out += cells.length >= 2
+      ? `<table class="doc-requisites-table"><tbody><tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr></tbody></table>`
+      : html.slice(m.index, end)
+    pos = end
+    openRe.lastIndex = end
+  }
+  return pos === 0 ? html : out + html.slice(pos)
+}
+
+/**
  * Достраивает заголовки только если их ещё нет в документе. Безопасно для:
  * — сгенерированных с нуля (уже содержат <h1>/<h2> → не трогаем);
  * — новых загрузок (заголовки достроены при загрузке → не трогаем);

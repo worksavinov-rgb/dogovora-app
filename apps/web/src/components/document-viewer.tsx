@@ -20,7 +20,7 @@ import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
-import { isHtmlContent, markdownToLegalHtml, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings } from '@/lib/html-document'
+import { isHtmlContent, markdownToLegalHtml, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
 
 interface DocumentViewerProps {
   /** HTML или Markdown контент документа */
@@ -48,7 +48,9 @@ export function DocumentViewer({ content, canCopy = false, onReady }: DocumentVi
       // maybePromoteHeadings достраивает заголовки для ранее загруженных документов,
       // у которых их нет (на лету, не меняя оригинал). Сгенерированные и новые
       // загрузки уже с заголовками — их не трогает.
-      return normalizeLegalHtml(maybePromoteHeadings(sanitizeHtml(content)))
+      // layoutDivsToTables: TipTap не знает тега <div> и разворачивал блок реквизитов
+      // в один столбик — переводим его в таблицу 1×2, её редактор сохраняет.
+      return layoutDivsToTables(normalizeLegalHtml(maybePromoteHeadings(sanitizeHtml(content))))
     }
 
     // Старый Markdown — конвертируем синхронно через inline-замены
