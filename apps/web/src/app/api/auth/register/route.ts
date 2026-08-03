@@ -6,6 +6,9 @@ import { rateLimit, getClientIp } from '@/lib/rate-limit'
 import { recordLoginAudit } from '@/lib/login-audit'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
+import { buildConsentRows } from '@/lib/consent'
+
+const CONSENT_REQUIRED = 'Для создания аккаунта примите оферту и согласия на обработку данных'
 
 const RegisterSchema = z.object({
   email: z.string().email('Введите корректный email'),
@@ -13,6 +16,12 @@ const RegisterSchema = z.object({
   fullName: z.string().min(2, 'Укажите ФИО'),
   businessScope: z.string().min(2, 'Укажите сферу деятельности'),
   promoCode: z.string().min(1, 'Введите промокод'),
+  // Согласия по 152-ФЗ. Три обязательных должны прийти строго true —
+  // literal(true) отклоняет как false, так и отсутствие поля.
+  consentOffer: z.literal(true, CONSENT_REQUIRED),
+  consentPdn: z.literal(true, CONSENT_REQUIRED),
+  consentCrossBorder: z.literal(true, CONSENT_REQUIRED),
+  consentMarketing: z.boolean().optional().default(false),
 })
 
 const WELCOME_BONUS = 5000
@@ -93,6 +102,18 @@ export async function POST(req: Request) {
           usedById: newUser.id,
           usedAt: new Date(),
         },
+      })
+
+      // Фиксируем согласия той же транзакцией: аккаунт не может существовать
+      // без доказательства принятия оферты и согласий на обработку данных.
+      await tx.userConsent.createMany({
+        data: buildConsentRows(
+          newUser.id,
+          data.consentMarketing
+            ? ['OFFER', 'PDN', 'CROSS_BORDER', 'MARKETING']
+            : ['OFFER', 'PDN', 'CROSS_BORDER'],
+          { ip, userAgent: req.headers.get('user-agent'), source: 'registration' },
+        ),
       })
 
       return newUser

@@ -27,8 +27,38 @@ model User {
   documents          Document[]
   documentTemplates  DocumentTemplate[]
   usedPromoCode      PromoCode?
+  consents           UserConsent[]
 
   @@map("users")
+}
+
+// ─── Согласия пользователя (152-ФЗ) ──────────────────────────────────────────
+// APPEND-ONLY: записи никогда не обновляются и не удаляются.
+// Отзыв согласия = новая запись с granted = false.
+// Хранит доказательство: какую редакцию документа человек принял, когда, с какого IP.
+
+model UserConsent {
+  id         String      @id @default(cuid())
+  userId     String
+  kind       ConsentKind
+  granted    Boolean     @default(true)
+  docVersion String // редакция документа на момент акцепта, напр. "2026-08-03"
+  source     String      @default("registration") // registration | settings | api
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, createdAt])
+  @@map("user_consents")
+}
+
+enum ConsentKind {
+  OFFER // публичная оферта + пользовательское соглашение
+  PDN // согласие на обработку персональных данных
+  CROSS_BORDER // согласие на трансграничную передачу ПДн (ст. 12 152-ФЗ)
+  MARKETING // рекламные и информационные рассылки (необязательное)
 }
 
 // Для будущего OAuth (Госуслуги / Яндекс ID) — таблица пустая в MVP

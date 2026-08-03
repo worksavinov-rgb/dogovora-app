@@ -3,13 +3,14 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AppLayout } from '@/components/layout/app-layout'
+import { ConsentGate } from '@/components/legal/consent-gate'
 import { useAuthStore } from '@/store/auth'
 import { useTopbarStore } from '@/store/topbar'
 import { installFetchAuthRetry } from '@/lib/install-fetch-auth'
 
 export default function AppGroupLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
-  const { user, balance, isInitialized, initialize } = useAuthStore()
+  const { user, balance, isInitialized, initialize, needsConsent } = useAuthStore()
   const pageTitle = useTopbarStore((s) => s.pageTitle)
 
   // Глобально включаем авто-обновление сессии при 401 для всех страниц за логином:
@@ -42,5 +43,11 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
   if (!user) return null
 
   const breadcrumbs = pageTitle ? [{ label: pageTitle }] : undefined
-  return <AppLayout balance={balance} breadcrumbs={breadcrumbs}>{children}</AppLayout>
+  return (
+    <AppLayout balance={balance} breadcrumbs={breadcrumbs}>
+      {children}
+      {/* Аккаунты, созданные до введения согласий, и выход новой редакции документов */}
+      {needsConsent && <ConsentGate />}
+    </AppLayout>
+  )
 }

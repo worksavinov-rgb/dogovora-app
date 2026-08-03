@@ -10,6 +10,8 @@ const PUBLIC_PATHS = [
   '/_next',
   '/ui-kit',
   '/favicon.ico',
+  // Правовые документы читаются без авторизации — на них ссылается форма регистрации
+  '/legal',
 ]
 
 function ensureRequestId(req: NextRequest): string {

@@ -1,9 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useAuthStore } from '@/store/auth'
 
 type Mode = 'login' | 'register'
@@ -22,9 +24,27 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Согласия (152-ФЗ). По умолчанию все сняты — предустановленная галочка
+  // не считается согласием, выраженным свободно и своей волей.
+  const [consentOffer, setConsentOffer] = useState(false)
+  const [consentPdn, setConsentPdn] = useState(false)
+  const [consentCrossBorder, setConsentCrossBorder] = useState(false)
+  const [consentMarketing, setConsentMarketing] = useState(false)
+  const [consentError, setConsentError] = useState(false)
+
+  const consentsOk = consentOffer && consentPdn && consentCrossBorder
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+
+    if (mode === 'register' && !consentsOk) {
+      setConsentError(true)
+      setError('Чтобы создать аккаунт, примите оферту и согласия на обработку данных')
+      return
+    }
+
+    setConsentError(false)
     setLoading(true)
 
     try {
@@ -34,7 +54,17 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
           mode === 'register'
-            ? { email, password, fullName, businessScope, promoCode }
+            ? {
+                email,
+                password,
+                fullName,
+                businessScope,
+                promoCode,
+                consentOffer,
+                consentPdn,
+                consentCrossBorder,
+                consentMarketing,
+              }
             : { email, password }
         ),
       })
@@ -213,6 +243,58 @@ export default function LoginPage() {
                 </Field>
               )}
 
+              {/* Согласия — только при регистрации */}
+              {mode === 'register' && (
+                <div className="flex flex-col gap-[11px] mt-[6px] pt-[16px] border-t border-[var(--line)]">
+                  <Checkbox
+                    compact
+                    checked={consentOffer}
+                    error={consentError && !consentOffer}
+                    onChange={(e) => setConsentOffer(e.target.checked)}
+                  >
+                    Принимаю <DocLink href="/legal/offer">публичную оферту</DocLink> и{' '}
+                    <DocLink href="/legal/terms">пользовательское соглашение</DocLink>
+                  </Checkbox>
+
+                  <Checkbox
+                    compact
+                    checked={consentPdn}
+                    error={consentError && !consentPdn}
+                    onChange={(e) => setConsentPdn(e.target.checked)}
+                  >
+                    Даю <DocLink href="/legal/pdn-consent">согласие на обработку персональных данных</DocLink>{' '}
+                    и ознакомлен с <DocLink href="/legal/privacy">политикой обработки</DocLink>
+                  </Checkbox>
+
+                  <Checkbox
+                    compact
+                    checked={consentCrossBorder}
+                    error={consentError && !consentCrossBorder}
+                    onChange={(e) => setConsentCrossBorder(e.target.checked)}
+                  >
+                    Даю{' '}
+                    <DocLink href="/legal/cross-border">
+                      согласие на трансграничную передачу данных
+                    </DocLink>{' '}
+                    — часть ИИ-моделей работает за пределами России
+                  </Checkbox>
+
+                  <Checkbox
+                    compact
+                    checked={consentMarketing}
+                    onChange={(e) => setConsentMarketing(e.target.checked)}
+                  >
+                    Хочу получать письма о новых возможностях сервиса{' '}
+                    <span className="text-[var(--ink-5)]">— по желанию</span>
+                  </Checkbox>
+
+                  <p className="text-[11px] leading-[1.5] text-[var(--ink-5)] mt-[2px]">
+                    Документы, реквизиты и контрагенты хранятся на серверах в России. Перед отправкой
+                    в ИИ реквизиты и идентификаторы сторон маскируются.
+                  </p>
+                </div>
+              )}
+
               {/* Запомнить / Забыли пароль */}
               {mode === 'login' && (
                 <div className="flex items-center justify-between">
@@ -277,6 +359,22 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/* ─── Ссылка на правовой документ ──────────────────────────────────────── */
+
+function DocLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      className="text-[var(--accent)] hover:text-[var(--accent-hover)] underline underline-offset-2 decoration-[var(--line-strong)]"
+    >
+      {children}
+    </Link>
   )
 }
 

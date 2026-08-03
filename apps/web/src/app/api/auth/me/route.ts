@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { hashPassword, comparePassword } from '@/lib/auth'
 import { getUserId } from '@/lib/api-auth'
+import { getConsentState } from '@/lib/consent'
 
 export async function GET(req: NextRequest) {
   const userId = await getUserId(req)
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
   })
   if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
 
+  const consents = await getConsentState(userId)
+
   return NextResponse.json({
     user: {
       id: user.id,
@@ -32,6 +35,7 @@ export async function GET(req: NextRequest) {
       createdAt: user.createdAt,
       wallet: user.wallet,
     },
+    consents,
   })
 }
 
