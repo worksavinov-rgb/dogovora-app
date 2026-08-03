@@ -526,6 +526,18 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
         if (!ver) throw new Error('no version')
 
+        // Контент берём через /api/versions/:id — там применяются структурирование
+        // заголовков и подстановка эталонных шапки/реквизитов из ЛК. В списке версий
+        // (/api/documents/:id) лежит сырой контент, из-за чего экран показывал
+        // старые реквизиты загруженного файла.
+        try {
+          const vRes = await apiFetch(`/api/versions/${ver.id}`)
+          if (vRes.ok) {
+            const full = await vRes.json() as { content?: string | null }
+            if (typeof full.content === 'string' && full.content) ver.content = full.content
+          }
+        } catch { /* не критично — покажем контент из списка версий */ }
+
         const versionWithDoc = {
           ...ver,
           document: { id: doc.id, title: doc.title, type: doc.type, counterparty: doc.counterparty },
