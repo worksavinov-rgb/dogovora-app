@@ -157,6 +157,11 @@ export async function POST(req: NextRequest) {
       type: data.type,
       parentDocumentId: data.parentDocumentId,
       documentNumber,
+      // Шапка и реквизиты, согласованные пользователем в мастере (он мог их
+      // отредактировать вручную). Раньше принимались схемой, но НЕ сохранялись —
+      // правки пользователя молча терялись.
+      preambleHtml: data.preambleHtml || undefined,
+      requisitesHtml: data.requisitesHtml || undefined,
       versions: {
         create: {
           number: 1,

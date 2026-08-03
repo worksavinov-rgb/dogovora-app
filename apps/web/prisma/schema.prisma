@@ -211,6 +211,11 @@ model Document {
   profileId        String?      // профиль пользователя (моя компания) выбранный при создании
   signingDate      DateTime?    // плановая дата подписания (задаётся при создании)
   signedAt         DateTime?    // дата фактического подписания (устанавливается при переводе в SIGNED)
+  // Шапка и блок реквизитов/подписей, согласованные пользователем при создании
+  // документа (мастер строит их из ЛК и разрешает править вручную).
+  // Источник истины для генерации, предпросмотра и выгрузки в Word.
+  preambleHtml     String?
+  requisitesHtml   String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
