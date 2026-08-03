@@ -6,6 +6,7 @@ import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-doc
 import { stripAiRequisitesBlock } from '@/lib/html-document'
 import { looksLikeUpload } from '@/lib/structure-uploaded'
 import { getPresentationContent } from '@/lib/presentation-content'
+import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 
@@ -60,28 +61,13 @@ export async function GET(req: NextRequest, { params }: Params) {
 
       // Реальная роль пользователя в договоре. Для APPENDIX/AMENDMENT наследуем
       // от родительского договора, иначе читаем из настроек самой версии.
-      // Источники: aiSettings.userRole ('customer'|'executor') либо текст
-      // customInstruction («Пользователь является исполнителем/заказчиком»).
-      const resolveRole = (ai: unknown): 'CUSTOMER' | 'EXECUTOR' | null => {
-        if (!ai || typeof ai !== 'object') return null
-        const a = ai as { userRole?: string; customInstruction?: string }
-        const raw = (a.userRole ?? '').toString().toLowerCase()
-        if (raw === 'customer' || raw === 'executor') return raw.toUpperCase() as 'CUSTOMER' | 'EXECUTOR'
-        const instr = a.customInstruction ?? ''
-        if (/заказчик/i.test(instr)) return 'CUSTOMER'
-        if (/исполнител/i.test(instr)) return 'EXECUTOR'
-        return null
-      }
-      let userRole = resolveRole(version.aiSettings)
-      if (!userRole && version.document.parentDocumentId) {
-        const parentVersion = await prisma.version.findFirst({
-          where: { document: { id: version.document.parentDocumentId, userId } },
-          orderBy: { number: 'desc' },
-          select: { aiSettings: true },
-        })
-        userRole = resolveRole(parentVersion?.aiSettings)
-      }
-      userRole = userRole ?? 'EXECUTOR'
+      // Единый resolvePartyRole используется и в предпросмотре (versions/[id]/route.ts):
+      // так шапка и реквизиты в DOCX и на экране всегда совпадают.
+      const userRole = await resolvePartyRole({
+        aiSettings: version.aiSettings,
+        parentDocumentId: version.document.parentDocumentId,
+        userId,
+      })
 
       const [profile, counterparty] = await Promise.all([
         // Если профиль не выбран на документе — берём первый профиль пользователя
@@ -176,7 +162,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       // тем же, что предпросмотр), чтобы разделы центрировались и в Word. Оригинал цел.
       const contentPromoted = await getPresentationContent(
         id, version.document.id, version.content, userId,
-        userRole === 'CUSTOMER' ? 'customer' : 'executor',
+        toLowerRole(userRole),
       )
       // Вырезаем блок реквизитов/подписей который мог быть в оригинальном Word-файле
       // (загруженные документы хранятся «как есть», без предварительной очистки).

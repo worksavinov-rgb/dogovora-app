@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { getPresentationContent } from '@/lib/presentation-content'
+import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest, { params }: Params) {
           id: true,
           title: true,
           type: true,
+          parentDocumentId: true,
           counterparty: {
             select: {
               id: true,
@@ -45,9 +47,15 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   // Для загруженных документов: заголовки (эвристика + ИИ, кэш) + эталонные шапка
   // и реквизиты из ЛК. Оригинал в БД не меняем.
-  const aiSettingsForRole = version.aiSettings as { userRole?: string } | null
+  // Роль пользователя определяем ТЕМ ЖЕ resolvePartyRole, что и при скачивании, —
+  // иначе предпросмотр и DOCX расходятся, и стороны встают местами (баг ролей).
+  const role = await resolvePartyRole({
+    aiSettings: version.aiSettings,
+    parentDocumentId: version.document.parentDocumentId,
+    userId,
+  })
   const content = await getPresentationContent(
-    version.id, version.document.id, version.content, userId, aiSettingsForRole?.userRole,
+    version.id, version.document.id, version.content, userId, toLowerRole(role),
   )
 
   return NextResponse.json({
