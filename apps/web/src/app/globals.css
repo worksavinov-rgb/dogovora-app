@@ -507,6 +507,22 @@ button { font-family: inherit; }
   padding: 0 18px 0 0;
   width: 50%;
 }
+/* Реквизиты/подписи: компактный интервал, ровные строки (не «стена» с большими
+   отступами). Действует внутри однострочной 2-колоночной таблицы. */
+.document-viewer table:has(> tbody > tr:only-child):has(td + td) td p,
+.document-viewer .ProseMirror table:has(> tbody > tr:only-child):has(td + td) td p {
+  margin: 0 0 2px;
+  line-height: 1.35;
+}
+.document-viewer table:has(> tbody > tr:only-child):has(td + td) td p:has(> strong:only-child),
+.document-viewer .ProseMirror table:has(> tbody > tr:only-child):has(td + td) td p:has(> strong:only-child) {
+  margin-top: 8px;
+}
+/* Строка подписи — отбита сверху, чтобы «___ / ___» стояла на своей линии. */
+.document-viewer .doc-signature-line,
+.document-viewer .ProseMirror .doc-signature-line {
+  margin-top: 18px;
+}
 .document-viewer tr:nth-child(even) td,
 .document-viewer .ProseMirror tr:nth-child(even) td {
   background: #faf8f3;

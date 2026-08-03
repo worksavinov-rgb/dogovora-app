@@ -441,8 +441,11 @@ function topLevelDivContents(inner: string): string[] {
 }
 
 export function layoutDivsToTables(html: string): string {
-  if (!html || !/doc-layout-table/i.test(html)) return html
-  const openRe = /<div[^>]*class="[^"]*doc-layout-table[^"]*"[^>]*>/gi
+  // Оба варианта блока реквизитов/подписей: системный doc-requisites и
+  // развёрнутый из Word doc-layout-table. NB: doc-requisites не должен матчить
+  // doc-requisites-party/-title (отсекаем через (?![-\w])).
+  if (!html || !/doc-layout-table|doc-requisites(?![-\w])/i.test(html)) return html
+  const openRe = /<div[^>]*class="[^"]*(?:doc-layout-table|doc-requisites)(?![-\w])[^"]*"[^>]*>/gi
   let out = ''
   let pos = 0
   let m: RegExpExecArray | null
@@ -453,10 +456,14 @@ export function layoutDivsToTables(html: string): string {
     if (end < 0) break
     const closeLen = html.slice(0, end).match(/<\/div\s*>$/i)![0].length
     const inner = html.slice(contentStart, end - closeLen)
-    const cells = topLevelDivContents(inner)
+    // Ведущий контент до первой колонки (например заголовок «РЕКВИЗИТЫ И ПОДПИСИ
+    // СТОРОН») выносим ПЕРЕД таблицей. Колонки — верхнеуровневые <div>.
+    const firstDiv = inner.search(/<div\b/i)
+    const leading = firstDiv > 0 ? inner.slice(0, firstDiv) : ''
+    const cells = topLevelDivContents(firstDiv >= 0 ? inner.slice(firstDiv) : inner)
     out += html.slice(pos, m.index)
     out += cells.length >= 2
-      ? `<table class="doc-requisites-table"><tbody><tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr></tbody></table>`
+      ? `${leading}<table class="doc-requisites-table"><tbody><tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr></tbody></table>`
       : html.slice(m.index, end)
     pos = end
     openRe.lastIndex = end
