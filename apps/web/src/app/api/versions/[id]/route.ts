@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { getStructuredContentCached } from '@/lib/structure-uploaded'
+import { getPresentationContent } from '@/lib/presentation-content'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -43,9 +43,12 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Для загруженных документов достраиваем заголовки (эвристика + ИИ, с кэшем),
-  // чтобы предпросмотр выглядел аккуратно. Оригинал в БД не меняем.
-  const content = await getStructuredContentCached(version.id, version.content, userId)
+  // Для загруженных документов: заголовки (эвристика + ИИ, кэш) + эталонные шапка
+  // и реквизиты из ЛК. Оригинал в БД не меняем.
+  const aiSettingsForRole = version.aiSettings as { userRole?: string } | null
+  const content = await getPresentationContent(
+    version.id, version.document.id, version.content, userId, aiSettingsForRole?.userRole,
+  )
 
   return NextResponse.json({
     id: version.id,

@@ -334,6 +334,79 @@ export function groupRequisitesColumns(html: string): string {
  * такие блоки разворачивались в один столбик. Таблицы TipTap сохраняет, поэтому
  * для показа переводим блок в таблицу (в Word и так 2 колонки).
  */
+// ─── Подстановка эталонных шапки и реквизитов (из ЛК) в загруженный документ ───
+
+/** Блоки верхнего уровня документа с их границами. */
+function topLevelBlocks(html: string): { start: number; end: number; tag: string; text: string }[] {
+  const out: { start: number; end: number; tag: string; text: string }[] = []
+  const re = /<(h[1-6]|p|table|div|ul|ol)\b[^>]*>[\s\S]*?<\/\1>/gi
+  let m: RegExpExecArray | null
+  let pos = 0
+  while ((m = re.exec(html))) {
+    if (m.index < pos) continue
+    const text = m[0].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    out.push({ start: m.index, end: m.index + m[0].length, tag: m[1].toLowerCase(), text })
+    pos = m.index + m[0].length
+    re.lastIndex = pos
+  }
+  return out
+}
+
+const APPENDIX_START_RE = /^(приложение|дополнительное\s+соглашение|доп\.?\s*соглашение)\s*(№|N)?\s*\d/i
+const REQ_DATA_RE = /(ИНН|ОГРН|ОГРНИП|БИК|р\/сч|к\/сч)/i
+
+/**
+ * Заменяет собственную шапку загруженного документа на эталонную из ЛК.
+ * Шапка — всё до первого заголовка раздела. Меняем только если этот блок
+ * действительно похож на шапку (стороны «в лице»/«именуемый») и он невелик.
+ */
+export function replaceDocumentPreamble(html: string, preambleHtml: string): { html: string; replaced: boolean } {
+  if (!html || !preambleHtml) return { html, replaced: false }
+  const blocks = topLevelBlocks(html)
+  // Первый заголовок раздела (не заголовок-название документа в самом начале)
+  const firstSection = blocks.find((b, i) => /^h[1-6]$/.test(b.tag) && i > 0 && !APPENDIX_START_RE.test(b.text))
+  if (!firstSection) return { html, replaced: false }
+  const region = html.slice(0, firstSection.start)
+  const regionText = region.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+  // Предохранители: это должна быть именно шапка и она не должна быть огромной.
+  if (regionText.length > 3000) return { html, replaced: false }
+  if (!/(именуем|в лице|заключили)/i.test(regionText)) return { html, replaced: false }
+  return { html: `${preambleHtml}\n${html.slice(firstSection.start)}`, replaced: true }
+}
+
+/**
+ * Заменяет блок реквизитов/подписей САМОГО ДОГОВОРА на эталонный из ЛК.
+ * Ищем только до первого приложения — подписи внутри приложений не трогаем.
+ * Заголовок раздела («13. Место нахождения и банковские реквизиты Сторон»)
+ * сохраняем — меняем только его содержимое, чтобы не сбить нумерацию.
+ */
+export function replaceRequisitesSection(html: string, requisitesHtml: string): { html: string; replaced: boolean } {
+  if (!html || !requisitesHtml) return { html, replaced: false }
+  const blocks = topLevelBlocks(html)
+  const firstAppendix = blocks.find((b) => /^h[1-6]$/.test(b.tag) && APPENDIX_START_RE.test(b.text))
+  const limit = firstAppendix ? firstAppendix.start : html.length
+
+  // Вариант 1: раздел с заголовком «Реквизиты…/Место нахождения…»
+  const headingIdx = blocks.findIndex((b) => /^h[1-6]$/.test(b.tag) && b.start < limit && REQS_HEADER_RE.test(b.text))
+  if (headingIdx >= 0) {
+    const heading = blocks[headingIdx]
+    const next = blocks.slice(headingIdx + 1).find((b) => /^h[1-6]$/.test(b.tag))
+    const regionEnd = Math.min(next ? next.start : html.length, limit)
+    const region = html.slice(heading.end, regionEnd)
+    if (!REQ_DATA_RE.test(region)) return { html, replaced: false } // не реквизиты — не трогаем
+    return { html: html.slice(0, heading.end) + '\n' + requisitesHtml + '\n' + html.slice(regionEnd), replaced: true }
+  }
+
+  // Вариант 2: блок реквизитов таблицей/div до первого приложения
+  const blockWithReqs = blocks.find(
+    (b) => (b.tag === 'table' || b.tag === 'div') && b.start < limit && REQ_DATA_RE.test(b.text) && /Заказчик|Исполнитель/i.test(b.text),
+  )
+  if (blockWithReqs) {
+    return { html: html.slice(0, blockWithReqs.start) + requisitesHtml + html.slice(blockWithReqs.end), replaced: true }
+  }
+  return { html, replaced: false }
+}
+
 /** Находит конец блока <div…>, корректно считая вложенные div. Возвращает индекс ПОСЛЕ `</div>`. */
 function findDivEnd(html: string, afterOpenTag: number): number {
   const tagRe = /<div\b[^>]*>|<\/div\s*>/gi

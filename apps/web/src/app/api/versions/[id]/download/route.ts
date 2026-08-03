@@ -4,7 +4,8 @@ import { getUserId } from '@/lib/api-auth'
 import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
 import { stripAiRequisitesBlock } from '@/lib/html-document'
-import { getStructuredContentCached, looksLikeUpload } from '@/lib/structure-uploaded'
+import { looksLikeUpload } from '@/lib/structure-uploaded'
+import { getPresentationContent } from '@/lib/presentation-content'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 
@@ -23,6 +24,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     include: {
       document: {
         select: {
+          id: true,
           title: true,
           number: true,
           type: true,
@@ -172,7 +174,10 @@ export async function GET(req: NextRequest, { params }: Params) {
 
       // Для загруженных документов достраиваем заголовки (эвристика + ИИ, с кэшем —
       // тем же, что предпросмотр), чтобы разделы центрировались и в Word. Оригинал цел.
-      const contentPromoted = await getStructuredContentCached(id, version.content, userId)
+      const contentPromoted = await getPresentationContent(
+        id, version.document.id, version.content, userId,
+        userRole === 'CUSTOMER' ? 'customer' : 'executor',
+      )
       // Вырезаем блок реквизитов/подписей который мог быть в оригинальном Word-файле
       // (загруженные документы хранятся «как есть», без предварительной очистки).
       const contentForDocx = requisites ? stripAiRequisitesBlock(contentPromoted) : contentPromoted
