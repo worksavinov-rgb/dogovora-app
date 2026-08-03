@@ -132,7 +132,9 @@ export async function POST(req: NextRequest, { params }: Params) {
         try {
           let updatedDoc = ''
           let failed = false
-          console.log('[chat/edit] starting editDocument, docLength=', documentText.length, 'instruction=', data.content.slice(0, 80))
+          // В логи — только размеры. Текст договора и инструкции пользователя
+          // не логируются никогда: логи доступны админам и разработчикам.
+          console.log('[chat/edit] starting editDocument, docLength=', documentText.length, 'instructionLength=', data.content.length)
           await withLoggedAIContext('edit', { userId, versionId: id }, async ({ provider }) => {
             const docGen = provider.editDocument(documentText, data.content, settings)
             for await (const chunk of docGen) {
