@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
     "worker": "tsx src/worker.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-ai": "tsx prisma/seed-ai-config.ts"
@@ -36,7 +38,7 @@
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "turndown": "^7.2.4",
-    "undici": "^8.10.0",
+    "undici": "^7.29.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"
   },
@@ -51,9 +53,11 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "jszip": "^3.10.1",
     "prisma": "5.22.0",
     "tailwindcss": "^4",
     "tsx": "^4.22.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

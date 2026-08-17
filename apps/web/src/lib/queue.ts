@@ -300,6 +300,17 @@ export function startGenerateWorker() {
       job_id: job?.id,
       version_id: job?.data?.versionId,
     })
+
+    // Последняя попытка исчерпана → возвращаем версию в DRAFT, иначе она
+    // навсегда зависает в IN_PROGRESS, а рабочий экран крутит вечный спиннер.
+    // Фронт при статусе failed у джоба показывает экран ошибки с retry.
+    const isFinalAttempt = (job?.attemptsMade ?? 0) >= (job?.opts?.attempts ?? 1)
+    if (isFinalAttempt && job?.data?.versionId) {
+      prisma.version.update({
+        where: { id: job.data.versionId },
+        data: { status: 'DRAFT' },
+      }).catch((e) => logger.error({ event: 'worker.reset_status_failed', error: e, version_id: job.data.versionId }))
+    }
   })
 
   return worker

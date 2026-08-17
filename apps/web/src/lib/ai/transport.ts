@@ -179,6 +179,9 @@ export async function* streamCompletion(
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ ...payload, stream: true }),
+    // Стрим генерации большого договора может идти несколько минут —
+    // таймаут шире, чем у обычных запросов (120с по умолчанию).
+    timeoutMs: 300_000,
   })
 
   if (!response.ok || !response.body) {

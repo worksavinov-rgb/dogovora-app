@@ -62,6 +62,11 @@ function parseUsage(json: unknown): OpenAIUsage {
   return { promptTokens, completionTokens, totalTokens, costRub }
 }
 
+// Таймауты: зависший запрос к провайдеру раньше держал соединение бесконечно.
+// Обычный запрос — 120с, стрим — 300с (генерация большого документа).
+const COMPLETE_TIMEOUT_MS = 120_000
+const STREAM_TIMEOUT_MS = 300_000
+
 export async function openaiComplete(options: ChatCompletionOptions, retries = 3): Promise<{
   content: string
   usage: OpenAIUsage
@@ -71,6 +76,7 @@ export async function openaiComplete(options: ChatCompletionOptions, retries = 3
     method: 'POST',
     headers: authHeaders(options, 'application/json'),
     body: JSON.stringify(buildBody(options, false)),
+    signal: AbortSignal.timeout(COMPLETE_TIMEOUT_MS),
   })
 
   let attemptsLeft = retries
@@ -82,6 +88,7 @@ export async function openaiComplete(options: ChatCompletionOptions, retries = 3
       method: 'POST',
       headers: authHeaders(options, 'application/json'),
       body: JSON.stringify(buildBody(options, false)),
+      signal: AbortSignal.timeout(COMPLETE_TIMEOUT_MS),
     })
   }
 
@@ -104,6 +111,7 @@ export async function* openaiStream(options: ChatCompletionOptions, retries = 3)
     method: 'POST',
     headers: authHeaders(options, 'text/event-stream'),
     body: JSON.stringify(buildBody(options, true)),
+    signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
   })
 
   let attemptsLeft = retries
@@ -115,6 +123,7 @@ export async function* openaiStream(options: ChatCompletionOptions, retries = 3)
       method: 'POST',
       headers: authHeaders(options, 'text/event-stream'),
       body: JSON.stringify(buildBody(options, true)),
+      signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
     })
   }
 
@@ -163,6 +172,7 @@ export async function* openaiStream(options: ChatCompletionOptions, retries = 3)
 /** Проверка соединения и баланс Polza.ai */
 export async function polzaGetBalance(apiKey: string): Promise<{ amount: string }> {
   const res = await fetch('https://polza.ai/api/v1/balance', {
+    signal: AbortSignal.timeout(30_000),
     headers: { Authorization: `Bearer ${apiKey}` },
   })
   if (!res.ok) {
@@ -174,6 +184,7 @@ export async function polzaGetBalance(apiKey: string): Promise<{ amount: string 
 
 export async function polzaListModels(apiKey: string, type = 'chat'): Promise<unknown[]> {
   const res = await fetch(`https://polza.ai/api/v1/models?type=${type}`, {
+    signal: AbortSignal.timeout(30_000),
     headers: { Authorization: `Bearer ${apiKey}` },
   })
   if (!res.ok) {
@@ -205,6 +216,7 @@ export async function openrouterVerify(
   baseUrl = OPENROUTER_DEFAULT_BASE,
 ): Promise<void> {
   const res = await fetch(`${normalizeBaseUrl(baseUrl)}/models`, {
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       ...openrouterDefaultHeaders(),
@@ -221,6 +233,7 @@ export async function openrouterListModels(
   baseUrl = OPENROUTER_DEFAULT_BASE,
 ): Promise<Array<{ id: string; name?: string }>> {
   const res = await fetch(`${normalizeBaseUrl(baseUrl)}/models`, {
+    signal: AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       ...openrouterDefaultHeaders(),

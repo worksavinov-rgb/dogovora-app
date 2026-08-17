@@ -5,13 +5,26 @@ import { runWithAI } from '@/lib/ai/provider'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { resolvePartyRole } from '@/lib/party-roles'
 import { logger } from '@/lib/logger'
+import { rateLimit } from '@/lib/rate-limit'
 
 type Params = { params: Promise<{ id: string }> }
+
+// Проверка — самый дорогой ИИ-вызов (Max-модель + орфография по чанкам).
+// Лимит щадящий для человека, но останавливает цикл в скрипте.
+const REVIEW_RATE_PER_10MIN = Number(process.env['REVIEW_RATE_PER_10MIN'] ?? 10)
 
 // GET /api/versions/:id/review — проверка документа через ИИ
 export async function GET(req: NextRequest, { params }: Params) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const rl = await rateLimit(`review:${userId}`, REVIEW_RATE_PER_10MIN, 10 * 60_000)
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: `Слишком много проверок подряд. Подождите ${rl.retryAfterSec} сек.` },
+      { status: 429 },
+    )
+  }
 
   const { id } = await params
   const version = await prisma.version.findFirst({

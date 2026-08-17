@@ -562,6 +562,25 @@ function detectNextSectionNumber(html: string): number {
  *  B) последняя <table> с ключевыми словами реквизитов.
  * Берём самую раннюю точку среза — от неё до конца документа всё удаляем.
  */
+/**
+ * Есть ли ПОСЛЕ позиции fromIdx новые разделы или приложения. Если да — найденный
+ * «блок реквизитов» стоит в середине документа, и резать от него до конца нельзя:
+ * улетят приложения (регресс уже ловили в splitRequisitesBlock — там та же защита).
+ * NB: \b не работает с кириллицей в JS-regex — используем lookahead.
+ */
+function hasSectionsAfter(html: string, fromIdx: number): boolean {
+  const tail = html.slice(fromIdx)
+  const blockRe = /<(h[1-4]|p)[^>]*>([\s\S]*?)<\/\1>/gi
+  let m: RegExpExecArray | null
+  while ((m = blockRe.exec(tail))) {
+    const t = m[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    if (!t) continue
+    if (/^(приложение|дополнительное\s+соглашение|доп\.?\s*соглашение|спецификация)(?=\s|№|\d|:|$)/i.test(t)) return true
+    if (/^\d{1,2}[.)]\s*[А-ЯЁA-Z]/.test(t)) return true
+  }
+  return false
+}
+
 function stripRequisitesSection(html: string): string {
   const REQS_RE = /ИНН|Р\/сч|р\/сч|ОГРН|БИК|К\/сч|к\/сч/i
   // Заголовки финального раздела. ВАЖНО: \w и \b в JS не работают с кириллицей
@@ -590,7 +609,11 @@ function stripRequisitesSection(html: string): string {
       .replace(/&[^;]+;/g, ' ')
       .replace(/^\s*\d{1,2}\s*[.)]\s*/, '') // отбрасываем ведущий номер «13.»
       .trim()
-    if (TITLE_RES.some((re) => re.test(text))) cut = m.index
+    if (!TITLE_RES.some((re) => re.test(text))) continue
+    // Раздел реквизитов в СЕРЕДИНЕ документа (после него приложения/разделы) —
+    // резать от него до конца нельзя, улетели бы приложения.
+    if (hasSectionsAfter(html, m.index + m[0].length)) continue
+    cut = m.index
   }
 
   // ── B: последняя <table> с реквизитами ──
@@ -601,7 +624,11 @@ function stripRequisitesSection(html: string): string {
     const tableEndIdx = html.lastIndexOf('</table>')
     if (tableEndIdx > tableStart) {
       const tableHtml = html.slice(tableStart, tableEndIdx)
-      if (REQS_RE.test(tableHtml) && (cut === -1 || tableStart < cut)) {
+      if (
+        REQS_RE.test(tableHtml) &&
+        (cut === -1 || tableStart < cut) &&
+        !hasSectionsAfter(html, tableEndIdx + '</table>'.length)
+      ) {
         cut = tableStart
       }
     }

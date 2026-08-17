@@ -202,14 +202,22 @@ function buildContractHeader(
 async function checkSpelling(documentText: string): Promise<number> {
   if (!documentText || documentText.trim().length < 20) return 0
 
-  // Чанки по 6000 символов — баланс между внимательностью и количеством запросов.
+  // Потолок объёма: без него документ на 1 МБ порождал ~125 запросов к модели
+  // и несколько минут пауз — неограниченный множитель стоимости и времени.
+  // 96 000 знаков = 12 чанков; хвост длиннее просто не проверяем на орфографию
+  // (юридический анализ при этом идёт по своему, отдельному лимиту).
+  const MAX_SPELLING_CHARS = 96_000
+  const textToCheck = documentText.length > MAX_SPELLING_CHARS
+    ? documentText.slice(0, MAX_SPELLING_CHARS)
+    : documentText
+
+  // Чанки по 8000 символов — баланс между внимательностью и количеством запросов.
   // Для типичного договора (~30–70 КБ) это 5–12 чанков.
-  // GigaChat-2-Max — чанки побольше, ограничений по количеству нет
   const CHUNK_SIZE = 8000
   const chunks: string[] = []
   let pos = 0
-  while (pos < documentText.length) {
-    chunks.push(documentText.slice(pos, pos + CHUNK_SIZE))
+  while (pos < textToCheck.length) {
+    chunks.push(textToCheck.slice(pos, pos + CHUNK_SIZE))
     pos += CHUNK_SIZE
   }
 
