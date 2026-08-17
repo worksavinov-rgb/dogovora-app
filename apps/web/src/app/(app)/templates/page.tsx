@@ -5,6 +5,8 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { useToast } from '@/components/ui/toast'
+import { TEMPLATE_LIBRARY, type LibraryTemplate } from '@/lib/template-library'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -234,6 +236,49 @@ function TemplateCard({ template, onRename, onDelete, onUse, onPreview }: {
   )
 }
 
+// ─── Карточка шаблона из библиотеки Догодка ───────────────────────────────────
+
+function LibraryTemplateCard({ template, busy, onUse }: {
+  template: LibraryTemplate
+  busy: boolean
+  onUse: () => void
+}) {
+  return (
+    <div className="flex items-center gap-[12px] rounded-[var(--radius-md)] px-[16px] py-[14px] group transition-colors"
+      style={{ background: 'white', border: '1px solid var(--line)', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+      {/* Иконка */}
+      <div className="shrink-0 w-[36px] h-[36px] rounded-[var(--radius-md)] flex items-center justify-center"
+        style={{ background: 'oklch(0.97 0.015 260)' }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="oklch(0.42 0.06 260)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+      </div>
+
+      {/* Название, бейдж и описание */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-[8px] min-w-0">
+          <p className="text-[13px] font-medium text-[var(--ink)] truncate">{template.name}</p>
+          <span className="shrink-0 text-[10px] font-medium px-[6px] py-[1px] rounded-full"
+            style={{ background: 'oklch(0.97 0.015 260)', color: 'oklch(0.42 0.06 260)', border: '1px solid oklch(0.9 0.02 260)' }}>
+            Библиотека
+          </span>
+        </div>
+        <p className="text-[11px] text-[var(--ink-4)] mt-[1px] truncate">{template.description}</p>
+      </div>
+
+      {/* Использовать */}
+      <button
+        onClick={onUse}
+        disabled={busy}
+        className="shrink-0 h-[30px] px-[12px] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] rounded-[var(--radius-md)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 opacity-0 group-hover:opacity-100 disabled:group-hover:opacity-40"
+      >
+        {busy ? 'Создаю…' : 'Использовать'}
+      </button>
+    </div>
+  )
+}
+
 // ─── Главная страница ─────────────────────────────────────────────────────────
 
 export default function TemplatesPage() {
@@ -244,6 +289,7 @@ export default function TemplatesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { toast } = useToast()
 
   const load = async () => {
     const res = await fetch('/api/templates')
@@ -304,6 +350,30 @@ export default function TemplatesPage() {
   function handleUse(template: Template) {
     // Переходим на создание документа с выбранным шаблоном
     window.location.href = `/documents/new?templateId=${template.id}`
+  }
+
+  // «Использовать» шаблон из библиотеки Догодка: копируем его в «Мои шаблоны»
+  // (существующий POST /api/templates) и открываем мастер с этим шаблоном —
+  // дальше работает обычный поток пользовательских шаблонов.
+  const [libBusySlug, setLibBusySlug] = useState<string | null>(null)
+  async function handleUseLibrary(lib: LibraryTemplate) {
+    setLibBusySlug(lib.slug)
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: lib.name, content: lib.content }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => null) as { error?: string } | null
+        throw new Error(err?.error ?? 'Не удалось создать шаблон')
+      }
+      const created = await res.json() as { id: string }
+      window.location.href = `/documents/new?templateId=${created.id}`
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Не удалось создать шаблон', 'error')
+      setLibBusySlug(null)
+    }
   }
 
   const renamingTemplate = templates.find((t) => t.id === renamingId)
@@ -416,6 +486,27 @@ export default function TemplatesPage() {
             ))}
           </div>
         )}
+
+        {/* ── Библиотека Догодка: стартовые шаблоны для ИП и малого бизнеса ── */}
+        <div className="mt-[28px]">
+          <div className="mb-[10px]">
+            <p className="text-[13px] font-medium text-[var(--ink)]">Библиотека Догодка</p>
+            <p className="text-[12px] text-[var(--ink-4)] mt-[2px]">
+              Готовые основы договоров. «Использовать» — копия появится в ваших шаблонах,
+              а Догодок доработает её под контрагента.
+            </p>
+          </div>
+          <div className="flex flex-col gap-[8px]">
+            {TEMPLATE_LIBRARY.map((lib) => (
+              <LibraryTemplateCard
+                key={lib.slug}
+                template={lib}
+                busy={libBusySlug === lib.slug}
+                onUse={() => handleUseLibrary(lib)}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     </>
   )
