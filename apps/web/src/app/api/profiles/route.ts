@@ -2,8 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { verifyToken, getTokenFromCookie } from '@/lib/auth'
+import { normalizeFormat, validateFormat } from '@/lib/document-number'
 
 // ─── Схема валидации ─────────────────────────────────────────────────────────
+
+// Шаблон номера договора («{NNN}/{ММ}-{ГГ}»). Пустая строка осознанно
+// превращается в null: «очистить поле» и «нумерация не настроена» — это одно
+// состояние, два представления породили бы разное поведение UI.
+const contractNumberFormatSchema = z
+  .string()
+  .trim()
+  .transform((v) => (v ? normalizeFormat(v) : ''))
+  .refine((v) => v === '' || validateFormat(v) === null, {
+    message: 'Некорректный шаблон номера договора',
+  })
+  .transform((v) => (v === '' ? null : v))
 
 const profileSchema = z.object({
   type: z.enum(['INDIVIDUAL', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']),
@@ -19,6 +32,7 @@ const profileSchema = z.object({
   checkingAccount: z.string().optional(),
   bik: z.string().optional(),
   correspondentAccount: z.string().optional(),
+  contractNumberFormat: contractNumberFormatSchema.optional(),
 })
 
 // ─── Получить текущего пользователя из токена ────────────────────────────────

@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { verifyToken, getTokenFromCookie } from '@/lib/auth'
+import { normalizeFormat, validateFormat } from '@/lib/document-number'
+
+// Шаблон номера договора («{NNN}/{ММ}-{ГГ}»). Пустая строка и null — одно и то
+// же состояние «нумерация не настроена», приводим к null.
+const contractNumberFormatSchema = z
+  .string()
+  .nullable()
+  .transform((v) => (v ? normalizeFormat(v.trim()) : ''))
+  .refine((v) => v === '' || validateFormat(v) === null, {
+    message: 'Некорректный шаблон номера договора',
+  })
+  .transform((v) => (v === '' ? null : v))
 
 const profileUpdateSchema = z.object({
   type: z.enum(['INDIVIDUAL', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']).optional(),
@@ -17,6 +29,7 @@ const profileUpdateSchema = z.object({
   checkingAccount: z.string().optional(),
   bik: z.string().optional(),
   correspondentAccount: z.string().optional(),
+  contractNumberFormat: contractNumberFormatSchema.optional(),
 })
 
 async function getCurrentUserId(req: NextRequest): Promise<string | null> {
