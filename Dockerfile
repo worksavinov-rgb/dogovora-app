@@ -1,4 +1,4 @@
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 RUN npm install -g pnpm
 
 # Зависимости
@@ -21,7 +21,7 @@ RUN pnpm --filter web exec prisma generate
 RUN pnpm --filter web build
 
 # Продакшн-образ
-FROM node:20-slim AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
