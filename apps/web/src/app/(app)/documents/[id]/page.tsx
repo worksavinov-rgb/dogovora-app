@@ -521,6 +521,25 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   const [uploadingVersion, setUploadingVersion] = useState(false)
   const revisedFileInputRef = useRef<HTMLInputElement>(null)
 
+  // Публичная ссылка «показать контрагенту»: создаём (или переиспользуем)
+  // токен последней версии и копируем ссылку в буфер обмена.
+  const [shareMsg, setShareMsg] = useState<string | null>(null)
+  async function handleShare() {
+    const ver = doc?.versions[0]
+    if (!ver) return
+    try {
+      const res = await fetch(`/api/versions/${ver.id}/share`, { method: 'POST' })
+      if (!res.ok) throw new Error()
+      const { token } = await res.json() as { token: string }
+      const url = `${window.location.origin}/share/${token}`
+      await navigator.clipboard.writeText(url)
+      setShareMsg('Ссылка скопирована — отправьте её контрагенту. Доступ только на чтение.')
+    } catch {
+      setShareMsg('Не удалось создать ссылку. Попробуйте ещё раз.')
+    }
+    setTimeout(() => setShareMsg(null), 6000)
+  }
+
   async function loadDoc() {
     const res = await fetch(`/api/documents/${id}`)
     if (res.ok) setDoc(await res.json())
@@ -841,6 +860,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   { icon: '⇄', label: 'Сравнить', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: () => router.push(`/documents/${id}/compare`) },
                   { icon: '◎', label: 'Проверить риски', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: () => router.push(`/documents/${id}/check`) },
                   { icon: '↑', label: uploadingVersion ? 'Загрузка версии…' : 'Загрузить версию с правками', primary: false, disabled: uploadingVersion, onClick: handleUploadRevisedVersion },
+                  { icon: '🔗', label: 'Показать контрагенту', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: handleShare },
                   ...(currentVersion?.purchase ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
@@ -939,6 +959,13 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
           </div>
         </div>
       </div>
+
+      {shareMsg && (
+        <div className="fixed bottom-[24px] right-[24px] z-40 max-w-[360px] rounded-[var(--radius-lg)] shadow-lg"
+          style={{ background: 'var(--ink)', color: 'var(--bg)', padding: '12px 16px' }}>
+          <span className="text-[13px] font-medium">{shareMsg}</span>
+        </div>
+      )}
 
       <ConfirmDialog
         open={!!confirmDialog}

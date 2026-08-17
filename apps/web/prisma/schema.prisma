@@ -249,6 +249,23 @@ model Document {
 }
 
 // ВАЖНО: версии — append-only. Текст/файл никогда не обновляется.
+// Публичная read-only ссылка на версию документа: пользователь делится текстом
+// с контрагентом без логина. Токен непредсказуемый (cuid + случайный суффикс),
+// отзыв — удаление строки. Append-only не требуется: это не юридический факт.
+model ShareLink {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  versionId String
+  createdAt DateTime @default(now())
+  // Дата отзыва: null — ссылка активна. Храним строку для аудита.
+  revokedAt DateTime?
+
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@map("share_links")
+}
+
 model Version {
   id         String        @id @default(cuid())
   documentId String
@@ -268,6 +285,7 @@ model Version {
   chatMessages ChatMessage[]
   purchase     Purchase?
   transactions Transaction[]
+  shareLinks   ShareLink[]
 
   @@unique([documentId, number])
   @@map("versions")

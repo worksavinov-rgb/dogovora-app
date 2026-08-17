@@ -12,6 +12,10 @@ const PUBLIC_PATHS = [
   '/favicon.ico',
   // Правовые документы читаются без авторизации — на них ссылается форма регистрации
   '/legal',
+  // Публичная ссылка «показать контрагенту»: страница и API читаются без логина,
+  // доступ контролируется непредсказуемым токеном (см. api/share/[token])
+  '/share',
+  '/api/share',
 ]
 
 function ensureRequestId(req: NextRequest): string {
