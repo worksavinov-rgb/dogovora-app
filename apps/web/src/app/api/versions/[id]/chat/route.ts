@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { isVersionPaid } from '@/lib/version-payment'
 import { withLoggedAIContext } from '@/lib/ai/provider'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   // 2) Лимит бесплатных ИИ-запросов на неоплаченную версию.
   //    Купленная версия лимита не имеет; правки после покупки создают новую версию
   //    (у неё будет собственный лимит), поэтому «купите версию» — валидный выход.
-  if (!version.purchase) {
+  if (!isVersionPaid(version)) {
     const usedRequests = await prisma.chatMessage.count({
       where: { versionId: id, role: 'USER' },
     })

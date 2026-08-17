@@ -7,6 +7,7 @@ import { stripAiRequisitesBlock } from '@/lib/html-document'
 import { looksLikeUpload } from '@/lib/structure-uploaded'
 import { getPresentationContent } from '@/lib/presentation-content'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
+import { resolveDocumentProfile, resolveCounterpartySignatory } from '@/lib/party-data'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 
@@ -69,21 +70,18 @@ export async function GET(req: NextRequest, { params }: Params) {
         userId,
       })
 
+      // Профиль и подписант — через единые резолверы (те же, что в generate):
+      // раньше выбор расходился, и в тексте был один подписант, в DOCX — другой.
       const [profile, counterparty] = await Promise.all([
-        // Если профиль не выбран на документе — берём первый профиль пользователя
-        prisma.profile.findFirst({
-          where: profileId ? { id: profileId, userId } : { userId },
-          include: { bankDetails: { take: 1 } },
-        }),
+        resolveDocumentProfile({ userId, profileId }),
         prisma.counterparty.findFirst({
           where: { id: counterpartyId, userId },
-          include: {
-            bankDetails: { take: 1 },
-            // Берём подписанта: предпочитаем дефолтного, иначе любого первого
-            signatories: { orderBy: { isDefault: 'desc' }, take: 1 },
-          },
+          include: { bankDetails: { take: 1 } },
         }),
       ])
+      const cpSignatoryResolved = counterparty
+        ? await resolveCounterpartySignatory(counterparty.id)
+        : null
 
       const makeParty = (
         type: string,
@@ -113,7 +111,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         profile?.bankDetails[0],
       )
 
-      const cpSignatory = counterparty?.signatories[0] ?? null
+      const cpSignatory = cpSignatoryResolved
       const cpParty: RequisitesParty = makeParty(
         counterparty?.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR',
         counterparty?.name,

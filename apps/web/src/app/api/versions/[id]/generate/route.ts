@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { getGenerateQueue } from '@/lib/queue'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
+import { resolveDocumentProfile, resolveCounterpartySignatory } from '@/lib/party-data'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -44,25 +45,15 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const doc = version.document
 
-  // Берём профиль по выбранному profileId (или первый если не выбрано).
-  // Источник истины — Document.profileId (верхнеуровневое поле, задаётся при создании
-  // документа и сохраняется надёжно). aiSettings?.profileId оставляем как fallback для
-  // старых документов — но он не может быть основным источником: zod-схема aiSettings
-  // в apps/web/src/app/api/documents/route.ts не объявляет это поле и тихо отбрасывает
-  // его при сохранении, поэтому в БД оно почти всегда отсутствует (та же причина,
-  // по которой ранее терялась выбранная роль userRole).
-  const profiles = await prisma.profile.findMany({
-    where: {
-      userId,
-      ...(doc.profileId ? { id: doc.profileId } : aiSettings?.profileId ? { id: aiSettings.profileId } : {}),
-    },
-    include: {
-      bankDetails: true,
-    },
-    orderBy: { createdAt: 'asc' },
-    take: 1,
+  // Профиль — через единый resolveDocumentProfile (тот же, что в download и
+  // предпросмотре): Document.profileId → aiSettings.profileId (fallback для
+  // старых документов) → первый созданный. Раньше generate и download выбирали
+  // профиль по-разному, и реквизиты в тексте и в DOCX могли разойтись.
+  const profile = await resolveDocumentProfile({
+    userId,
+    profileId: doc.profileId,
+    fallbackProfileId: aiSettings?.profileId,
   })
-  const profile = profiles[0]
   const profileSignatory = profile ? { fullName: profile.signatorName, position: profile.signatorPosition, basisType: profile.signatorBasis } : null
   const userProfile = profile ? {
     type: profile.type,
@@ -96,10 +87,10 @@ export async function POST(req: NextRequest, { params }: Params) {
   // Источник истины для подписанта — Document.counterpartySignatoryId, выбранный
   // на шаге настройки; если не выбран — берём дефолтного подписанта контрагента.
   const cp = doc.counterparty
-  const [cpSignatory] = await prisma.signatory.findMany({
-    where: { counterpartyId: cp.id, isDefault: true },
-    take: 1,
-  })
+  // Подписант — через единый resolveCounterpartySignatory: дефолтный, иначе
+  // первый. Раньше generate требовал строго isDefault:true и при его отсутствии
+  // генерировал документ вовсе без подписанта, а download подставлял любого.
+  const cpSignatory = await resolveCounterpartySignatory(cp.id)
   const counterpartyData = {
     name: cp.name,
     inn: cp.inn,

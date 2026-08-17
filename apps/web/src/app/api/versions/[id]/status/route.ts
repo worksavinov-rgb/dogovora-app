@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
+import { isVersionPaid } from '@/lib/version-payment'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -38,14 +39,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Нельзя изменить статус подписанной версии' }, { status: 400 })
   }
 
-  // Версия оплачена (по статусу или по наличию purchase) — статус заморожен
-  if (version.purchase || version.status === 'PAID') {
+  // Версия оплачена — статус заморожен (единый isVersionPaid, см. version-payment.ts)
+  if (isVersionPaid(version)) {
     if (data.status !== 'SIGNED') {
       return NextResponse.json({ error: 'Нельзя изменить статус оплаченной версии' }, { status: 403 })
     }
   }
 
-  if (data.status === 'SIGNED' && version.status !== 'PAID' && !version.purchase) {
+  if (data.status === 'SIGNED' && !isVersionPaid(version)) {
     return NextResponse.json({ error: 'Можно подписать только оплаченную версию' }, { status: 400 })
   }
 

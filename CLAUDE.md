@@ -59,12 +59,9 @@
 ```
 dogovora/
 ├── apps/
-│   ├── web/          ← Next.js: UI + API routes + Prisma + worker
-│   └── api/          ← Fastify (legacy/заготовка; основной API в web)
+│   └── web/          ← Next.js: UI + API routes + Prisma + worker
 ├── packages/
-│   ├── ui/           ← дизайн-система (Button, Card, Badge и т.д.)
-│   ├── db/           ← Prisma schema + миграции (исторически; схема сейчас в apps/web/prisma)
-│   └── shared/       ← общие TypeScript типы, zod-схемы
+│   └── shared/       ← форматирование документов (DOCX-конвертер и т.п.)
 ├── CLAUDE.md         ← этот файл
 ├── ПРОМТЫ-ИИ.md      ← обзор ИИ-промптов и задач
 └── макет/            ← дизайн-хэндоф (только для справки, не трогать)
