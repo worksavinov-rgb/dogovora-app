@@ -42,6 +42,10 @@ export interface AISettings {
   protectionLevel: number  // 20-90
   targetSize: number       // знаков
   customInstruction: string
+  // Роль пользователя в договоре, резолвится сервером через resolvePartyRole
+  // (party-roles.ts) — единый источник истины. Провайдер использует её с
+  // приоритетом над разбором customInstruction.
+  userRoleName?: 'Заказчик' | 'Исполнитель'
 }
 
 export interface AIMessage {

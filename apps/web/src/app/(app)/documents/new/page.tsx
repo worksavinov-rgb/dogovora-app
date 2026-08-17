@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field, Textarea } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
+import { DocumentNumberField } from '@/components/document-number-field'
 import { buildContractPreambleHtml, buildRequisitesHtml } from '@/lib/html-document'
 import type { UserProfileData, CounterpartyData } from '@/lib/ai/types'
 
@@ -586,7 +587,12 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
           {DOC_TYPES.map((t) => (
             <button
               key={t.key}
-              onClick={() => set('type', t.key)}
+              onClick={() => {
+                // У приложения и допсоглашения своего номера нет — они наследуют
+                // номер родителя, а порядковый присваивает сервер.
+                const clearsNumber = t.key === 'APPENDIX' || t.key === 'AMENDMENT'
+                onChange({ ...data, type: t.key, ...(clearsNumber ? { number: '' } : {}) })
+              }}
               className={['flex flex-col gap-[8px] p-[14px] rounded-[var(--radius-md)] border text-left transition-colors cursor-pointer', data.type === t.key ? 'border-[var(--ink)] bg-[var(--surface-inset)]' : 'border-[var(--line-2)] hover:border-[var(--line-strong)]'].join(' ')}
             >
               <span className={data.type === t.key ? 'text-[var(--ink)]' : 'text-[var(--ink-3)]'}>{t.icon}</span>
@@ -922,13 +928,9 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                               key={doc.id}
                               type="button"
                               onClick={() => {
-                                fetch(`/api/documents?type=${data.type}&parentDocumentId=${doc.id}`)
-                                  .then((r) => r.ok ? r.json() : [])
-                                  .then((existing: Array<{ documentNumber?: number | null }>) => {
-                                    const maxNum = existing.reduce((m, d) => Math.max(m, d.documentNumber ?? 0), 0)
-                                    onChange({ ...data, parentDocumentId: doc.id, number: String(maxNum + 1) })
-                                  })
-                                  .catch(() => { onChange({ ...data, parentDocumentId: doc.id }) })
+                                // Порядковый номер приложения считает сервер при создании
+                                // документа — здесь его подставлять нельзя.
+                                onChange({ ...data, parentDocumentId: doc.id })
                                 setParentDocsOpen(false)
                                 setParentDocsSearch('')
                               }}
@@ -1017,7 +1019,9 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
             />
           </Field>
 
-          <div className="grid grid-cols-[200px_1fr] gap-[10px]">
+          {/* У приложений и допсоглашений поля номера нет: номер наследуется от
+              родительского договора, порядковый присваивает сервер. */}
+          <div className={needsParent ? 'grid grid-cols-[200px] gap-[10px]' : 'grid grid-cols-[200px_1fr] gap-[10px] items-start'}>
             <Field label="Дата подписания">
               <div className="relative">
                 <Input
@@ -1036,13 +1040,15 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
               </div>
               <p className="mt-[3px] text-[11px] text-[var(--ink-4)]">Необязательно</p>
             </Field>
-            <Field label={needsParent ? 'Порядковый номер (присвоен системой)' : 'Номер'}>
-              <Input
+            {!needsParent && (
+              <DocumentNumberField
+                profileId={data.profileId}
+                signingDate={data.signingDate}
                 value={data.number}
-                onChange={(e) => set('number', e.target.value)}
-                placeholder={needsParent ? 'Автоматически' : '17/03'}
+                onChange={(number) => set('number', number)}
+                label="Номер договора"
               />
-            </Field>
+            )}
           </div>
         </div>
       </Card>

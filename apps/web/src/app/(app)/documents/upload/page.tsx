@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { DocumentNumberField } from '@/components/document-number-field'
 import type { ReviewResult, ExtractPartiesResult, ExtractedParty } from '@/lib/ai/types'
 
 // Ключевые слова блока реквизитов/подписей
@@ -335,10 +336,14 @@ export default function UploadPage() {
   // Мои реквизиты: сохранены ли из документа
   const [myProfileSaved, setMyProfileSaved] = useState(false)
   const [savingProfile, setSavingProfile] = useState(false)
+  // «Моё» юрлицо для этого документа: определяется по ИНН, сохраняется из
+  // документа или выбирается вручную в модалке. От него зависит нумерация.
+  const [myProfileId, setMyProfileId] = useState<string | null>(null)
 
   // Модалка создания документа
   const [showSaveModal, setShowSaveModal] = useState(false)
   const [docTitle, setDocTitle] = useState('')
+  const [docNumber, setDocNumber] = useState('')
   const [docType, setDocType] = useState<'CONTRACT' | 'APPENDIX' | 'AMENDMENT'>('CONTRACT')
   const [saving, setSaving] = useState(false)
 
@@ -451,7 +456,6 @@ export default function UploadPage() {
       // 2. Совпадение роли из документа с выбранной пользователем ролью
       // 3. По умолчанию party1 = я
       const cleanInn = (s: string | null | undefined) => s?.replace(/\D/g, '') ?? ''
-      const profileInns = new Set(profilesData.map((p) => cleanInn(p.inn)).filter(Boolean))
 
       let meIndex: 1 | 2 = 1
       if (partiesData) {
@@ -464,6 +468,16 @@ export default function UploadPage() {
         // Если ИИ не смог определить роли — party1 по умолчанию
       }
       setMyPartyIndex(meIndex)
+
+      // Определяем «моё» юрлицо среди сохранённых профилей: сначала по ИНН из
+      // документа, иначе — единственный профиль пользователя. Без него документ
+      // не к чему привязать и нечем нумеровать; если не вышло — выбор в модалке.
+      const myPartyData = meIndex === 1 ? partiesData?.party1 : partiesData?.party2
+      const myInn = cleanInn(myPartyData?.inn)
+      const matchedProfile = myInn
+        ? profilesData.find((p) => cleanInn(p.inn) === myInn)
+        : undefined
+      setMyProfileId(matchedProfile?.id ?? (profilesData.length === 1 ? profilesData[0].id : null))
 
       // Автоматически определяем контрагента по ИНН в списке контрагентов
       const counterpartyPartyData = meIndex === 1 ? partiesData?.party2 : partiesData?.party1
@@ -567,6 +581,8 @@ export default function UploadPage() {
         const created = await res.json() as UserProfile
         setUserProfiles((prev) => [...prev, created])
         setMyProfileSaved(true)
+        // Только что созданный профиль и есть «моё» юрлицо для этого документа
+        setMyProfileId(created.id)
       }
     } finally {
       setSavingProfile(false)
@@ -588,8 +604,13 @@ export default function UploadPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: docTitle.trim(),
+          number: docNumber.trim() || undefined,
           type: docType,
           counterpartyId: resolvedCounterpartyId,
+          // Раньше profileId с этого экрана не уходил вовсе, и загруженные
+          // документы оставались без юрлица — а без него нечем считать
+          // сквозную нумерацию договоров и нечего подставлять в шапку.
+          profileId: myProfileId ?? undefined,
           uploadedContent: docText,
           aiSettings: {
             protectionLevel: role === 'executor' ? 60 : 70,
@@ -848,7 +869,7 @@ export default function UploadPage() {
 
           {/* Кнопки */}
           <div className="flex gap-[10px] pt-[4px]">
-            <Button variant="ghost" size="md" onClick={() => { setStep('upload'); setResult(null); setParties(null); setMyPartyIndex(1); setResolvedCounterpartyId(null); setCounterpartySaved(false) }}>
+            <Button variant="ghost" size="md" onClick={() => { setStep('upload'); setResult(null); setParties(null); setMyPartyIndex(1); setResolvedCounterpartyId(null); setCounterpartySaved(false); setMyProfileId(null); setDocNumber('') }}>
               ← Загрузить другой
             </Button>
             <Button variant="primary" size="md" onClick={openSaveModal} className="flex-1">
@@ -877,6 +898,35 @@ export default function UploadPage() {
                   style={{ background: 'var(--surface)' }}
                 />
               </div>
+
+              {/* Своё юрлицо: к нему привязывается документ и от него считается
+                  нумерация. Определяется по ИНН из документа, но если не вышло —
+                  выбираем руками, иначе номер предложить не из чего. */}
+              {userProfiles.length > 0 && (
+                <div>
+                  <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[6px]">Ваше юрлицо</label>
+                  <select
+                    value={myProfileId ?? ''}
+                    onChange={(e) => setMyProfileId(e.target.value || null)}
+                    className="w-full h-[38px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] outline-none cursor-pointer"
+                    style={{ background: 'var(--surface)' }}
+                  >
+                    <option value="">Не выбрано</option>
+                    {userProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.inn ? ` (ИНН ${p.inn})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Номер из текста файла намеренно не извлекаем: либо следующий по
+                  порядку, либо номер с бумажного оригинала — решает пользователь */}
+              <DocumentNumberField
+                profileId={myProfileId}
+                value={docNumber}
+                onChange={setDocNumber}
+                label="Номер договора"
+              />
 
               <div>
                 <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[6px]">Тип документа</label>

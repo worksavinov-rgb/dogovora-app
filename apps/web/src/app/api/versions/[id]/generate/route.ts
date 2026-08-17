@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { getGenerateQueue } from '@/lib/queue'
+import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -153,14 +154,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     parentDocTitle: doc.parentDocument?.title ?? undefined,
     parentDocNumber: doc.parentDocument?.number ?? undefined,
     parentDocContent,
-    // Роль пользователя (Заказчик/Исполнитель) — из выбора в мастере, сохранённого
-    // в aiSettings.userRole (zod-схема documents/route.ts его принимает). Нормализуем
-    // регистр; дефолт — 'customer' (в мастере предвыбран «Я — Заказчик»).
-    // РАНЬШЕ здесь был хардкод 'executor' — он переворачивал стороны в каждом
-    // договоре, где пользователь Заказчик (подтверждено на живом прогоне).
-    userRole: (String(aiSettings?.userRole ?? '').toLowerCase() === 'executor'
-      ? 'executor'
-      : 'customer') as 'customer' | 'executor',
+    // Роль пользователя (Заказчик/Исполнитель) — единый resolvePartyRole, тот же,
+    // что в предпросмотре, выгрузке и проверке рисков. Иначе документ генерируется
+    // с одной ролью, а показывается/скачивается с другой (болезнь уже ловили).
+    // Для приложений/ДС роль наследуется от родительского договора.
+    userRole: toLowerRole(await resolvePartyRole({
+      aiSettings: version.aiSettings,
+      parentDocumentId: doc.parentDocumentId,
+      userId,
+    })),
     userProfile,
     counterpartyData,
     // Шапка и реквизиты, согласованные (и, возможно, отредактированные) пользователем

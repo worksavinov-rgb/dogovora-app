@@ -9,6 +9,7 @@ import { Avatar } from '@/components/ui/avatar'
 import { DocumentRowSkeleton, Skeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useToast } from '@/components/ui/toast'
+import { DocumentNumberField } from '@/components/document-number-field'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -26,7 +27,7 @@ interface Document {
   _count: { versions: number; childDocuments: number }
 }
 
-type SortField = 'title' | 'type' | 'updatedAt' | 'versions'
+type SortField = 'title' | 'number' | 'type' | 'updatedAt' | 'versions'
 type SortDir = 'asc' | 'desc'
 
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
@@ -62,6 +63,18 @@ function relDate(iso: string): string {
 
 function sortDocs(docs: Document[], field: SortField, dir: SortDir): Document[] {
   return [...docs].sort((a, b) => {
+    // Номер — отдельной веткой: документы без номера всегда уезжают в конец
+    // списка, при любом направлении сортировки.
+    if (field === 'number') {
+      const an = a.number?.trim() ?? ''
+      const bn = b.number?.trim() ?? ''
+      if (!an && !bn) return 0
+      if (!an) return 1
+      if (!bn) return -1
+      // numeric: true — иначе «10/08-26» встал бы перед «9/08-26»
+      const numCmp = an.localeCompare(bn, 'ru', { numeric: true })
+      return dir === 'asc' ? numCmp : -numCmp
+    }
     let cmp = 0
     if (field === 'title') cmp = a.title.localeCompare(b.title, 'ru')
     else if (field === 'type') cmp = a.type.localeCompare(b.type)
@@ -154,16 +167,14 @@ function EditDocumentModal({ doc, onClose, onSaved }: {
               placeholder="Название документа"
             />
           </div>
-          <div>
-            <label className="block text-[12px] text-[var(--ink-3)] mb-[6px]">Номер договора</label>
-            <input
-              className="w-full h-[38px] px-[12px] text-[13px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] outline-none focus:border-[var(--accent)] transition-colors"
-              style={{ fontFamily: 'var(--font-mono)' }}
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              placeholder="Например: 123/2026 (необязательно)"
-            />
-          </div>
+          {/* excludeDocumentId — иначе документ найдёт сам себя как дубль номера */}
+          <DocumentNumberField
+            profileId={profileId || null}
+            signingDate={date || null}
+            value={number}
+            onChange={setNumber}
+            excludeDocumentId={doc.id}
+          />
           <div>
             <label className="block text-[12px] text-[var(--ink-3)] mb-[6px]">Дата подписания</label>
             <input
@@ -251,16 +262,13 @@ function SignDocumentModal({ doc, versionId, onClose, onSigned }: {
         </p>
 
         <div className="flex flex-col gap-[14px] mb-[24px]">
-          <div>
-            <label className="block text-[12px] text-[var(--ink-3)] mb-[6px]">Номер договора</label>
-            <input
-              className="w-full h-[38px] px-[12px] text-[13px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] outline-none focus:border-[var(--accent)] transition-colors"
-              style={{ fontFamily: 'var(--font-mono)' }}
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              placeholder="Например: 123/2026"
-            />
-          </div>
+          <DocumentNumberField
+            profileId={doc.profile?.id ?? null}
+            signingDate={date || null}
+            value={number}
+            onChange={setNumber}
+            excludeDocumentId={doc.id}
+          />
           <div>
             <label className="block text-[12px] text-[var(--ink-3)] mb-[6px]">Дата подписания</label>
             <input
@@ -909,7 +917,7 @@ export default function DocumentsPage() {
           </span>
           <input
             className="h-[36px] pl-[32px] pr-[12px] w-[220px] text-[13px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] outline-none focus:border-[var(--accent)] transition-colors placeholder:text-[var(--ink-4)]"
-            placeholder="Поиск по названию"
+            placeholder="Поиск по названию или номеру"
             value={q} onChange={(e) => setQ(e.target.value)}
           />
         </div>
@@ -964,7 +972,7 @@ export default function DocumentsPage() {
         {/* Шапка с сортировкой */}
         <div className="hidden md:grid grid-cols-[1fr_80px_100px_180px_180px_72px_130px_80px_60px_36px] gap-[8px] px-[16px] py-[10px] border-b border-[var(--line)] bg-[var(--surface-inset)] rounded-t-[var(--radius-lg)]">
           <SortableHeader label="Название" field="title" current={sortField} dir={sortDir} onSort={handleSort} />
-          <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.07em]">№</p>
+          <SortableHeader label="№" field="number" current={sortField} dir={sortDir} onSort={handleSort} />
           <SortableHeader label="Тип" field="type" current={sortField} dir={sortDir} onSort={handleSort} />
           <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.07em]">Моя компания</p>
           <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.07em]">Контрагент</p>

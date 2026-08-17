@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
 import { validateInn, validateOgrn, validateBik, validateCheckingAccount, validateKpp } from '@/lib/validation'
+import { validateFormat, formatScope, renderNumber, SCOPE_LABELS, PLACEHOLDER_HINTS } from '@/lib/document-number'
 import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -50,6 +51,7 @@ interface Profile {
   ogrnDate: string
   legalAddress: string
   email: string
+  contractNumberFormat: string
   signatorName: string
   signatorPosition: string
   signatorBasis: string
@@ -104,6 +106,7 @@ function clearTypeSpecificFields(profile: Omit<Profile, 'id'>, newType: ProfileT
 function emptyProfile(type: ProfileType): Omit<Profile, 'id'> {
   return {
     type, name: '', inn: '', kpp: '', ogrn: '', ogrnDate: '', legalAddress: '', email: '',
+    contractNumberFormat: '',
     signatorName: '', signatorPosition: '', signatorBasis: '',
     signatureFilePath: null, stampFilePath: null,
     bankDetails: [{ ...EMPTY_BANK }],
@@ -115,6 +118,7 @@ function profileToForm(p: Profile): Omit<Profile, 'id'> {
     type: p.type, name: p.name,
     inn: p.inn ?? '', kpp: p.kpp ?? '', ogrn: p.ogrn ?? '', ogrnDate: p.ogrnDate ?? '',
     legalAddress: p.legalAddress ?? '', email: p.email ?? '',
+    contractNumberFormat: p.contractNumberFormat ?? '',
     signatorName: p.signatorName ?? '', signatorPosition: p.signatorPosition ?? '',
     signatorBasis: p.signatorBasis ?? '',
     signatureFilePath: p.signatureFilePath, stampFilePath: p.stampFilePath,
@@ -184,6 +188,22 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
       .catch(() => {})
   }, [profileId])
 
+  // ─── Следующий свободный номер договора для этого юрлица ──────────────────
+  const [nextNumber, setNextNumber] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!profileId) { setNextNumber(null); return }
+    let cancelled = false
+    fetch(`/api/profiles/${profileId}/next-number`, { credentials: 'include' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data: { format: string | null; next: string | null } | null) => {
+        if (cancelled) return
+        setNextNumber(data?.format ? data.next : null)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [profileId])
+
   const handleSaveSignatory = async (data: SignatoryData) => {
     if (!profileId) return
     const payload = {
@@ -224,6 +244,9 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
   const bikError = bank.bik ? validateBik(bank.bik) : null
   const accountError = bank.checkingAccount ? validateCheckingAccount(bank.checkingAccount, bank.bik) : null
   const kppError = profile.kpp ? validateKpp(profile.kpp) : null
+
+  const numberFormat = profile.contractNumberFormat.trim()
+  const numberFormatError = numberFormat ? validateFormat(numberFormat) : null
 
   return (
     <div className="flex flex-col gap-[12px]">
@@ -312,6 +335,43 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
                 placeholder="your@email.ru" />
             </Field>
           )}
+        </div>
+      </Card>
+
+      <Card>
+        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Нумерация договоров</p>
+        <div className="flex flex-col gap-[12px]">
+          <Field label="Формат номера договора">
+            <Input value={profile.contractNumberFormat}
+              onChange={(e) => set('contractNumberFormat', e.target.value)}
+              placeholder="{NNN}/{ММ}-{ГГ}"
+              error={numberFormatError?.message}
+              style={{ fontFamily: 'var(--font-mono)' }} />
+          </Field>
+
+          {numberFormat && !numberFormatError && (
+            <p className="text-[11px] text-[var(--ink-4)]">
+              Пример: {renderNumber(numberFormat, 1, new Date())} · {SCOPE_LABELS[formatScope(numberFormat)]}
+            </p>
+          )}
+
+          {!isNew && profileId && nextNumber && (
+            <p className="text-[11px] text-[var(--ink-4)]">
+              Следующий номер: <span className="font-mono text-[var(--ink-2)]">{nextNumber}</span>
+            </p>
+          )}
+
+          <div className="flex flex-col gap-[2px]">
+            {PLACEHOLDER_HINTS.map((hint) => (
+              <p key={hint.token} className="text-[11px] text-[var(--ink-4)]">
+                <span className="font-mono">{hint.token}</span> — {hint.label}
+              </p>
+            ))}
+          </div>
+
+          <p className="text-[11px] text-[var(--ink-4)]">
+            Оставьте пустым, если не нужна автоматическая нумерация.
+          </p>
         </div>
       </Card>
 
@@ -475,6 +535,8 @@ export default function RequisitesPage() {
     try {
       const payload = {
         ...draft,
+        // Пустая строка на сервере превращается в null — нумерация отключена
+        contractNumberFormat: draft.contractNumberFormat.trim(),
         bankName: draft.bankDetails[0]?.bankName ?? '',
         checkingAccount: draft.bankDetails[0]?.checkingAccount ?? '',
         bik: draft.bankDetails[0]?.bik ?? '',

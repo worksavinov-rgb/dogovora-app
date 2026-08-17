@@ -1574,7 +1574,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           </div>
           {authBalance < versionPrice ? (
             <div className="flex flex-col gap-[8px]">
-              <p className="text-[12px] text-[var(--danger)]">Недостаточно средств на балансе.</p>
+              <p className="text-[12px] text-[var(--danger)]">Недостаточно средств на балансе. Пополнение появится вместе с платёжным шлюзом.</p>
               <div className="flex gap-[8px]">
                 <button
                   onClick={() => setPurchaseConfirmOpen(false)}

@@ -298,7 +298,7 @@ export default function HomePage() {
                 onClick={() => router.push('/balance')}
                 className="w-full h-[38px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
               >
-                Пополнить баланс
+                Открыть баланс
               </button>
             </div>
           </Card>

@@ -880,9 +880,12 @@ export const gigachatProvider: AIProvider = {
   },
 
   async review(documentText: string, settings: AISettings): Promise<ReviewResult> {
-    // Извлекаем роль пользователя из customInstruction если она там есть
+    // Роль пользователя: приоритет — явная userRoleName (резолвится сервером через
+    // resolvePartyRole, см. review/route.ts), затем разбор customInstruction.
+    // Без роли анализ бессмыслен: модель выбирала сторону наугад и могла советовать
+    // пользователю ухудшить его же положение (подтверждено на живом договоре).
     const roleMatch = settings.customInstruction?.match(/Роль пользователя:\s*(.+?)(?:\.|$)/i)
-    const userRole = roleMatch?.[1]?.trim() ?? 'одна из сторон'
+    const userRole = settings.userRoleName ?? roleMatch?.[1]?.trim() ?? 'одна из сторон'
     const otherRole = userRole === 'Исполнитель' ? 'Заказчик' : 'Исполнитель'
 
     const systemContent = [

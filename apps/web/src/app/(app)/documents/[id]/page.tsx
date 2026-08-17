@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { calcVersionPrice } from '@/lib/pricing'
 import { parseDocxToHtml } from '@/lib/docx-to-html'
+import { DocumentNumberField } from '@/components/document-number-field'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ interface Document {
   documentNumber: number | null
   createdAt: string; updatedAt: string
   counterparty: Counterparty
+  // Своё юрлицо документа — от него зависит формат номера (GET /api/documents/:id его отдаёт)
+  profile: { id: string } | null
   versions: Version[]
   parentDocument: { id: string; title: string; number: string | null } | null
   childDocuments: ChildDoc[]
@@ -54,8 +57,9 @@ function relDate(iso: string): string {
 
 // ─── Модалка подписания ───────────────────────────────────────────────────────
 
-function SignModal({ ver, docTitle, docNumber, onConfirm, onClose, loading }: {
-  ver: Version; docTitle: string; docNumber: string | null
+function SignModal({ ver, docId, docTitle, docNumber, profileId, onConfirm, onClose, loading }: {
+  ver: Version; docId: string; docTitle: string; docNumber: string | null
+  profileId: string | null
   onConfirm: (number: string, date: string) => void
   onClose: () => void; loading: boolean
 }) {
@@ -75,16 +79,14 @@ function SignModal({ ver, docTitle, docNumber, onConfirm, onClose, loading }: {
         </p>
 
         <div className="flex flex-col gap-[14px] mb-[20px]">
-          <div>
-            <label className="block text-[12px] text-[var(--ink-3)] mb-[6px]">Номер договора</label>
-            <input
-              className="w-full h-[38px] px-[12px] text-[13px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] outline-none focus:border-[var(--accent)] transition-colors"
-              style={{ fontFamily: 'var(--font-mono)' }}
-              value={number}
-              onChange={(e) => setNumber(e.target.value)}
-              placeholder="Например: 123/2026"
-            />
-          </div>
+          {/* excludeDocumentId — иначе документ найдёт сам себя как дубль номера */}
+          <DocumentNumberField
+            profileId={profileId}
+            signingDate={date || null}
+            value={number}
+            onChange={setNumber}
+            excludeDocumentId={docId}
+          />
           <div>
             <label className="block text-[12px] text-[var(--ink-3)] mb-[6px]">Дата подписания</label>
             <input
@@ -643,8 +645,10 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
       {signingVer && doc && (
         <SignModal
           ver={signingVer}
+          docId={doc.id}
           docTitle={doc.title}
           docNumber={doc.number}
+          profileId={doc.profile?.id ?? null}
           onConfirm={handleSign}
           onClose={() => setSigningVer(null)}
           loading={signing}
