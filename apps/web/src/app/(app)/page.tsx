@@ -22,8 +22,16 @@ interface RecentDoc {
   }[]
 }
 
+interface DeadlineItem {
+  documentId: string
+  title: string
+  counterpartyName: string | null
+  autoRenewal: boolean
+  daysLeft: number
+}
+
 interface WalletData { balance: number }
-interface StorageData { usedBytes: number; limitBytes: number; percent: number; totalDocs: number; totalVersions: number }
+interface StorageData { usedBytes: number; totalDocs: number; totalVersions: number }
 
 // ─── Утилиты ──────────────────────────────────────────────────────────────────
 
@@ -38,11 +46,6 @@ const STATUS_MAP: Record<string, 'draft'|'progress'|'review'|'approved'|'paid'> 
 function formatBytes(b: number) {
   if (b < 1024 * 1024) return `${Math.round(b / 1024)} КБ`
   return `${(b / (1024 * 1024)).toFixed(1)} МБ`
-}
-
-function formatLimit(b: number) {
-  const gb = b / (1024 ** 3)
-  return gb >= 1 ? `${gb % 1 === 0 ? gb : gb.toFixed(1)} ГБ` : `${Math.round(b / (1024 ** 2))} МБ`
 }
 
 function relDate(iso: string) {
@@ -106,6 +109,7 @@ export default function HomePage() {
   const [wallet, setWallet] = useState<WalletData | null>(null)
   const [storage, setStorage] = useState<StorageData | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
+  const [deadlines, setDeadlines] = useState<DeadlineItem[]>([])
   const [userName, setUserName] = useState<string | null>(null)
   const [myProfileName, setMyProfileName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -118,7 +122,8 @@ export default function HomePage() {
       fetch('/api/storage').then((r) => r.ok ? r.json() : null),
       fetch('/api/auth/me').then((r) => r.ok ? r.json() : null),
       fetch('/api/profiles').then((r) => r.ok ? r.json() : []),
-    ]).then(([docsData, walletData, storageData, meData, profilesData]) => {
+      fetch('/api/documents/deadlines').then((r) => r.ok ? r.json() : { items: [] }),
+    ]).then(([docsData, walletData, storageData, meData, profilesData, deadlinesData]) => {
       setDocs(docsData.items ?? [])
       setWallet(walletData)
       setStorage(storageData)
@@ -134,10 +139,13 @@ export default function HomePage() {
         return count + doc.versions.filter((v) => v.status === 'APPROVED' && !v.purchase).length
       }, 0)
       setPendingCount(approved)
+      setDeadlines(deadlinesData?.items ?? [])
+    }).catch(() => {
+      // Любая упавшая ручка раньше оставляла главную на вечных скелетонах
+      setLoading(false)
     })
   }, [])
 
-  const isStorageWarning = (storage?.percent ?? 0) > 68
 
   return (
     <div className="max-w-[1080px]">
@@ -292,7 +300,7 @@ export default function HomePage() {
                 <span className="text-[var(--ink-3)] ml-[6px]" style={{ fontSize: 20 }}>₽</span>
               </p>
               <p className="text-[12px] text-[var(--ink-4)]">
-                ≈ {wallet ? Math.floor(wallet.balance / 55) : 0} договоров по средней цене
+                ≈ {wallet ? Math.floor(wallet.balance / 60) : 0} документов по средней цене
               </p>
               <button
                 onClick={() => router.push('/balance')}
@@ -302,6 +310,33 @@ export default function HomePage() {
               </button>
             </div>
           </Card>
+
+          {/* Ближайшие сроки договоров */}
+          {deadlines.length > 0 && (
+            <Card>
+              <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Ближайшие сроки</p>
+              <div className="flex flex-col gap-[10px]">
+                {deadlines.slice(0, 3).map((d) => (
+                  <button
+                    key={d.documentId}
+                    onClick={() => router.push(`/documents/${d.documentId}`)}
+                    className="text-left cursor-pointer group"
+                  >
+                    <p className="text-[12px] font-medium text-[var(--ink)] group-hover:underline truncate">{d.title}</p>
+                    <p className="text-[11px] leading-[1.5]" style={{ color: d.daysLeft <= 7 ? 'var(--danger)' : 'var(--ink-4)' }}>
+                      {d.autoRenewal
+                        ? d.daysLeft > 0
+                          ? `автопролонгация: отказ возможен ещё ${d.daysLeft} дн.`
+                          : 'продлён автоматически'
+                        : d.daysLeft > 0
+                          ? `истекает через ${d.daysLeft} дн.`
+                          : 'срок истёк'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {/* Версии ждут оплаты */}
           {pendingCount > 0 && (
@@ -330,25 +365,13 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Хранилище */}
+          {/* Хранилище: лимитов нет — показываем только занятое место */}
           <Card>
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Хранилище</p>
-            <div className="flex items-center justify-between mb-[6px]">
+            <div className="flex items-center justify-between mb-[8px]">
               <p className="text-[12px] text-[var(--ink-2)]">
-                {storage ? `${formatBytes(storage.usedBytes)} из ${formatLimit(storage.limitBytes)}` : '…'}
+                {storage ? `Занято ${formatBytes(storage.usedBytes)}` : '…'}
               </p>
-              <p className="text-[11px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-mono)' }}>
-                {storage?.percent ?? 0}%
-              </p>
-            </div>
-            <div className="h-[4px] rounded-full bg-[var(--line)] overflow-hidden mb-[8px]">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${storage?.percent ?? 0}%`,
-                  background: isStorageWarning ? 'var(--danger)' : 'var(--accent)',
-                }}
-              />
             </div>
             <p className="text-[11px] text-[var(--ink-4)]">
               {storage

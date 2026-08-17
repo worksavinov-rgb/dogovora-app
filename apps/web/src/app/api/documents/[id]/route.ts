@@ -74,7 +74,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const doc = await prisma.document.findFirst({ where: { id, userId } })
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const body = await req.json() as { title?: string; number?: string | null; date?: string | null; profileId?: string | null; parentDocumentId?: string | null }
+  const body = await req.json() as {
+    title?: string; number?: string | null; date?: string | null
+    profileId?: string | null; parentDocumentId?: string | null
+    // Сроки действия — для напоминаний об истечении/автопролонгации
+    expiresAt?: string | null; autoRenewal?: boolean; renewalNoticeDays?: number | null
+  }
 
   // Проверка на цикл при привязке к родителю
   if (body.parentDocumentId !== undefined && body.parentDocumentId !== null) {
@@ -99,6 +104,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       ...(body.date !== undefined ? { createdAt: body.date ? new Date(body.date) : undefined } : {}),
       ...(body.profileId !== undefined ? { profileId: body.profileId || null } : {}),
       ...(body.parentDocumentId !== undefined ? { parentDocumentId: body.parentDocumentId } : {}),
+      ...(body.expiresAt !== undefined ? { expiresAt: body.expiresAt ? new Date(body.expiresAt) : null } : {}),
+      ...(body.autoRenewal !== undefined ? { autoRenewal: body.autoRenewal } : {}),
+      ...(body.renewalNoticeDays !== undefined ? { renewalNoticeDays: body.renewalNoticeDays } : {}),
     },
   })
   return NextResponse.json(updated)

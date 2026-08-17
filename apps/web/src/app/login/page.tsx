@@ -87,16 +87,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-6">
-      {/* Карточка авторизации */}
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-[16px] sm:p-6">
+      {/* Карточка авторизации: на мобильных — одна колонка (шапка + форма) */}
       <div
-        className="w-full max-w-[900px] grid grid-cols-2 min-h-[600px] rounded-[var(--radius-xl)] overflow-hidden border border-[var(--line-2)] shadow-[var(--shadow-2)]"
+        className="w-full max-w-[900px] grid grid-cols-1 md:grid-cols-2 md:min-h-[600px] rounded-[var(--radius-xl)] overflow-hidden border border-[var(--line-2)] shadow-[var(--shadow-2)]"
         style={{ background: 'var(--bg)' }}
       >
 
-        {/* ─── Левая колонка — брендинг ─────────────────────────────── */}
+        {/* ─── Левая колонка — брендинг (на мобильных — компактная шапка) ── */}
         <div
-          className="flex flex-col p-[48px_56px] border-r border-[var(--line)]"
+          className="flex flex-col p-[20px_24px] md:p-[48px_56px] border-b md:border-b-0 md:border-r border-[var(--line)]"
           style={{
             background: 'linear-gradient(180deg, var(--bg-soft), var(--bg))',
           }}
@@ -106,8 +106,13 @@ export default function LoginPage() {
             Догодок
           </div>
 
-          {/* Центральный контент */}
-          <div className="flex-1 flex flex-col justify-center max-w-[400px] mt-[48px]">
+          {/* Короткий слоган — только на мобильных */}
+          <p className="md:hidden text-[13px] text-[var(--ink-3)] mt-[4px]">
+            Договоры, которые пишут и проверяют сами себя
+          </p>
+
+          {/* Центральный контент — скрыт на мобильных, чтобы форма была сразу видна */}
+          <div className="hidden md:flex flex-1 flex-col justify-center max-w-[400px] mt-[48px]">
             <h1 style={{ fontSize: 40, lineHeight: 1.1, marginBottom: 20, fontWeight: 400 }}>
               Договоры, которые{' '}
               <em className="not-italic text-[var(--accent)]">пишут</em>{' '}
@@ -139,7 +144,7 @@ export default function LoginPage() {
         </div>
 
         {/* ─── Правая колонка — форма ────────────────────────────────── */}
-        <div className="flex flex-col justify-center p-[48px_56px] bg-[var(--surface)]">
+        <div className="flex flex-col justify-center p-[24px_20px] md:p-[48px_56px] bg-[var(--surface)]">
           <div className="max-w-[360px] w-full mx-auto">
 
             {/* Переключатель Войти / Регистрация */}

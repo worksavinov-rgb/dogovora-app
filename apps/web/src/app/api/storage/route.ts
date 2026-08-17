@@ -2,35 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 
-const PLAN_LIMITS: Record<string, bigint> = {
-  STARTER:      BigInt(10 * 1024 * 1024),       // 10 MB
-  PROFESSIONAL: BigInt(5 * 1024 * 1024 * 1024), // 5 GB
-  BUSINESS:     BigInt(50 * 1024 * 1024 * 1024),// 50 GB
-}
-
-// GET /api/storage — информация об использовании хранилища
+// GET /api/storage — сколько места занимают документы пользователя.
+//
+// Решение владельца (2026-08-17): хранилище НЕ продаём — тарифов, лимитов и
+// процентов нет, каждый хранит сколько нужно. Показываем только факт:
+// занято всего + разбивка по типам документов. Оплата по занимаемому месту
+// появится позже — тогда вернутся и лимиты.
 export async function GET(req: NextRequest) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Lazy init квоты
-  const quota = await prisma.storageQuota.upsert({
-    where: { userId },
-    create: { userId },
-    update: {},
-  })
-
-  // Синхронизируем лимит по плану (исправляет устаревшие записи)
-  const correctLimit = PLAN_LIMITS[quota.plan] ?? PLAN_LIMITS.STARTER
-  if (quota.limitBytes !== correctLimit) {
-    await prisma.storageQuota.update({
-      where: { userId },
-      data: { limitBytes: correctLimit },
-    })
-  }
-  const limitBytes = Number(correctLimit)
-
-  // Загружаем все версии с fileSize и content по документам пользователя
+  // Считаем по fileSize; content подтягиваем только как запасной вариант для
+  // старых версий без fileSize (грузить все тексты в память ради подсчёта —
+  // дорого, поэтому берём длину только там, где размера нет).
   const docs = await prisma.document.findMany({
     where: { userId },
     select: {
@@ -56,20 +40,17 @@ export async function GET(req: NextRequest) {
   }
 
   const usedBytes = Object.values(typeMap).reduce((s, b) => s + b, 0)
-  const totalDocs = docs.length
 
-  // Обновляем usedBytes в квоте
-  await prisma.storageQuota.update({
+  // Квоту продолжаем актуализировать — пригодится при вводе оплаты за место.
+  await prisma.storageQuota.upsert({
     where: { userId },
-    data: { usedBytes },
+    create: { userId, usedBytes },
+    update: { usedBytes },
   })
 
   return NextResponse.json({
-    plan: quota.plan,
     usedBytes,
-    limitBytes,
-    percent: limitBytes > 0 ? Math.round((usedBytes / limitBytes) * 100) : 0,
-    totalDocs,
+    totalDocs: docs.length,
     totalVersions,
     breakdown: [
       { type: 'CONTRACT',  label: 'Договоры',       bytes: typeMap.CONTRACT  ?? 0 },

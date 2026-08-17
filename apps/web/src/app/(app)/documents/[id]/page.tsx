@@ -32,6 +32,10 @@ interface Document {
   id: string; title: string; number: string | null; type: string
   documentNumber: number | null
   createdAt: string; updatedAt: string
+  // Сроки действия — для напоминаний об истечении/автопролонгации
+  expiresAt: string | null
+  autoRenewal: boolean
+  renewalNoticeDays: number | null
   counterparty: Counterparty
   // Своё юрлицо документа — от него зависит формат номера (GET /api/documents/:id его отдаёт)
   profile: { id: string } | null
@@ -53,6 +57,101 @@ function relDate(iso: string): string {
   if (diff === 0) return `${d.toLocaleDateString('ru', {day:'numeric',month:'short'})}, ${d.toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'})}`
   if (diff === 1) return 'вчера'
   return d.toLocaleDateString('ru', { day:'numeric', month:'short' })
+}
+
+// ─── Карточка «Срок действия» ────────────────────────────────────────────────
+// Дата окончания + автопролонгация. Заполняется вручную; на главной по этим
+// полям строятся напоминания «истекает / продлится автоматически».
+
+function ExpiryCard({ doc, onSaved }: { doc: Document; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [expires, setExpires] = useState(doc.expiresAt ? doc.expiresAt.slice(0, 10) : '')
+  const [auto, setAuto] = useState(doc.autoRenewal)
+  const [noticeDays, setNoticeDays] = useState<string>(String(doc.renewalNoticeDays ?? 14))
+
+  async function save() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/documents/${doc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          expiresAt: expires || null,
+          autoRenewal: auto,
+          renewalNoticeDays: auto ? (parseInt(noticeDays, 10) || 14) : null,
+        }),
+      })
+      if (res.ok) { setEditing(false); onSaved() }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const fmt = (iso: string) => new Date(iso).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' })
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-[10px]">
+        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em]">Срок действия</p>
+        {!editing && (
+          <button onClick={() => setEditing(true)}
+            className="text-[11px] text-[var(--ink-4)] hover:text-[var(--ink)] underline cursor-pointer">
+            {doc.expiresAt ? 'Изменить' : 'Указать'}
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        doc.expiresAt ? (
+          <div className="flex flex-col gap-[4px] text-[13px]">
+            <div className="flex justify-between gap-[8px]">
+              <p className="text-[var(--ink-4)]">Действует до</p>
+              <p className="text-[var(--ink-2)]">{fmt(doc.expiresAt)}</p>
+            </div>
+            {doc.autoRenewal && (
+              <p className="text-[12px] text-[var(--ink-4)] leading-[1.5]">
+                Продлевается автоматически, отказ — за {doc.renewalNoticeDays ?? 14} дн. до окончания
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-[12px] text-[var(--ink-4)] leading-[1.5]">
+            Укажите дату окончания — Догодок напомнит об истечении или автопролонгации.
+          </p>
+        )
+      ) : (
+        <div className="flex flex-col gap-[10px]">
+          <label className="flex flex-col gap-[4px]">
+            <span className="text-[11px] text-[var(--ink-4)]">Дата окончания</span>
+            <input type="date" value={expires} onChange={(e) => setExpires(e.target.value)}
+              className="h-[34px] px-[10px] rounded-[var(--radius-md)] border border-[var(--line-2)] bg-white text-[13px]" />
+          </label>
+          <label className="flex items-center gap-[8px] text-[12px] text-[var(--ink-2)] cursor-pointer">
+            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+            Продлевается автоматически
+          </label>
+          {auto && (
+            <label className="flex flex-col gap-[4px]">
+              <span className="text-[11px] text-[var(--ink-4)]">За сколько дней заявить об отказе</span>
+              <input type="number" min={1} max={365} value={noticeDays} onChange={(e) => setNoticeDays(e.target.value)}
+                className="h-[34px] px-[10px] rounded-[var(--radius-md)] border border-[var(--line-2)] bg-white text-[13px] w-[100px]" />
+            </label>
+          )}
+          <div className="flex gap-[8px]">
+            <button onClick={() => setEditing(false)} disabled={saving}
+              className="flex-1 h-[32px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+              Отмена
+            </button>
+            <button onClick={save} disabled={saving}
+              className="flex-1 h-[32px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50">
+              {saving ? 'Сохраняю…' : 'Сохранить'}
+            </button>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
 }
 
 // ─── Модалка подписания ───────────────────────────────────────────────────────
@@ -822,6 +921,8 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                 ))}
               </div>
             </Card>
+
+            <ExpiryCard doc={doc} onSaved={loadDoc} />
 
             {doc.counterparty.signatories.length > 0 && (
               <Card>

@@ -80,6 +80,9 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
   const [selectedIssue, setSelectedIssue] = useState<string | null>(null)
   const [versionId, setVersionId] = useState<string | null>(null)
   const [docContent, setDocContent] = useState<string>('')
+  // Мобильная вкладка: на <md показываем либо документ, либо панель замечаний
+  // (тот же паттерн, что и «Документ / Догодок-чат» на рабочем экране)
+  const [mobileTab, setMobileTab] = useState<'doc' | 'issues'>('doc')
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
@@ -144,14 +147,37 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
   if (!result) return null
 
   return (
-    <div className="flex" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+    <div className="flex flex-col md:flex-row" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+
+      {/* Мобильный переключатель Документ ↔ Замечания */}
+      <div className="md:hidden shrink-0 flex" style={{ borderBottom: '1px solid var(--line)' }}>
+        {([
+          { key: 'doc', label: 'Документ' },
+          { key: 'issues', label: `Замечания (${result.issues.length})` },
+        ] as const).map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setMobileTab(tab.key)}
+            className="flex-1 h-[40px] text-[13px] font-medium transition-colors cursor-pointer"
+            style={{
+              background: mobileTab === tab.key ? 'var(--ink)' : 'var(--bg)',
+              color: mobileTab === tab.key ? 'var(--bg)' : 'var(--ink-3)',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {/* ── Левая колонка — документ ─────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0" style={{ borderRight: '1px solid var(--line)' }}>
+      <div className={[
+        'flex-1 flex-col min-w-0 md:border-r md:border-[var(--line)]',
+        mobileTab === 'issues' ? 'hidden md:flex' : 'flex',
+      ].join(' ')}>
 
         {/* Toolbar */}
         <div
-          className="shrink-0 flex items-center gap-[12px] px-[24px]"
+          className="shrink-0 flex items-center gap-[12px] px-[16px] md:px-[24px]"
           style={{ height: 48, borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}
         >
           <button
@@ -167,12 +193,12 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
 
         {/* Документ с highlights */}
         <div
-          className="flex-1 overflow-y-auto"
-          style={{ background: 'var(--bg-soft)', padding: '32px 40px' }}
+          className="flex-1 overflow-y-auto p-[16px] md:p-[32px_40px]"
+          style={{ background: 'var(--bg-soft)' }}
         >
           <div
-            className="mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm"
-            style={{ maxWidth: 720, padding: '48px 56px', minHeight: 600 }}
+            className="mx-auto bg-white rounded-[var(--radius-lg)] shadow-sm p-[24px_20px] md:p-[48px_56px] min-h-[400px] md:min-h-[600px]"
+            style={{ maxWidth: 720 }}
           >
             {/* Отображаем параграфы с highlights для рисков */}
             {docContent.split('\n').map((line, i) => {
@@ -205,9 +231,13 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
       </div>
 
       {/* ── Правая колонка — результаты проверки ─────────────────────────── */}
+      {/* На мобильных занимает весь экран (вкладка «Замечания»), на ≥md — 380px справа */}
       <div
-        className="shrink-0 flex flex-col overflow-y-auto"
-        style={{ width: 380, background: 'var(--bg)', padding: '20px' }}
+        className={[
+          'flex-col overflow-y-auto flex-1 md:flex-none md:shrink-0 w-full md:w-[380px] p-[16px] md:p-[20px]',
+          mobileTab === 'doc' ? 'hidden md:flex' : 'flex',
+        ].join(' ')}
+        style={{ background: 'var(--bg)' }}
       >
         {/* Оценка */}
         <div className="flex items-center gap-[20px] mb-[20px]">

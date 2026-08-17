@@ -1323,6 +1323,9 @@ export default function NewDocumentPage() {
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [counterparties, setCounterparties] = useState<Counterparty[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
+  // Реальный баланс: раньше в правой панели был захардкожен «Баланс: 0 ₽ — будет
+  // недостаточно» независимо от фактического баланса пользователя.
+  const [balance, setBalance] = useState<number | null>(null)
   const [loadingTemplate, setLoadingTemplate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -1369,6 +1372,10 @@ export default function NewDocumentPage() {
     fetch('/api/counterparties')
       .then((r) => r.ok ? r.json() : [])
       .then((data: Counterparty[]) => { if (Array.isArray(data)) setCounterparties(data) })
+      .catch(console.error)
+    fetch('/api/wallet')
+      .then((r) => r.ok ? r.json() : null)
+      .then((w: { balance?: number } | null) => { if (w && typeof w.balance === 'number') setBalance(w.balance) })
       .catch(console.error)
   }, [])
 
@@ -1576,12 +1583,17 @@ export default function NewDocumentPage() {
                     <p style={{ fontFamily:'var(--font-display)', fontSize:32, fontWeight:400, marginBottom:4 }}>
                       {versionPrice} ₽
                     </p>
-                    <p className="text-[12px] text-[var(--ink-4)] mb-[12px]">Списание при утверждении v.1</p>
-                    <div className="bg-[var(--surface-inset)] rounded-[var(--radius-md)] px-[12px] py-[10px]">
-                      <p className="text-[12px] text-[var(--ink-3)]">
-                        Баланс: <span className="font-medium text-[var(--ink)]">0 ₽</span> — будет недостаточно
-                      </p>
-                    </div>
+                    <p className="text-[12px] text-[var(--ink-4)] mb-[12px]">
+                      Предварительно, от желаемого объёма. Финальная цена — по фактическому объёму при утверждении v.1.
+                    </p>
+                    {balance !== null && (
+                      <div className="bg-[var(--surface-inset)] rounded-[var(--radius-md)] px-[12px] py-[10px]">
+                        <p className="text-[12px] text-[var(--ink-3)]">
+                          Баланс: <span className="font-medium text-[var(--ink)]">{balance.toLocaleString('ru')} ₽</span>
+                          {balance < versionPrice ? ' — не хватит на эту версию' : ' — хватает'}
+                        </p>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="flex flex-col gap-[6px]">

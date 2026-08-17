@@ -12,10 +12,9 @@ interface BreakdownItem {
 }
 
 interface StorageData {
-  plan: 'STARTER' | 'BUSINESS' | 'BUREAU'
   usedBytes: number
-  limitBytes: number
-  percent: number
+  totalDocs: number
+  totalVersions: number
   breakdown: BreakdownItem[]
 }
 
@@ -24,13 +23,8 @@ interface StorageData {
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 КБ'
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
-}
-
-function formatLimit(bytes: number): string {
-  const gb = bytes / (1024 * 1024 * 1024)
-  if (gb >= 1) return `${gb % 1 === 0 ? gb : gb.toFixed(1)} ГБ`
-  return `${Math.round(bytes / (1024 * 1024))} МБ`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} ГБ`
 }
 
 // ─── Цвета для breakdown ──────────────────────────────────────────────────────
@@ -41,66 +35,31 @@ const TYPE_COLORS: Record<string, string> = {
   AMENDMENT: 'oklch(0.55 0.08 200)',   // teal
 }
 
-const TYPE_BG: Record<string, string> = {
-  CONTRACT:  'oklch(0.95 0.015 260)',
-  APPENDIX:  'oklch(0.97 0.015 60)',
-  AMENDMENT: 'oklch(0.96 0.015 200)',
-}
+// ─── SVG Donut-чарт: доли ТИПОВ в занятом месте (лимитов нет) ────────────────
 
-// ─── SVG Donut-чарт ───────────────────────────────────────────────────────────
-
-function DonutChart({
-  percent, breakdown, limitBytes,
-}: {
-  percent: number
-  breakdown: BreakdownItem[]
-  limitBytes: number
-}) {
+function DonutChart({ breakdown, usedBytes }: { breakdown: BreakdownItem[]; usedBytes: number }) {
   const r = 56
   const circ = 2 * Math.PI * r
   const size = 160
 
-  // Строим сегменты по breakdown
-  const total = breakdown.reduce((s, b) => s + b.bytes, 0)
-  const segments: { offset: number; length: number; color: string; type: string }[] = []
+  // Сегменты — доли типов от общего занятого места
+  const segments: { offset: number; length: number; color: string }[] = []
   let accumulated = 0
-
   for (const item of breakdown) {
-    if (item.bytes === 0) continue
-    const fraction = total > 0 ? item.bytes / limitBytes : 0
-    const length = fraction * circ
+    if (item.bytes === 0 || usedBytes === 0) continue
+    const length = (item.bytes / usedBytes) * circ
     segments.push({
-      offset: circ - accumulated,
+      offset: -accumulated,
       length,
       color: TYPE_COLORS[item.type] ?? 'var(--ink-4)',
-      type: item.type,
     })
     accumulated += length
   }
 
-  const isWarning = percent > 68
-
   return (
-    <div className="relative" style={{ width: size, height: size }}>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        {/* Трек */}
-        <circle
-          cx={size / 2} cy={size / 2} r={r}
-          fill="none" stroke="var(--line)" strokeWidth="10"
-        />
-        {/* Заполненная дуга (если нет breakdown или всё пустое) */}
-        {segments.length === 0 && percent > 0 && (
-          <circle
-            cx={size / 2} cy={size / 2} r={r}
-            fill="none"
-            stroke={isWarning ? 'var(--danger)' : 'var(--accent)'}
-            strokeWidth="10"
-            strokeDasharray={`${(percent / 100) * circ} ${circ}`}
-            strokeDashoffset={circ / 4}
-            strokeLinecap="round"
-          />
-        )}
-        {/* Сегменты по типам */}
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--line)" strokeWidth="10" />
         {segments.map((seg, i) => (
           <circle
             key={i}
@@ -116,16 +75,12 @@ function DonutChart({
         ))}
       </svg>
 
-      {/* Центр */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span
-          className="text-[28px] font-medium leading-none"
-          style={{
-            fontFamily: 'var(--font-mono)',
-            color: isWarning ? 'var(--danger)' : 'var(--ink)',
-          }}
+          className="text-[20px] font-medium leading-none"
+          style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink)' }}
         >
-          {percent}%
+          {formatBytes(usedBytes)}
         </span>
         <span className="text-[10px] text-[var(--ink-4)] mt-[2px]">занято</span>
       </div>
@@ -133,43 +88,18 @@ function DonutChart({
   )
 }
 
-// ─── Тарифные карточки ────────────────────────────────────────────────────────
-
-const PLANS = [
-  {
-    key: 'STARTER',
-    name: 'Старт',
-    storage: '10 МБ',
-    price: 'Бесплатно',
-    features: ['До 50 документов', 'Догодок-чат', 'Проверка рисков'],
-  },
-  {
-    key: 'BUSINESS',
-    name: 'Дело',
-    storage: '5 ГБ',
-    price: '890 ₽/мес',
-    features: ['Неограниченно документов', 'Приоритетная поддержка', 'История версий 12 мес.'],
-    recommended: true,
-  },
-  {
-    key: 'BUREAU',
-    name: 'Бюро',
-    storage: '50 ГБ',
-    price: '2 490 ₽/мес',
-    features: ['Командный доступ', 'API-интеграции', 'Выделенный менеджер'],
-  },
-]
-
 // ─── Главная страница ─────────────────────────────────────────────────────────
 
 export default function StoragePage() {
   const [data, setData] = useState<StorageData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     fetch('/api/storage')
-      .then((r) => r.ok ? r.json() : null)
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('load failed')))
       .then(setData)
+      .catch(() => setLoadError(true))
       .finally(() => setLoading(false))
   }, [])
 
@@ -181,10 +111,16 @@ export default function StoragePage() {
     )
   }
 
-  if (!data) return null
-
-  const isWarning = data.percent > 68
-  const currentPlan = PLANS.find((p) => p.key === data.plan) ?? PLANS[0]
+  if (loadError || !data) {
+    return (
+      <div className="max-w-[860px] py-[80px] text-center">
+        <p className="text-[15px] text-[var(--ink-2)] mb-[6px]" style={{ fontFamily: 'var(--font-serif)' }}>
+          Не удалось загрузить данные хранилища
+        </p>
+        <p className="text-[13px] text-[var(--ink-4)]">Обновите страницу или попробуйте позже.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-[860px]">
@@ -192,58 +128,25 @@ export default function StoragePage() {
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>
           Хранилище
         </h2>
+        <p className="text-[13px] text-[var(--ink-4)] mt-[4px]">
+          Все версии ваших документов хранятся без ограничений.
+        </p>
       </div>
 
-      {/* Предупреждение при >68% */}
-      {isWarning && (
-        <div
-          className="flex items-start gap-[12px] rounded-[var(--radius-md)] mb-[20px] px-[16px] py-[12px]"
-          style={{ background: 'oklch(0.96 0.025 20)', border: '1px solid oklch(0.88 0.04 20)' }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-[1px]"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <div>
-            <p className="text-[13px] font-medium" style={{ color: 'var(--danger)' }}>
-              Хранилище заполнено на {data.percent}%
-            </p>
-            <p className="text-[12px] mt-[2px]" style={{ color: 'oklch(0.5 0.08 20)' }}>
-              Скоро места не останется. Перейдите на тариф «Дело» или «Бюро» чтобы расширить хранилище.
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-[1fr_260px] gap-[20px] mb-[24px]">
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-[20px]">
         {/* Левая — чарт + breakdown */}
         <Card>
-          <div className="flex items-center gap-[32px]">
-            <DonutChart
-              percent={data.percent}
-              breakdown={data.breakdown}
-              limitBytes={data.limitBytes}
-            />
+          <div className="flex flex-col sm:flex-row items-center gap-[24px] sm:gap-[32px]">
+            <DonutChart breakdown={data.breakdown} usedBytes={data.usedBytes} />
 
-            <div className="flex-1">
+            <div className="flex-1 w-full">
               <div className="mb-[16px]">
                 <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[4px]">
                   Использовано
                 </p>
                 <p className="text-[22px] font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-mono)' }}>
                   {formatBytes(data.usedBytes)}
-                  <span className="text-[14px] text-[var(--ink-4)] font-normal ml-[6px]">
-                    из {formatLimit(data.limitBytes)}
-                  </span>
                 </p>
-              </div>
-
-              {/* Прогресс-бар */}
-              <div className="w-full h-[6px] rounded-full bg-[var(--line)] overflow-hidden mb-[16px]">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.min(data.percent, 100)}%`,
-                    background: isWarning ? 'var(--danger)' : 'var(--accent)',
-                  }}
-                />
               </div>
 
               {/* Breakdown по типам */}
@@ -271,132 +174,34 @@ export default function StoragePage() {
           </div>
         </Card>
 
-        {/* Правая — текущий тариф */}
-        <Card>
-          <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">
-            Текущий тариф
-          </p>
-          <div className="flex items-center gap-[8px] mb-[14px]">
-            <span
-              className="inline-flex items-center px-[10px] h-[22px] rounded-full text-[11px] font-medium"
-              style={{ background: 'var(--surface-inset)', color: 'var(--ink-2)' }}
-            >
-              {currentPlan.name}
-            </span>
-            <span className="text-[13px] font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-mono)' }}>
-              {currentPlan.price}
-            </span>
-          </div>
-          <div className="flex flex-col gap-[6px]">
-            {currentPlan.features.map((f) => (
-              <div key={f} className="flex items-center gap-[6px]">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="oklch(0.45 0.1 145)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                <p className="text-[12px] text-[var(--ink-3)]">{f}</p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-[14px] pt-[14px]" style={{ borderTop: '1px solid var(--line)' }}>
-            <p className="text-[11px] text-[var(--ink-4)]">
-              Хранилище: <span className="font-medium text-[var(--ink-2)]">{currentPlan.storage}</span>
+        {/* Правая — сводка */}
+        <div className="flex flex-col gap-[12px]">
+          <Card>
+            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">
+              В хранилище
             </p>
-          </div>
-        </Card>
-      </div>
-
-      {/* Тарифы */}
-      <p className="text-[13px] font-medium text-[var(--ink)] mb-[12px]">Тарифы</p>
-      <div className="grid grid-cols-3 gap-[12px]">
-        {PLANS.map((plan) => {
-          const isCurrent = plan.key === data.plan
-          return (
-            <div
-              key={plan.key}
-              className="rounded-[var(--radius-lg)] relative"
-              style={{
-                padding: '20px',
-                background: isCurrent ? 'var(--surface-inset)' : plan.recommended ? '#ffffff' : '#ffffff',
-                border: `1px solid ${isCurrent ? 'var(--ink)' : plan.recommended ? 'oklch(0.42 0.06 260)' : 'var(--line-2)'}`,
-                boxShadow: plan.recommended && !isCurrent ? '0 0 0 3px oklch(0.92 0.04 260), 0 4px 16px rgba(0,0,0,0.08)' : isCurrent ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
-              }}
-            >
-              {plan.recommended && !isCurrent && (
-                <span
-                  className="absolute top-[-11px] left-[50%] translate-x-[-50%] px-[12px] h-[22px] flex items-center rounded-full text-[10px] font-medium whitespace-nowrap"
-                  style={{ background: 'oklch(0.42 0.06 260)', color: 'white' }}
-                >
-                  Популярный
-                </span>
-              )}
-              {isCurrent && (
-                <span
-                  className="absolute top-[-10px] left-[50%] translate-x-[-50%] px-[10px] h-[20px] flex items-center rounded-full text-[10px] font-medium"
-                  style={{ background: 'var(--ink)', color: 'var(--bg)' }}
-                >
-                  Текущий
-                </span>
-              )}
-
-              <p className="text-[15px] font-medium text-[var(--ink)] mb-[2px]">{plan.name}</p>
-              <p className="text-[12px] text-[var(--ink-4)] mb-[14px]">{plan.storage} хранилища</p>
-
-              <p className="text-[20px] font-medium text-[var(--ink)] mb-[14px]"
-                style={{ fontFamily: 'var(--font-serif)' }}>
-                {plan.price}
-              </p>
-
-              <div className="flex flex-col gap-[6px] mb-[16px]">
-                {plan.features.map((f) => (
-                  <div key={f} className="flex items-start gap-[6px]">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                      stroke={isCurrent ? 'oklch(0.45 0.1 145)' : 'var(--ink-4)'}
-                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                      className="shrink-0 mt-[2px]">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                    <p className="text-[11px] text-[var(--ink-3)] leading-[1.5]">{f}</p>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                disabled
-                title={isCurrent ? undefined : 'Платные тарифы появятся позже'}
-                className="w-full h-[34px] rounded-[var(--radius-md)] text-[12px] font-medium transition-all cursor-default"
-                style={{
-                  background: 'transparent',
-                  color: 'var(--ink-4)',
-                  border: '1px solid var(--line)',
-                }}
-              >
-                {isCurrent ? 'Активен' : 'Скоро'}
-              </button>
+            <div className="flex flex-col gap-[8px]">
+              {[
+                { label: 'Документов', value: data.totalDocs },
+                { label: 'Версий', value: data.totalVersions },
+              ].map((row) => (
+                <div key={row.label} className="flex justify-between items-center text-[13px]">
+                  <p className="text-[var(--ink-4)]">{row.label}</p>
+                  <p className="font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-mono)' }}>{row.value}</p>
+                </div>
+              ))}
             </div>
-          )
-        })}
-      </div>
+          </Card>
 
-      {/* Add-on блок */}
-      <div
-        className="mt-[16px] rounded-[var(--radius-lg)] flex items-center justify-between gap-[16px]"
-        style={{ padding: '16px 20px', background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
-      >
-        <div>
-          <p className="text-[13px] font-medium text-[var(--ink)]">Дополнительное хранилище</p>
-          <p className="text-[12px] text-[var(--ink-4)] mt-[2px]">
-            Добавьте +100 ГБ к любому тарифу без смены плана
-          </p>
-        </div>
-        <div className="flex items-center gap-[12px] shrink-0">
-          <p className="text-[14px] font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-mono)' }}>
-            490 ₽/мес
-          </p>
-          <button
-            disabled
-            title="Платные тарифы появятся позже"
-            className="h-[34px] px-[14px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--surface-inset)] text-[var(--ink-4)] cursor-default"
-          >
-            Скоро
-          </button>
+          <Card>
+            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">
+              Как это работает
+            </p>
+            <div className="flex flex-col gap-[6px] text-[12px] text-[var(--ink-3)] leading-[1.6]">
+              <p>Каждое изменение документа — новая версия, старые не перезаписываются.</p>
+              <p>Купленные версии доступны для скачивания в любой момент.</p>
+            </div>
+          </Card>
         </div>
       </div>
     </div>

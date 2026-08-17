@@ -227,6 +227,11 @@ model Document {
   // Источник истины для генерации, предпросмотра и выгрузки в Word.
   preambleHtml     String?
   requisitesHtml   String?
+  // Сроки действия договора — для напоминаний «истекает / продлится автоматически».
+  // Заполняются вручную на карточке документа (позже — извлечение ИИ из текста).
+  expiresAt          DateTime?  // дата окончания срока действия
+  autoRenewal        Boolean    @default(false) // договор продлевается автоматически
+  renewalNoticeDays  Int?       // за сколько дней нужно заявить об отказе (п. вида «за 14 дней»)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
