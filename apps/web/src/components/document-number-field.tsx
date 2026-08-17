@@ -50,8 +50,21 @@ export function DocumentNumberField({
 }: DocumentNumberFieldProps) {
   const [suggestion, setSuggestion] = useState<NextNumberResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<'auto' | 'manual'>('auto')
   const [conflict, setConflict] = useState<Conflict | null>(null)
+
+  // Явный выбор пользователя. Пока его нет, режим выводится из значения: у
+  // документа с уже вписанным вручную номером радио должно стоять на «Свой
+  // номер», а не врать, что номер взят из очереди.
+  const [modeOverride, setModeOverride] = useState<'auto' | 'manual' | null>(null)
+
+  // Зеркало в ref: эффект загрузки номера не перезапускается при смене режима,
+  // поэтому из замыкания он видел бы устаревшее значение. Синхронизируем
+  // эффектом, объявленным выше загрузки — эффекты выполняются по порядку
+  // объявления, так что к моменту загрузки ref уже актуален.
+  const modeOverrideRef = useRef(modeOverride)
+  useEffect(() => {
+    modeOverrideRef.current = modeOverride
+  }, [modeOverride])
 
   // Порядковый номер последнего запроса: быстрая смена юрлица порождает
   // несколько запросов, и пришедший последним не обязательно самый свежий.
@@ -81,9 +94,12 @@ export function DocumentNumberField({
 
         // Подставляем предложенный номер, только если пользователь ещё ничего
         // своего не вписал — иначе смена даты затирала бы ручной ввод.
-        if (data?.next && (value === '' || value === autoFilled.current)) {
+        if (
+          data?.next &&
+          modeOverrideRef.current !== 'manual' &&
+          (value === '' || value === autoFilled.current)
+        ) {
           autoFilled.current = data.next
-          setMode('auto')
           onChange(data.next)
         }
       })
@@ -153,6 +169,8 @@ export function DocumentNumberField({
   }
 
   const next = suggestion.next
+  const mode: 'auto' | 'manual' =
+    modeOverride ?? (value.trim() && value.trim() !== next ? 'manual' : 'auto')
 
   return (
     <Field label={label}>
@@ -163,7 +181,7 @@ export function DocumentNumberField({
             checked={mode === 'auto'}
             disabled={disabled}
             onChange={() => {
-              setMode('auto')
+              setModeOverride('auto')
               autoFilled.current = next
               onChange(next)
             }}
@@ -180,8 +198,11 @@ export function DocumentNumberField({
             checked={mode === 'manual'}
             disabled={disabled}
             onChange={() => {
-              setMode('manual')
+              setModeOverride('manual')
               autoFilled.current = null
+              // Чистим поле: иначе пользователь дописывает свой номер к
+              // подставленному и получает «011/08-26010/08-26».
+              onChange('')
             }}
             className="accent-[var(--accent)]"
           />
