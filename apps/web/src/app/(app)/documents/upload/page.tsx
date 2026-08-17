@@ -825,7 +825,7 @@ export default function UploadPage() {
                         <p className="text-[12px]" style={{ color: 'oklch(0.4 0.12 145)' }}>
                           Ваши реквизиты сохранены в <strong>Мои реквизиты</strong>
                         </p>
-                        <button onClick={() => router.push('/profile/requisites')} className="ml-auto text-[11px] cursor-pointer underline" style={{ color: 'oklch(0.4 0.12 145)' }}>
+                        <button onClick={() => router.push('/requisites')} className="ml-auto text-[11px] cursor-pointer underline" style={{ color: 'oklch(0.4 0.12 145)' }}>
                           Проверить →
                         </button>
                       </div>
@@ -986,7 +986,7 @@ export default function UploadPage() {
                   </p>
                   <p className="text-[11px] leading-relaxed" style={{ color: 'oklch(0.55 0.08 60)' }}>
                     В шапке и подписи документа будут пропуски.{' '}
-                    <button onClick={() => { setShowSaveModal(false); router.push('/profile/requisites') }} className="underline cursor-pointer font-medium">
+                    <button onClick={() => { setShowSaveModal(false); router.push('/requisites') }} className="underline cursor-pointer font-medium">
                       Заполнить сейчас →
                     </button>
                   </p>

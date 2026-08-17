@@ -24,8 +24,18 @@ jobs:
       - name: Установить зависимости
         run: pnpm install --frozen-lockfile
 
-      - name: Проверка типов
-        run: pnpm typecheck || true
+      - name: Сгенерировать Prisma-клиент
+        run: pnpm --filter web exec prisma generate
 
-      - name: Линтер
-        run: pnpm lint || true
+      # Проверка типов ОБЯЗАТЕЛЬНА: раньше стояло «|| true», и обращения к
+      # несуществующим полям БД (contacts, ogrnDate, email) доезжали до прода.
+      - name: Проверка типов
+        run: pnpm --filter web typecheck
+
+      # Линтер пока информационный: в коде ~29 legacy-ошибок (в основном
+      # неиспользуемые переменные). После чистки мёртвого кода станет обязательным.
+      - name: Линтер (информационно)
+        run: pnpm --filter web lint || true
+
+      - name: Тесты
+        run: pnpm --filter web run --if-present test:run

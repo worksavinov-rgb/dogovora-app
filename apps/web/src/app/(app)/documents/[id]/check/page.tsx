@@ -45,33 +45,6 @@ const IMPORTANCE_CONFIG: Record<string, { label: string; color: string; bg: stri
   low:    { label: 'Низкий',  color: 'var(--ink-4)',          bg: 'var(--surface-inset)' },
 }
 
-const MOCK_DOC = `ДОГОВОР № ___
-на разработку программного обеспечения
-
-г. Москва                                           «__» ________ 2025 г.
-
-ООО «Контрагент», именуемый в дальнейшем «Заказчик», с одной стороны, и Исполнитель, с другой стороны, заключили настоящий договор.
-
-1. ПРЕДМЕТ ДОГОВОРА
-
-1.1. Исполнитель обязуется разработать для Заказчика программный продукт.
-
-2. СТОИМОСТЬ И ПОРЯДОК РАСЧЁТОВ
-
-2.1. Стоимость работ определяется на основании Технического задания.
-
-3. ПРАВА И ОБЯЗАННОСТИ СТОРОН
-
-3.2. Заказчик обязуется предоставить необходимые материалы и своевременно производить оплату.
-
-4. ПЕРЕДАЧА ИСКЛЮЧИТЕЛЬНЫХ ПРАВ
-
-4.1. Исключительные права на результат работ переходят к Заказчику после полной оплаты.
-
-5. ОТВЕТСТВЕННОСТЬ СТОРОН
-
-5.1. За просрочку оплаты Заказчик уплачивает пеню в размере 0,1% за каждый день просрочки.`
-
 function ScoreRing({ score }: { score: number }) {
   const r = 42
   const circ = 2 * Math.PI * r
@@ -120,13 +93,20 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
       .then((doc) => {
         const ver = vid ? doc.versions.find((v: { id: string }) => v.id === vid) : doc.versions[0]
         if (!ver) throw new Error('Нет версий для проверки')
-        if (!ver.content) throw new Error('Документ пустой — сначала сгенерируйте его через Догодок-чат')
         resolvedVerId = ver.id
         setVersionId(ver.id)
+        // Контент берём из /api/versions/:id — там презентационные трансформы
+        // (структурирование + эталонные шапка/реквизиты из ЛК), как на рабочем
+        // экране. Сырой doc.versions[].content показывал устаревшие реквизиты.
+        return fetch(`/api/versions/${ver.id}`)
+      })
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('Не удалось загрузить версию')))
+      .then((ver: { content: string | null }) => {
+        if (!ver.content) throw new Error('Документ пустой — сначала сгенерируйте его через Догодок-чат')
         // Контент хранится как HTML — для построчного просмотра с подсветкой
         // рисков конвертируем в plain text, иначе теги <p>/<h2> видны буквально.
         setDocContent(isHtmlString(ver.content) ? htmlToPlainText(ver.content) : ver.content)
-        return fetch(`/api/versions/${ver.id}/review`)
+        return fetch(`/api/versions/${resolvedVerId}/review`)
       })
       .then((r) => r.ok ? r.json() : r.json().then((e: { error?: string }) => Promise.reject(new Error(e.error ?? 'Ошибка проверки'))))
       .then(setResult)
@@ -195,11 +175,9 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
             style={{ maxWidth: 720, padding: '48px 56px', minHeight: 600 }}
           >
             {/* Отображаем параграфы с highlights для рисков */}
-            {(docContent || MOCK_DOC).split('\n').map((line, i) => {
+            {docContent.split('\n').map((line, i) => {
               const issue = result.issues.find((iss) =>
-                line.toLowerCase().includes(iss.clause.replace('п. ', '').toLowerCase()) ||
-                (iss.clause === 'разд. 4' && line.includes('ИСКЛЮЧИТЕЛЬНЫХ')) ||
-                (iss.clause === 'п. 3.2' && line.includes('3.2'))
+                line.toLowerCase().includes(iss.clause.replace('п. ', '').toLowerCase())
               )
 
               const isSelected = issue && selectedIssue === issue.id

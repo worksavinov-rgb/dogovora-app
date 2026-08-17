@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "worker": "tsx src/worker.ts",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-ai": "tsx prisma/seed-ai-config.ts"
@@ -35,6 +36,7 @@
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "turndown": "^7.2.4",
+    "undici": "^8.10.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.13"
   },

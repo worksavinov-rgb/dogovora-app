@@ -1,4 +1,5 @@
 import type { GigachatCredentials } from './config/types'
+import { gigachatFetch } from './gigachat-fetch'
 
 export interface GigachatModelOption {
   id: string
@@ -37,7 +38,7 @@ async function getToken(creds: GigachatCredentials): Promise<string> {
   const cached = tokenCaches.get(cacheKey)
   if (cached && cached.expiresAtMs > Date.now() + 60_000) return cached.token
 
-  const res = await fetch(authUrl, {
+  const res = await gigachatFetch(authUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -61,7 +62,7 @@ async function getToken(creds: GigachatCredentials): Promise<string> {
 export async function verifyGigachatApi(creds: GigachatCredentials): Promise<void> {
   const baseUrl = (creds.baseUrl ?? 'https://gigachat.devices.sberbank.ru/api/v1').replace(/\/+$/, '')
   const token = await getToken(creds)
-  const res = await fetch(`${baseUrl}/models`, {
+  const res = await gigachatFetch(`${baseUrl}/models`, {
     headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw new Error(`GigaChat models failed: ${res.status}`)

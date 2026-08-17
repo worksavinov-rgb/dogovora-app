@@ -6,21 +6,15 @@ import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config
 import { completeCompletion, streamCompletion } from './transport'
 import { splitRequisitesBlock } from '../html-document'
 
-// GigaChat использует самоподписанный сертификат Сбера
-// Устанавливаем переменную окружения до первого запроса
-if (typeof process !== 'undefined') {
-  process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0'
-}
+// TLS: у Сбера самоподписанный сертификат — обрабатывается локальным агентом
+// в gigachat-fetch.ts (только для запросов к GigaChat). Глобальное отключение
+// проверки сертификатов (NODE_TLS_REJECT_UNAUTHORIZED='0') убрано осознанно.
 
-const GIGACHAT_AUTH_URL = process.env['GIGACHAT_AUTH_URL'] ?? 'https://ngw.devices.sberbank.ru:9443/api/v2/oauth'
-const GIGACHAT_BASE_URL = (process.env['GIGACHAT_BASE_URL'] ?? 'https://gigachat.devices.sberbank.ru/api/v1').replace(/\/+$/, '')
-const GIGACHAT_SCOPE = process.env['GIGACHAT_SCOPE'] ?? 'GIGACHAT_API_PERS'
 // Max — для генерации, редактирования и анализа (мягче фильтры безопасности).
 // GigaChat-2 — быстрые задачи с высоким RPM (орфография, реквизиты).
 const GIGACHAT_MODEL = process.env['GIGACHAT_MODEL'] ?? 'GigaChat-2-Max'
 const GIGACHAT_REVIEW_MODEL = process.env['GIGACHAT_REVIEW_MODEL'] ?? 'GigaChat-2-Max'
 const GIGACHAT_FAST_MODEL = process.env['GIGACHAT_FAST_MODEL'] ?? 'GigaChat-2'
-const GIGACHAT_AUTH_KEY = process.env['GIGACHAT_AUTH_KEY'] ?? ''
 
 const reviewSchema = z.object({
   score: z.number().min(0).max(100),
@@ -40,73 +34,9 @@ const reviewSchema = z.object({
   ),
 })
 
-type AccessTokenCache = {
-  token: string
-  expiresAtMs: number
-}
-
-let tokenCache: AccessTokenCache | null = null
-
-function ensureGigachatConfig() {
-  if (!GIGACHAT_AUTH_KEY) {
-    throw new Error('GIGACHAT_AUTH_KEY is required when AI_PROVIDER=gigachat')
-  }
-}
-
-function epochToMs(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value)) return Date.now() + 25 * 60 * 1000
-  // Некоторые ответы приходят в секундах, некоторые в миллисекундах.
-  return value > 10_000_000_000 ? value : value * 1000
-}
-
-async function getAccessToken(): Promise<string> {
-  ensureGigachatConfig()
-
-  if (tokenCache && tokenCache.expiresAtMs > Date.now() + 60_000) {
-    return tokenCache.token
-  }
-
-  const body = new URLSearchParams({ scope: GIGACHAT_SCOPE })
-  const res = await fetch(GIGACHAT_AUTH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Accept: 'application/json',
-      RqUID: crypto.randomUUID(),
-      Authorization: `Basic ${GIGACHAT_AUTH_KEY}`,
-    },
-    body,
-  })
-
-  if (!res.ok) {
-    const details = await res.text()
-    throw new Error(`GigaChat auth failed: ${res.status} ${details}`)
-  }
-
-  const json = await res.json() as { access_token?: string; expires_at?: number }
-  if (!json.access_token) throw new Error('GigaChat auth response has no access_token')
-
-  tokenCache = {
-    token: json.access_token,
-    expiresAtMs: epochToMs(json.expires_at),
-  }
-
-  return json.access_token
-}
-
-async function chatCompletions(payload: Record<string, unknown>, stream = false): Promise<Response> {
-  const token = await getAccessToken()
-
-  return fetch(`${GIGACHAT_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: stream ? 'text/event-stream' : 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  })
-}
+// Аутентификация и HTTP к GigaChat живут в transport.ts / gigachat-fetch.ts.
+// Дублирующие getAccessToken/chatCompletions удалены: они не вызывались и
+// содержали голый fetch в обход локального TLS-агента.
 
 function buildSystemPrompt(settings: AISettings): string {
   return [

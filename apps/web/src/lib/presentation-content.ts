@@ -60,7 +60,7 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
     inn: profile.inn,
     kpp: profile.kpp,
     ogrn: profile.ogrn,
-    ogrnDate: null,
+    ogrnDate: profile.ogrnDate ?? null,
     legalAddress: profile.legalAddress,
     signatorName: profile.signatorName,
     signatorPosition: profile.signatorPosition,
@@ -69,7 +69,7 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
     checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
     bik: profile.bankDetails[0]?.bik ?? null,
     correspondentAccount: profile.bankDetails[0]?.correspondentAccount ?? null,
-    email: null,
+    email: profile.email ?? null,
   } : null
 
   const counterpartyData = cp ? {

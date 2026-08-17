@@ -84,7 +84,12 @@ model Profile {
   inn            String?
   kpp            String?
   ogrn           String?
+  // Дата регистрации ОГРН/ОГРНИП — для строки «ОГРНИП … от … г.» в преамбуле.
+  // Форма реквизитов собирала её всегда; колонка появилась позже формы.
+  ogrnDate       String?
   legalAddress   String?
+  // Email профиля — попадает в блок реквизитов документа
+  email          String?
   // Подписант от имени этого профиля
   signatorName   String?
   signatorPosition String?
@@ -126,6 +131,9 @@ model Counterparty {
   legalAddress String?
   email        String?
   phone        String?
+  // Контактные лица (до 3): [{ role, name?, email, phone }] — форма в карточке
+  // контрагента существовала всегда, но поле в БД появилось позже, и PUT падал 500.
+  contacts     Json?
   isArchived   Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

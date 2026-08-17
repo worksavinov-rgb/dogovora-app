@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
-import { verifyToken, getTokenFromCookie } from '@/lib/auth'
+import { getUserId } from '@/lib/api-auth'
 import { normalizeFormat, validateFormat } from '@/lib/document-number'
 
 // Шаблон номера договора («{NNN}/{ММ}-{ГГ}»). Пустая строка и null — одно и то
@@ -21,6 +21,8 @@ const profileUpdateSchema = z.object({
   inn: z.string().optional().nullable(),
   kpp: z.string().optional().nullable(),
   ogrn: z.string().optional().nullable(),
+  ogrnDate: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
   legalAddress: z.string().optional().nullable(),
   signatorName: z.string().optional().nullable(),
   signatorPosition: z.string().optional().nullable(),
@@ -32,17 +34,8 @@ const profileUpdateSchema = z.object({
   contractNumberFormat: contractNumberFormatSchema.optional(),
 })
 
-async function getCurrentUserId(req: NextRequest): Promise<string | null> {
-  const cookieHeader = req.headers.get('cookie')
-  const token = getTokenFromCookie(cookieHeader, 'access_token')
-  if (!token) return null
-  try {
-    const payload = verifyToken(token)
-    return payload.userId
-  } catch {
-    return null
-  }
-}
+// Авторизация — через общий getUserId (api-auth) с проверкой отзыва токена.
+const getCurrentUserId = (req: NextRequest) => getUserId(req)
 
 // ─── GET /api/profiles/:id ───────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import { openaiComplete, openaiStream, openrouterDefaultHeaders, type OpenAIUsage } from './openai-compatible'
+import { gigachatFetch } from './gigachat-fetch'
 import { getActiveGigachatCredentials, getActiveProviderPolicy, getActiveRoute, recordAIUsage } from './config/runtime'
 import type { AITask, OperatorSlug } from './tasks'
 import type { GigachatCredentials, OpenAICompatibleCredentials } from './config/types'
@@ -38,7 +39,7 @@ async function getGigachatToken(creds: GigachatCredentials): Promise<string> {
   if (cached && cached.expiresAtMs > Date.now() + 60_000) return cached.token
 
   const body = new URLSearchParams({ scope: creds.scope ?? ENV_GIGACHAT_SCOPE })
-  const res = await fetch(creds.authUrl ?? ENV_GIGACHAT_AUTH_URL, {
+  const res = await gigachatFetch(creds.authUrl ?? ENV_GIGACHAT_AUTH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -170,7 +171,7 @@ export async function* streamCompletion(
   const creds = gigachatCreds()
   const token = await getGigachatToken(creds)
   const baseUrl = (creds.baseUrl ?? ENV_GIGACHAT_BASE_URL).replace(/\/+$/, '')
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const response = await gigachatFetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -239,7 +240,7 @@ export async function completeCompletion(
   const token = await getGigachatToken(creds)
   const baseUrl = (creds.baseUrl ?? ENV_GIGACHAT_BASE_URL).replace(/\/+$/, '')
 
-  let response = await fetch(`${baseUrl}/chat/completions`, {
+  let response = await gigachatFetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -254,7 +255,7 @@ export async function completeCompletion(
     const delay = Math.pow(2, 4 - attemptsLeft) * 5000
     await new Promise((r) => setTimeout(r, delay))
     attemptsLeft--
-    response = await fetch(`${baseUrl}/chat/completions`, {
+    response = await gigachatFetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

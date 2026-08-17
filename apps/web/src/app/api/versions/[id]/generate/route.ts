@@ -76,18 +76,20 @@ export async function POST(req: NextRequest, { params }: Params) {
     // на legacy одиночное поле profile.signatorName (старые профили без подписантов)
     signatorName: profileSignatory?.fullName ?? profile.signatorName,
     signatorPosition: profileSignatory?.position ?? profile.signatorPosition,
-    signatorBasis: profileSignatory
-      ? (profileSignatory.basisType === 'CHARTER'
-          ? 'Устава'
-          : profileSignatory.poaNumber
-            ? `Доверенности № ${profileSignatory.poaNumber}`
-            : 'Доверенности')
-      : profile.signatorBasis,
+    // В signatorBasis может лежать и enum-код ('CHARTER'/'POA' — так пишет
+    // /api/profiles/:id/signatories), и свободный текст из формы реквизитов.
+    // Номер доверенности у профиля не хранится (в отличие от подписантов
+    // контрагента) — поэтому просто «Доверенности».
+    signatorBasis: profile.signatorBasis === 'CHARTER'
+      ? 'Устава'
+      : profile.signatorBasis === 'POA'
+        ? 'Доверенности'
+        : profile.signatorBasis,
     bankName: profile.bankDetails[0]?.bankName ?? null,
     checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
     bik: profile.bankDetails[0]?.bik ?? null,
     correspondentAccount: profile.bankDetails[0]?.correspondentAccount ?? null,
-    email: null,
+    email: profile.email ?? null,
   } : undefined
 
   // Полные данные контрагента для формирования шапки и реквизитов.

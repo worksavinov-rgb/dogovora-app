@@ -26,8 +26,8 @@ const nextConfig: NextConfig = {
   output: 'standalone',
   poweredByHeader: false, // не раскрываем стек через X-Powered-By
   // instrumentation.ts — файловый логгер (logs/app.log, logs/error.log)
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
+  // Ошибки типов валят сборку осознанно: раньше стояло ignoreBuildErrors и
+  // код с обращениями к несуществующим полям БД доезжал до прода.
   async headers() {
     return [
       {

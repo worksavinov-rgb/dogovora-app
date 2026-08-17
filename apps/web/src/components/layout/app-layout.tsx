@@ -185,7 +185,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
         <button
           onClick={async () => {
             await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
-            window.location.href = '/auth'
+            window.location.href = '/login'
           }}
           className="flex items-center gap-[8px] w-full px-[10px] py-[5px] rounded-[var(--radius-md)] hover:bg-[var(--surface-inset)] cursor-pointer transition-colors duration-[120ms] mt-[2px]"
         >

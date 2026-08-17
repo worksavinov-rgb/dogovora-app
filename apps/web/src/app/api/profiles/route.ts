@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
-import { verifyToken, getTokenFromCookie } from '@/lib/auth'
+import { getUserId } from '@/lib/api-auth'
 import { normalizeFormat, validateFormat } from '@/lib/document-number'
 
 // ─── Схема валидации ─────────────────────────────────────────────────────────
@@ -24,6 +24,8 @@ const profileSchema = z.object({
   inn: z.string().optional(),
   kpp: z.string().optional(),
   ogrn: z.string().optional(),
+  ogrnDate: z.string().optional(),
+  email: z.string().optional(),
   legalAddress: z.string().optional(),
   signatorName: z.string().optional(),
   signatorPosition: z.string().optional(),
@@ -37,17 +39,10 @@ const profileSchema = z.object({
 
 // ─── Получить текущего пользователя из токена ────────────────────────────────
 
-async function getCurrentUserId(req: NextRequest): Promise<string | null> {
-  const cookieHeader = req.headers.get('cookie')
-  const token = getTokenFromCookie(cookieHeader, 'access_token')
-  if (!token) return null
-  try {
-    const payload = verifyToken(token)
-    return payload.userId
-  } catch {
-    return null
-  }
-}
+// Авторизация — через общий getUserId (api-auth): он, в отличие от локальной
+// копии, проверяет отзыв токена (blocklist по jti). Раньше отозванный после
+// логаута токен ещё до 15 минут работал на маршрутах реквизитов.
+const getCurrentUserId = (req: NextRequest) => getUserId(req)
 
 // ─── GET /api/profiles — список профилей пользователя ────────────────────────
 
