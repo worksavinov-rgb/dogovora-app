@@ -9,20 +9,39 @@
  * - реквизиты и подписи
  *
  * Предоплатная модель: контент всегда доступен для выделения и копирования.
+ *
+ * Режим editable: тот же движок, но с ручным редактированием (тулбар —
+ * components/editor-toolbar.tsx). Синхронизация контента:
+ * - ручной ввод → onUpdate(html) наверх, содержимое редактора НЕ трогаем
+ *   (иначе курсор прыгает на каждом символе);
+ * - внешнее изменение (ИИ-стрим, смена версии, восстановление черновика) —
+ *   родитель инкрементирует externalContentKey → заменяем содержимое целиком.
  */
 
-import { useEffect, useMemo } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEffect, useMemo, useRef } from 'react'
+import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
-import { isHtmlContent, markdownToLegalHtml, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
+import { isHtmlContent, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
 
 interface DocumentViewerProps {
   /** HTML или Markdown контент документа */
   content: string
+  /** Ручное редактирование текста прямо в предпросмотре */
+  editable?: boolean
+  /** Ручная правка: отдаёт актуальный HTML наверх (только в editable) */
+  onUpdate?: (html: string) => void
+  /**
+   * Сигнал «контент пришёл извне» (ИИ-стрим, смена версии, черновик):
+   * при изменении ключа содержимое редактора заменяется на `content`.
+   * Без ключа (или в read-only) контент применяется при каждом изменении `content`.
+   */
+  externalContentKey?: number
+  /** Отдаёт экземпляр редактора (для тулбара) */
+  onEditorReady?: (editor: Editor) => void
   /** Вызывается когда контент обработан и готов */
   onReady?: () => void
 }
@@ -35,7 +54,7 @@ const TIPTAP_EXTENSIONS = [
   TableHeader,
 ]
 
-export function DocumentViewer({ content, onReady }: DocumentViewerProps) {
+export function DocumentViewer({ content, editable = false, onUpdate, externalContentKey, onEditorReady, onReady }: DocumentViewerProps) {
   // Конвертируем контент в HTML (с кэшированием)
   const htmlContent = useMemo(() => {
     if (!content) return '<p></p>'
@@ -54,27 +73,53 @@ export function DocumentViewer({ content, onReady }: DocumentViewerProps) {
     return convertMarkdownSync(content)
   }, [content])
 
+  const onUpdateRef = useRef(onUpdate)
+  onUpdateRef.current = onUpdate
+
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
     content: htmlContent,
-    editable: false,
+    editable,
     immediatelyRender: false,
-    onUpdate: () => {
+    onUpdate: ({ editor, transaction }) => {
+      // Только ручной ввод (docChanged); программный setContent не эхоём наверх
+      if (transaction.docChanged && editor.isEditable) {
+        onUpdateRef.current?.(editor.getHTML())
+      }
       onReady?.()
     },
   })
 
-  // Обновляем контент при изменении
+  // Отдаём редактор наверх (тулбар)
   useEffect(() => {
-    if (editor && !editor.isDestroyed) {
-      editor.commands.setContent(htmlContent)
+    if (editor) onEditorReady?.(editor)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor])
+
+  // Переключение режима редактирования без пересоздания редактора
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) editor.setEditable(editable)
+  }, [editor, editable])
+
+  // Применение внешнего контента.
+  // В editable-режиме — только по externalContentKey (иначе курсор прыгает);
+  // в read-only — при каждом изменении htmlContent (историческое поведение).
+  const isFirstRender = useRef(true)
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    if (editable && externalContentKey !== undefined && isFirstRender.current) {
+      // Контент уже задан при инициализации редактора
+      isFirstRender.current = false
+      return
     }
-  }, [editor, htmlContent])
+    editor.commands.setContent(htmlContent, { emitUpdate: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, editable && externalContentKey !== undefined ? externalContentKey : htmlContent])
 
   if (!editor) return null
 
   return (
-    <div className="document-viewer">
+    <div className="document-viewer" data-editable={editable || undefined}>
       <EditorContent editor={editor} />
     </div>
   )
@@ -89,7 +134,7 @@ function convertMarkdownSync(markdown: string): string {
   // Убираем %%REQS_TABLE%% маркеры — конвертируем в HTML-блок
   const reqsMatch = markdown.match(/\n*(%%REQS_TABLE%%[\s\S]*?%%END_REQS%%)\s*$/)
   const reqsBlock = reqsMatch ? reqsMatch[1] : null
-  let md = reqsBlock
+  const md = reqsBlock
     ? markdown.slice(0, markdown.length - reqsMatch![0].length).trimEnd()
     : markdown
 
