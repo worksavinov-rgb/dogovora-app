@@ -349,6 +349,12 @@ export default function UploadPage() {
   const [docType, setDocType] = useState<'CONTRACT' | 'APPENDIX' | 'AMENDMENT'>('CONTRACT')
   const [saving, setSaving] = useState(false)
 
+  // Инлайн-создание контрагента прямо в модалке (без ухода со страницы)
+  const [addingCp, setAddingCp] = useState(false)
+  const [newCpName, setNewCpName] = useState('')
+  const [newCpInn, setNewCpInn] = useState('')
+  const [savingCp, setSavingCp] = useState(false)
+
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleFile = useCallback((f: File) => {
@@ -615,12 +621,29 @@ export default function UploadPage() {
     setError(null)
     setParsing(true)
     try {
-      const text = await parseFileToText(file)
+      // Параллельно с парсингом подтягиваем контрагентов и профили, чтобы в
+      // модалке можно было выбрать уже существующие, а не уходить со страницы.
+      const [text, cpData, profilesData] = await Promise.all([
+        parseFileToText(file),
+        fetch('/api/counterparties').then(async (r) => {
+          if (!r.ok) return [] as Counterparty[]
+          return r.json().catch(() => []) as Promise<Counterparty[]>
+        }).catch(() => [] as Counterparty[]),
+        fetch('/api/profiles').then(async (r) => {
+          if (!r.ok) return [] as UserProfile[]
+          return r.json().catch(() => []) as Promise<UserProfile[]>
+        }).catch(() => [] as UserProfile[]),
+      ])
       if (!text || !text.replace(/<[^>]*>/g, '').trim()) {
         setError('В файле не найден текст. Проверьте, что документ не пустой и не защищён паролем.')
         return
       }
       setDocText(text)
+      setExistingCounterparties(cpData)
+      setUserProfiles(profilesData)
+      // Единственный профиль — очевидное «моё» юрлицо (нужно для нумерации)
+      if (profilesData.length === 1) setMyProfileId(profilesData[0].id)
+      if (!docTitle.trim()) setDocTitle(file.name.replace(/\.(docx|doc|txt)$/i, ''))
       setShowSaveModal(true)
     } catch (e) {
       // Показываем реальную причину — «молчаливый» текст скрывал источник сбоя
@@ -629,6 +652,37 @@ export default function UploadPage() {
       setError(`Не удалось прочитать файл: ${msg}`)
     } finally {
       setParsing(false)
+    }
+  }
+
+  // Инлайн-создание контрагента прямо в модалке: сохраняем, выбираем и
+  // остаёмся на месте — документ и все поля не сбрасываются.
+  const saveInlineCounterparty = async () => {
+    const name = newCpName.trim()
+    if (!name || savingCp) return
+    setSavingCp(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/counterparties', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, inn: newCpInn.trim() || undefined }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error ?? 'Не удалось сохранить контрагента')
+      }
+      const cp = await res.json() as { id: string; name: string; inn: string | null }
+      setExistingCounterparties((prev) => [{ id: cp.id, name: cp.name, inn: cp.inn }, ...prev])
+      setResolvedCounterpartyId(cp.id)
+      setCounterpartySaved(true)
+      setAddingCp(false)
+      setNewCpName('')
+      setNewCpInn('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить контрагента')
+    } finally {
+      setSavingCp(false)
     }
   }
 
@@ -1010,22 +1064,57 @@ export default function UploadPage() {
               ) : (
                 <div>
                   <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[6px]">Контрагент</label>
-                  {existingCounterparties.length === 0 ? (
-                    <div className="rounded-[var(--radius-md)] p-[12px] text-center" style={{ background: 'var(--surface-inset)', border: '1px solid var(--line)' }}>
-                      <p className="text-[12px] text-[var(--ink-4)] mb-[8px]">Нет сохранённых контрагентов</p>
-                      <button onClick={() => { setShowSaveModal(false); router.push('/counterparties/new') }} className="text-[12px] font-medium cursor-pointer" style={{ color: 'var(--accent)' }}>+ Добавить контрагента →</button>
+                  {addingCp || existingCounterparties.length === 0 ? (
+                    // Инлайн-форма нового контрагента — сохраняет и остаётся в модалке,
+                    // ничего не сбрасывая. Достаточно названия; ИНН по желанию.
+                    <div className="rounded-[var(--radius-md)] p-[12px] flex flex-col gap-[8px]" style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}>
+                      <input
+                        type="text"
+                        value={newCpName}
+                        onChange={(e) => setNewCpName(e.target.value)}
+                        placeholder="Название контрагента *"
+                        className="w-full h-[36px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                        style={{ background: 'var(--surface)' }}
+                      />
+                      <input
+                        type="text"
+                        value={newCpInn}
+                        onChange={(e) => setNewCpInn(e.target.value)}
+                        placeholder="ИНН (необязательно)"
+                        className="w-full h-[36px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                        style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                      />
+                      <p className="text-[11px] text-[var(--ink-4)] leading-snug">
+                        Реквизиты и подписанта можно дополнить позже в карточке контрагента.
+                      </p>
+                      <div className="flex gap-[8px]">
+                        {existingCounterparties.length > 0 && (
+                          <Button variant="ghost" size="sm" onClick={() => { setAddingCp(false); setNewCpName(''); setNewCpInn('') }} disabled={savingCp}>
+                            Назад к списку
+                          </Button>
+                        )}
+                        <Button variant="primary" size="sm" onClick={saveInlineCounterparty} disabled={!newCpName.trim() || savingCp} className="flex-1">
+                          {savingCp ? 'Сохраняю…' : '+ Сохранить контрагента'}
+                        </Button>
+                      </div>
                     </div>
                   ) : (
-                    <select
-                      onChange={(e) => setResolvedCounterpartyId(e.target.value)}
-                      className="w-full h-[38px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] outline-none cursor-pointer"
-                      style={{ background: 'var(--surface)' }}
-                    >
-                      <option value="">Выберите контрагента…</option>
-                      {existingCounterparties.map((cp) => (
-                        <option key={cp.id} value={cp.id}>{cp.name}{cp.inn ? ` (ИНН ${cp.inn})` : ''}</option>
-                      ))}
-                    </select>
+                    <div className="flex flex-col gap-[8px]">
+                      <select
+                        value={resolvedCounterpartyId ?? ''}
+                        onChange={(e) => setResolvedCounterpartyId(e.target.value || null)}
+                        className="w-full h-[38px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] outline-none cursor-pointer"
+                        style={{ background: 'var(--surface)' }}
+                      >
+                        <option value="">Выберите контрагента…</option>
+                        {existingCounterparties.map((cp) => (
+                          <option key={cp.id} value={cp.id}>{cp.name}{cp.inn ? ` (ИНН ${cp.inn})` : ''}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => setAddingCp(true)} className="self-start text-[12px] font-medium cursor-pointer" style={{ color: 'var(--accent)' }}>
+                        + Добавить нового контрагента
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -1041,10 +1130,8 @@ export default function UploadPage() {
                     Ваши реквизиты не заполнены
                   </p>
                   <p className="text-[11px] leading-relaxed" style={{ color: 'oklch(0.55 0.08 60)' }}>
-                    В шапке и подписи документа будут пропуски.{' '}
-                    <button onClick={() => { setShowSaveModal(false); router.push('/requisites') }} className="underline cursor-pointer font-medium">
-                      Заполнить сейчас →
-                    </button>
+                    В шапке и подписи будут пропуски — но документ можно открыть уже сейчас,
+                    а реквизиты добавить позже в разделе «Мои реквизиты». Это не обязательно для сохранения.
                   </p>
                 </div>
               </div>
