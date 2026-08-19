@@ -886,6 +886,15 @@ export function splitRequisitesBlock(html: string): { body: string; requisites: 
   return { body: html, requisites: '' }
 }
 
+/**
+ * Legacy-детект: версии, созданные до слоя оформления, содержат блок реквизитов
+ * прямо в content — для них слой оформления не подставляется повторно.
+ */
+export function hasInlineRequisites(content: string): boolean {
+  if (!content) return false
+  return Boolean(splitRequisitesBlock(content).requisites)
+}
+
 export function buildRequisitesHtml(
   userProfile: UserProfileData,
   counterparty: CounterpartyData,

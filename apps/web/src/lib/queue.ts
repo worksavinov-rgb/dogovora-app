@@ -3,7 +3,7 @@ import { prisma } from './db'
 import { withLoggedAIContext } from './ai/provider'
 import { saveFile, versionFileKey } from './storage'
 import { DocumentFormatter } from '@shared/formatting/document-formatter'
-import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, stripAiRequisitesBlock, buildContractPreambleHtml, buildChildDocPreambleHtml, stripAiPreamble } from './html-document'
+import { sanitizeHtml, normalizeLegalHtml, isHtmlContent, stripAiRequisitesBlock, stripAiPreamble } from './html-document'
 import type { CounterpartyData, UserProfileData } from './ai/types'
 import { anonymizeForAnalysis, maskPartyForAI } from './anonymize'
 import { logger } from './logger'
@@ -54,12 +54,6 @@ export interface GenerateDocumentJobData {
   userRole?: 'customer' | 'executor'   // роль пользователя в договоре
   userProfile?: UserProfileData        // профиль пользователя (одна из сторон)
   counterpartyData?: CounterpartyData  // полные данные контрагента
-  // Замороженные на шаге настройки документа HTML-блоки (см. Document.preambleHtml/
-  // requisitesHtml) — если заданы, подставляются как есть вместо пересчёта из
-  // userProfile/counterpartyData. Это сохраняет шапку/реквизиты стабильными даже
-  // если пользователь позже изменит реквизиты в карточке профиля/контрагента.
-  preambleHtml?: string
-  requisitesHtml?: string
 }
 
 // ─── Очередь ─────────────────────────────────────────────────────────────────
@@ -93,7 +87,6 @@ export function startGenerateWorker() {
         versionId, description, counterpartyName, protectionLevel, targetSize, customInstruction,
         docType, docNumber, signingDate, documentNumber, parentDocTitle, parentDocNumber, parentDocContent,
         referenceContent, base, userRole, userProfile, counterpartyData,
-        preambleHtml: frozenPreambleHtml, requisitesHtml: frozenRequisitesHtml,
       } = job.data
 
       // Обновляем статус версии → IN_PROGRESS
@@ -171,15 +164,11 @@ export function startGenerateWorker() {
         finalText = normalizeLegalHtml(sanitizeHtml(finalText))
       }
 
-      // ── Шапка (преамбула) + блок реквизитов — для договоров И для приложений/ДС ──
-      // Раньше это делалось ТОЛЬКО для основных договоров, поэтому приложения и
-      // допсоглашения выходили без шапки (начинались сразу с раздела). Теперь
-      // дочерние документы тоже получают шапку со ссылкой на родительский договор.
-      const isMainContract = !docType || docType === 'CONTRACT'
+      // ── Зачистка ИИ-мусора: шапку и реквизиты воркер больше НЕ приклеивает ──
+      // Слой оформления (Document.preambleHtml/requisitesHtml) подставляется при
+      // показе и экспорте (см. decor API и download). Здесь только вычищаем то,
+      // что ИИ написал вопреки инструкции «преамбулу и реквизиты не пиши».
       if (userProfile && counterpartyData) {
-        const role1 = userRole === 'executor' ? 'Исполнитель' : 'Заказчик'
-        const role2 = userRole === 'executor' ? 'Заказчик' : 'Исполнитель'
-
         // Удаляем если ИИ всё-таки написал блок реквизитов сам (HTML или Markdown).
         // stripAiRequisitesBlock ищет по реальному тексту абзаца, а не по конкретной
         // разметке — надёжнее старой цепочки regex, которая ловила не все варианты
@@ -203,20 +192,8 @@ export function startGenerateWorker() {
           .trimEnd()
 
         // Удаляем преамбулу, если ИИ всё-таки написал её сам (вопреки инструкции
-        // «преамбулу не пиши — вставляется системой») — и подставляем детерминированную.
+        // «преамбулу не пиши — вставляется системой»).
         finalText = stripAiPreamble(finalText)
-
-        // Шапка: для основного договора — договорная (можно взять замороженную с шага
-        // настройки); для приложения/ДС — со ссылкой на родительский договор и текстом
-        // «заключили настоящее Приложение/Дополнительное соглашение».
-        const preambleHtml = isMainContract
-          ? (frozenPreambleHtml ?? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, contractCity, signingDate))
-          : buildChildDocPreambleHtml(userProfile, counterpartyData, role1, role2, docType ?? 'APPENDIX', documentNumber, parentDocNumber, parentDocTitle, contractCity, signingDate)
-        finalText = `${preambleHtml}\n${finalText}`
-
-        // Блок реквизитов/подписей — и для договора, и для дочерних документов.
-        const reqsHtml = (isMainContract ? frozenRequisitesHtml : undefined) ?? buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
-        finalText += `\n${reqsHtml}`
       }
 
       // Защита от пустого результата. Некоторые модели (напр. reasoning-модели

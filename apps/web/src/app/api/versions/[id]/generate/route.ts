@@ -198,10 +198,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     })),
     userProfile,
     counterpartyData,
-    // Шапка и реквизиты, согласованные (и, возможно, отредактированные) пользователем
-    // в мастере. Воркер подставит их как есть вместо пересчёта из ЛК.
-    preambleHtml: doc.preambleHtml ?? undefined,
-    requisitesHtml: doc.requisitesHtml ?? undefined,
   })
 
   return NextResponse.json({ jobId: job.id }, { status: 202 })
