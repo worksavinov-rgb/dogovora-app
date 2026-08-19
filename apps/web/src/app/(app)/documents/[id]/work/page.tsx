@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 // перехватчиком fetch (см. lib/install-fetch-auth.ts) — отдельная обёртка не нужна.
 import { useAuthStore } from '@/store/auth'
 import { DocumentViewer } from '@/components/document-viewer'
+import { EditorToolbar } from '@/components/editor-toolbar'
+import type { Editor } from '@tiptap/react'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -247,6 +249,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   const [canUndo, setCanUndo] = useState(false)
   const undoStackRef = useRef<string[]>([])
+
+  // Редактируемый предпросмотр: экземпляр TipTap (для тулбара) и ключ внешнего
+  // контента — инкремент заменяет содержимое редактора (ИИ-правка, отмена).
+  const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
+  const [externalKey, setExternalKey] = useState(0)
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -668,6 +675,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           setCanUndo(true)
         }
         setDocContent(updatedDoc)
+        setExternalKey((k) => k + 1) // внешнее изменение — заменить содержимое редактора
         setHasUnsavedEdits(true)
         scheduleAutosave(updatedDoc) // автосохранение рабочей копии
       }
@@ -1112,9 +1120,19 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
+            {/* Тулбар ручного редактирования — плавает над листом */}
+            {!streaming && docContent && (
+              <div
+                className="sticky top-[12px] z-10 mx-auto w-fit rounded-[var(--radius-md)] px-[6px] py-[4px]"
+                style={{ background: 'var(--bg)', border: '1px solid var(--line-2)', boxShadow: '0 2px 10px rgba(0,0,0,0.10)' }}
+              >
+                <EditorToolbar editor={editorInstance} />
+              </div>
+            )}
+
             {/* Единый лист — бумажный вид */}
             <div
-              className="mx-auto relative overflow-hidden"
+              className="mx-auto relative"
               style={{
                 width: 'calc(100% - 48px)',
                 maxWidth: 794,
@@ -1141,7 +1159,18 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
                 return (
                   <div className="relative z-[2]" style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s' }}>
-                    <DocumentViewer content={displayText} />
+                    <DocumentViewer
+                      content={displayText}
+                      editable={!streaming && !generating}
+                      onUpdate={(html) => {
+                        // Ручная правка в предпросмотре — тот же путь, что ИИ-правка
+                        setDocContent(html)
+                        setHasUnsavedEdits(true)
+                        scheduleAutosave(html)
+                      }}
+                      externalContentKey={externalKey}
+                      onEditorReady={setEditorInstance}
+                    />
                   </div>
                 )
               })()}
@@ -1171,6 +1200,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                   const prev = undoStackRef.current.pop()
                   if (prev) {
                     setDocContent(prev)
+                    setExternalKey((k) => k + 1) // заменить содержимое редактора
                     setHasUnsavedEdits(true)
                     scheduleAutosave(prev)
                     setMessages((msgs) => [...msgs, {
