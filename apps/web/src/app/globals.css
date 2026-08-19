@@ -546,6 +546,11 @@ button { font-family: inherit; }
 .document-viewer table,
 .document-viewer .ProseMirror table {
   width: 100%;
+  max-width: 100%;
+  /* fixed — колонки укладываются в 100% ширины страницы, а длинный текст
+     переносится, а не растягивает таблицу за край листа (баг переполнения
+     спецификаций с 6-7 колонками). */
+  table-layout: fixed;
   border-collapse: collapse;
   margin: 14px 0;
   font-size: 13px;
@@ -559,6 +564,9 @@ button { font-family: inherit; }
   vertical-align: top;
   text-align: left;
   line-height: 1.7;
+  /* Длинные слова/коды (RTX2060, номера счетов) переносим, чтобы не распирали колонку */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .document-viewer th,
 .document-viewer .ProseMirror th {

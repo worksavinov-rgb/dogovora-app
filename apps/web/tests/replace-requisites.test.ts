@@ -24,6 +24,32 @@ const WORD_LAYOUT = [
 const SYSTEM_REQS = '<div class="doc-requisites"><div class="doc-requisites-col"><p>Системные реквизиты сторон</p></div></div>'
 
 describe('replaceRequisitesSection — вложенный Word-блок doc-layout-table', () => {
+  it('заменяет линейный Word-блок под заголовком «ЮРИДИЧЕСКИЕ АДРЕСА…»', () => {
+    // Реквизиты идут простыми <p> (mammoth не распознал таблицу) под типичным
+    // российским заголовком — раньше REQS_HEADER_RE его не ловил, Word-блок оставался.
+    const html = [
+      BODY,
+      '<h2>ЮРИДИЧЕСКИЕ АДРЕСА И РЕКВИЗИТЫ СТОРОН</h2>',
+      '<p><strong>Исполнитель:</strong></p>',
+      '<p>Савинов Павел Александрович</p>',
+      '<p>ИНН: 730901700292</p>',
+      '<p>Р/счет: 40802810800009200347</p>',
+      '<p><strong>Заказчик:</strong></p>',
+      '<p>ООО «АЙЛАБМЕД»</p>',
+      '<p>ИНН: 7714415571</p>',
+    ].join('\n')
+    const { html: out, replaced } = replaceRequisitesSection(html, SYSTEM_REQS)
+
+    expect(replaced).toBe(true)
+    expect(out).toContain('Системные реквизиты сторон')
+    // Данные из Word вырезаны
+    expect(out).not.toContain('730901700292')
+    expect(out).not.toContain('7714415571')
+    // Заголовок раздела сохранён (нумерация разделов не сбивается)
+    expect(out).toContain('ЮРИДИЧЕСКИЕ АДРЕСА И РЕКВИЗИТЫ СТОРОН')
+    expect(out).toContain('1. ПРЕДМЕТ ДОГОВОРА')
+  })
+
   it('заменяет ВЕСЬ двухколоночный Word-блок системным (без дубля и обрезков)', () => {
     const html = [BODY, WORD_LAYOUT].join('\n')
     const { html: out, replaced } = replaceRequisitesSection(html, SYSTEM_REQS)
