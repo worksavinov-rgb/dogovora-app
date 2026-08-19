@@ -83,10 +83,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
   // ─── Пакеты ИИ-правок (только режим edit; вопросы/анализ бесплатны) ─────────
   const documentId = version.documentId
+  let quota = { limit: 0, used: 0 } // снапшот для расчёта остатка в done-событии
   if (data.mode === 'edit') {
-    let quota = await getEditQuota(documentId)
+    let q = await getEditQuota(documentId)
     // Загруженный документ: первая правка платная — открывает пакет
-    if (quota.isUploaded && quota.packages === 0) {
+    if (q.isUploaded && q.packages === 0) {
       try {
         await chargeTokens({
           userId,
@@ -101,20 +102,38 @@ export async function POST(req: NextRequest, { params }: Params) {
         if (err instanceof InsufficientTokensError) return insufficientTokensResponse(err)
         throw err
       }
-      quota = await getEditQuota(documentId)
+      q = await getEditQuota(documentId)
     }
-    if (quota.remaining <= 0) {
+    quota = { limit: q.limit, used: q.used }
+    // Атомарное резервирование правки: инкремент под условием aiEditsUsed < limit.
+    // Одна UPDATE-строка сериализует параллельные edit-запросы — сверхлимитная
+    // правка не проскочит (проверка-в-начале + инкремент-в-конце допускали гонку).
+    // Неудачную правку (__EDIT_FAILED__ / ошибка ИИ) откатываем декрементом.
+    const reserved = await prisma.document.updateMany({
+      where: { id: documentId, aiEditsUsed: { lt: q.limit } },
+      data: { aiEditsUsed: { increment: 1 } },
+    })
+    if (reserved.count === 0) {
       return NextResponse.json(
         {
           error: `Пакет из ${EDITS_PER_PACKAGE} ИИ-правок исчерпан. Купите новый пакет, чтобы продолжить.`,
           code: 'EDIT_PACKAGE_NEEDED',
           price: TOKEN_PRICES.editPackage,
-          limit: quota.limit,
-          used: quota.used,
+          limit: q.limit,
+          used: q.used,
         },
         { status: 402 },
       )
     }
+  }
+
+  // Откат зарезервированной правки (правка не удалась — пакет не тратим)
+  const releaseEdit = async () => {
+    if (data.mode !== 'edit') return
+    await prisma.document.updateMany({
+      where: { id: documentId, aiEditsUsed: { gt: 0 } },
+      data: { aiEditsUsed: { decrement: 1 } },
+    }).catch(() => {})
   }
 
   // Сохраняем сообщение пользователя
@@ -166,6 +185,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           console.log('[chat/edit] editDocument done, updatedDocLength=', updatedDoc.length, 'failed=', failed)
 
           if (failed || !updatedDoc.trim()) {
+            await releaseEdit() // правка не применена — возвращаем её в пакет
             const msg = 'Не удалось применить изменение — не нашёл точный фрагмент в документе. Попробуйте уточнить запрос: укажите номер пункта или процитируйте часть текста который нужно изменить.'
             send({ type: 'chat', chunk: msg })
             await prisma.chatMessage.create({
@@ -184,17 +204,15 @@ export async function POST(req: NextRequest, { params }: Params) {
             data: { versionId: id, role: 'AI', content: explanation.trim() || 'Документ обновлён.' },
           })
 
-          // Успешная правка тратит одну правку из пакета документа
-          // (__EDIT_FAILED__ выше пакет не тратит).
-          await prisma.document.update({
-            where: { id: documentId },
-            data: { aiEditsUsed: { increment: 1 } },
-          })
-          const quotaAfter = await getEditQuota(documentId)
-          send({ type: 'done', updatedDocLength: updatedDoc.length, editsRemaining: quotaAfter.remaining, editsLimit: quotaAfter.limit })
+          // Правка уже зарезервирована в пакете (updateMany выше). Остаток
+          // считаем из снапшота квоты, не перечитывая БД: limit не изменился,
+          // used вырос на 1.
+          const usedAfter = quota.used + 1
+          send({ type: 'done', updatedDocLength: updatedDoc.length, editsRemaining: Math.max(0, quota.limit - usedAfter), editsLimit: quota.limit })
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {
+          await releaseEdit() // правка сорвалась на ошибке ИИ — возвращаем в пакет
           logger.error({
             event: 'versions.chat_edit_failed',
             error: err,

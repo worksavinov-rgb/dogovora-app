@@ -33,13 +33,16 @@ export const WELCOME_BONUS_TOKENS = envInt('WELCOME_BONUS_TOKENS', 500)
 
 /**
  * Лимит ИИ-правок документа.
- * packages — число неотменённых списаний, дающих пакет
+ * packages — число НЕотменённых списаний, дающих пакет
  * (GENERATE | UPLOAD_EDIT_START | REWRITE | EDIT_PACKAGE).
- * Сгенерированный документ без единого списания — наследие до-токеновой эры:
- * даём один неявный бесплатный пакет. Загруженные без оплаты правок не имеют.
+ * hasAnyPackageCharge — было ли ХОТЬ ОДНО такое списание за всю историю
+ * документа (включая возвращённые). Неявный бесплатный пакет даётся только
+ * до-токеновым документам — тем, у кого списаний не было вовсе. Так возврат
+ * упавшей генерации (packages снова 0, но история есть) не открывает бесплатный
+ * пакет. Загруженные документы неявного пакета не получают.
  */
-export function calcEditLimit(packages: number, isUploaded: boolean): number {
-  const implicit = !isUploaded && packages === 0 ? 1 : 0
+export function calcEditLimit(packages: number, isUploaded: boolean, hasAnyPackageCharge: boolean): number {
+  const implicit = !isUploaded && !hasAnyPackageCharge ? 1 : 0
   return (packages + implicit) * EDITS_PER_PACKAGE
 }
 

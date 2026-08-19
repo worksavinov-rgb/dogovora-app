@@ -14,15 +14,20 @@ describe('token-pricing', () => {
   })
 
   it('лимит правок: пакеты × 10', () => {
-    expect(calcEditLimit(2, false)).toBe(20)
-    expect(calcEditLimit(1, true)).toBe(10)
+    expect(calcEditLimit(2, false, true)).toBe(20)
+    expect(calcEditLimit(1, true, true)).toBe(10)
   })
 
-  it('лимит правок: сгенерированный до эры токенов документ получает 1 неявный пакет', () => {
-    // 0 купленных пакетов, документ НЕ загруженный → неявный бесплатный пакет
-    expect(calcEditLimit(0, false)).toBe(10)
+  it('лимит правок: до-токеновый документ (нет истории списаний) получает 1 неявный пакет', () => {
+    // 0 пакетов, НЕ загружен, истории списаний нет → неявный бесплатный пакет
+    expect(calcEditLimit(0, false, false)).toBe(10)
     // 0 пакетов, загруженный → правок нет, пока не оплачен старт правок
-    expect(calcEditLimit(0, true)).toBe(0)
+    expect(calcEditLimit(0, true, false)).toBe(0)
+  })
+
+  it('лимит правок: возврат упавшей генерации НЕ даёт бесплатный пакет', () => {
+    // 0 активных пакетов, но история списаний была (генерация возвращена) → 0 правок
+    expect(calcEditLimit(0, false, true)).toBe(0)
   })
 
   it('formatTokens склоняет', () => {

@@ -56,17 +56,16 @@ export async function POST(req: NextRequest, { params }: Params) {
   let chargeId: string | undefined
   try {
     if (isRewrite) {
-      const existing = await prisma.tokenCharge.findFirst({
-        where: { versionId: id, kind: 'REWRITE', refundedAt: null },
-      })
-      chargeId = existing?.id ?? (await chargeTokens({
+      const res = await chargeTokens({
         userId,
         kind: 'REWRITE',
         tokens: TOKEN_PRICES.rewrite,
         documentId: doc.id,
         versionId: id,
+        idempotentPerVersion: true,
         description: `Переписка документа: ${doc.title}`,
-      })).chargeId
+      })
+      chargeId = res.chargeId
     } else {
       const res = await chargeTokens({
         userId,

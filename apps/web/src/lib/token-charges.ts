@@ -14,8 +14,11 @@ const PACKAGE_KINDS: ChargeKind[] = ['GENERATE', 'UPLOAD_EDIT_START', 'REWRITE',
 /**
  * Списание токенов. ACID: SELECT ... FOR UPDATE на кошелёк (паттерн из бывшего
  * purchase) — параллельные списания сериализуются, баланс не уходит в минус.
- * idempotentPerDocument: если по документу уже есть неотменённое списание того же
- * kind — не списываем повторно (GENERATE, UPLOAD_EDIT_START).
+ * Проверки идемпотентности выполняются ВНУТРИ транзакции, после блокировки
+ * кошелька: параллельные списания одного пользователя ждут друг друга, поэтому
+ * второй запрос гарантированно видит charge первого.
+ * idempotentPerDocument: одно неотменённое списание kind на документ (GENERATE, UPLOAD_EDIT_START).
+ * idempotentPerVersion: одно неотменённое списание kind на версию (REWRITE).
  */
 export async function chargeTokens(opts: {
   userId: string
@@ -25,6 +28,7 @@ export async function chargeTokens(opts: {
   documentId?: string | null
   versionId?: string | null
   idempotentPerDocument?: boolean
+  idempotentPerVersion?: boolean
 }): Promise<{ chargeId: string; balance: number; alreadyCharged: boolean }> {
   const wallet = await prisma.wallet.upsert({
     where: { userId: opts.userId },
@@ -41,6 +45,12 @@ export async function chargeTokens(opts: {
     if (opts.idempotentPerDocument && opts.documentId) {
       const existing = await tx.tokenCharge.findFirst({
         where: { documentId: opts.documentId, kind: opts.kind, refundedAt: null },
+      })
+      if (existing) return { chargeId: existing.id, balance, alreadyCharged: true }
+    }
+    if (opts.idempotentPerVersion && opts.versionId) {
+      const existing = await tx.tokenCharge.findFirst({
+        where: { versionId: opts.versionId, kind: opts.kind, refundedAt: null },
       })
       if (existing) return { chargeId: existing.id, balance, alreadyCharged: true }
     }
@@ -119,14 +129,19 @@ export async function isUploadedDocument(documentId: string): Promise<boolean> {
 
 /** Квота ИИ-правок документа */
 export async function getEditQuota(documentId: string) {
-  const [doc, packages, isUploaded] = await Promise.all([
+  const [doc, packages, totalPackageCharges, isUploaded] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { aiEditsUsed: true } }),
     prisma.tokenCharge.count({
       where: { documentId, refundedAt: null, kind: { in: PACKAGE_KINDS } },
     }),
+    // Все списания-пакеты за историю (включая возвращённые) — отличаем
+    // до-токеновый документ от документа с возвращённым списанием.
+    prisma.tokenCharge.count({
+      where: { documentId, kind: { in: PACKAGE_KINDS } },
+    }),
     isUploadedDocument(documentId),
   ])
-  const limit = calcEditLimit(packages, isUploaded)
+  const limit = calcEditLimit(packages, isUploaded, totalPackageCharges > 0)
   const used = doc?.aiEditsUsed ?? 0
   return { limit, used, remaining: Math.max(0, limit - used), packages, isUploaded }
 }
