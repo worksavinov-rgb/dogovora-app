@@ -8,7 +8,7 @@ import {
   GIGACHAT_TASK_MODEL_HINTS,
   POLZA_TASK_MODEL_HINTS,
   pickRecommendedModel,
-} from '@/lib/ai/gigachat-models'
+} from '@/lib/ai/gigachat-model-hints'
 import { ModelCombobox, type ModelOption } from './model-combobox'
 
 interface OperatorRow {
