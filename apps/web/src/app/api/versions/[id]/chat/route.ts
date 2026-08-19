@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { isVersionPaid } from '@/lib/version-payment'
 import { withLoggedAIContext } from '@/lib/ai/provider'
+import { chargeTokens, getEditQuota, InsufficientTokensError, insufficientTokensResponse } from '@/lib/token-charges'
+import { TOKEN_PRICES, EDITS_PER_PACKAGE } from '@/lib/token-pricing'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { splitRequisitesBlock } from '@/lib/html-document'
@@ -13,12 +14,9 @@ import { rateLimit } from '@/lib/rate-limit'
 
 type Params = { params: Promise<{ id: string }> }
 
-// Защита от злоупотребления бесплатными ИИ-запросами (правки/вопросы стоят нам денег,
-// а внутри версии они бесплатны для пользователя — платит только за покупку версии).
-// - лимит бесплатных ИИ-запросов на ОДНУ неоплаченную версию (после покупки правки
-//   создают новую версию с собственным лимитом);
-// - rate-limit по частоте (защита от скриптового флуда чата).
-const FREE_AI_REQUESTS_PER_VERSION = Number(process.env.FREE_AI_EDITS_PER_VERSION ?? 20)
+// Защита от злоупотребления: rate-limit по частоте (защита от скриптового флуда).
+// Платность правок регулируется пакетами (см. token-charges.getEditQuota):
+// правки тратят пакет документа, вопросы и анализ бесплатны.
 const CHAT_RATE_PER_MIN = Number(process.env.CHAT_RATE_PER_MIN ?? 15)
 
 const msgSchema = z.object({
@@ -61,7 +59,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params
   const version = await prisma.version.findFirst({
     where: { id, document: { userId } },
-    include: { document: { include: { counterparty: true } }, purchase: { select: { id: true } } },
+    include: { document: { include: { counterparty: true } } },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -83,18 +81,36 @@ export async function POST(req: NextRequest, { params }: Params) {
       { status: 429 },
     )
   }
-  // 2) Лимит бесплатных ИИ-запросов на неоплаченную версию.
-  //    Купленная версия лимита не имеет; правки после покупки создают новую версию
-  //    (у неё будет собственный лимит), поэтому «купите версию» — валидный выход.
-  if (!isVersionPaid(version)) {
-    const usedRequests = await prisma.chatMessage.count({
-      where: { versionId: id, role: 'USER' },
-    })
-    if (usedRequests >= FREE_AI_REQUESTS_PER_VERSION) {
+  // ─── Пакеты ИИ-правок (только режим edit; вопросы/анализ бесплатны) ─────────
+  const documentId = version.documentId
+  if (data.mode === 'edit') {
+    let quota = await getEditQuota(documentId)
+    // Загруженный документ: первая правка платная — открывает пакет
+    if (quota.isUploaded && quota.packages === 0) {
+      try {
+        await chargeTokens({
+          userId,
+          kind: 'UPLOAD_EDIT_START',
+          tokens: TOKEN_PRICES.uploadEditStart,
+          documentId,
+          versionId: id,
+          idempotentPerDocument: true,
+          description: `Правки загруженного документа: ${version.document.title}`,
+        })
+      } catch (err) {
+        if (err instanceof InsufficientTokensError) return insufficientTokensResponse(err)
+        throw err
+      }
+      quota = await getEditQuota(documentId)
+    }
+    if (quota.remaining <= 0) {
       return NextResponse.json(
         {
-          error: `Вы использовали ${FREE_AI_REQUESTS_PER_VERSION} бесплатных ИИ-правок для этой версии. Купите версию, чтобы продолжить редактирование — после покупки правки снова доступны.`,
-          code: 'FREE_LIMIT_REACHED',
+          error: `Пакет из ${EDITS_PER_PACKAGE} ИИ-правок исчерпан. Купите новый пакет, чтобы продолжить.`,
+          code: 'EDIT_PACKAGE_NEEDED',
+          price: TOKEN_PRICES.editPackage,
+          limit: quota.limit,
+          used: quota.used,
         },
         { status: 402 },
       )
@@ -168,7 +184,14 @@ export async function POST(req: NextRequest, { params }: Params) {
             data: { versionId: id, role: 'AI', content: explanation.trim() || 'Документ обновлён.' },
           })
 
-          send({ type: 'done', updatedDocLength: updatedDoc.length })
+          // Успешная правка тратит одну правку из пакета документа
+          // (__EDIT_FAILED__ выше пакет не тратит).
+          await prisma.document.update({
+            where: { id: documentId },
+            data: { aiEditsUsed: { increment: 1 } },
+          })
+          const quotaAfter = await getEditQuota(documentId)
+          send({ type: 'done', updatedDocLength: updatedDoc.length, editsRemaining: quotaAfter.remaining, editsLimit: quotaAfter.limit })
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {
