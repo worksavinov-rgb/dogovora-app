@@ -4,6 +4,8 @@ import { getUserId } from '@/lib/api-auth'
 import { getGenerateQueue } from '@/lib/queue'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 import { resolveDocumentProfile, resolveCounterpartySignatory } from '@/lib/party-data'
+import { chargeTokens, InsufficientTokensError, insufficientTokensResponse } from '@/lib/token-charges'
+import { TOKEN_PRICES } from '@/lib/token-pricing'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -44,6 +46,43 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const doc = version.document
+
+  // ─── Предоплата токенами ────────────────────────────────────────────────────
+  // GENERATE — идемпотентно на документ (ретрай после падения деньги не спишет
+  // повторно: возврат снимает идемпотентность через refundedAt).
+  // REWRITE (см. /rewrite) — новое списание на каждую переписку, идемпотентно
+  // по версии через существующий charge с этим versionId.
+  const isRewrite = Boolean((aiSettings as { rewrite?: boolean })?.rewrite)
+  let chargeId: string | undefined
+  try {
+    if (isRewrite) {
+      const existing = await prisma.tokenCharge.findFirst({
+        where: { versionId: id, kind: 'REWRITE', refundedAt: null },
+      })
+      chargeId = existing?.id ?? (await chargeTokens({
+        userId,
+        kind: 'REWRITE',
+        tokens: TOKEN_PRICES.rewrite,
+        documentId: doc.id,
+        versionId: id,
+        description: `Переписка документа: ${doc.title}`,
+      })).chargeId
+    } else {
+      const res = await chargeTokens({
+        userId,
+        kind: 'GENERATE',
+        tokens: TOKEN_PRICES.generate,
+        documentId: doc.id,
+        versionId: id,
+        idempotentPerDocument: true,
+        description: `Генерация документа: ${doc.title}`,
+      })
+      chargeId = res.chargeId
+    }
+  } catch (err) {
+    if (err instanceof InsufficientTokensError) return insufficientTokensResponse(err)
+    throw err
+  }
 
   // Профиль — через единый resolveDocumentProfile (тот же, что в download и
   // предпросмотре): Document.profileId → aiSettings.profileId (fallback для
@@ -133,6 +172,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const queue = getGenerateQueue()
   const job = await queue.add('generate', {
     versionId: id,
+    chargeId,
     description: aiSettings?.description ?? '',
     counterpartyName: doc.counterparty.name,
     protectionLevel: aiSettings?.protectionLevel ?? 70,

@@ -7,6 +7,7 @@ import { sanitizeHtml, normalizeLegalHtml, buildRequisitesHtml, isHtmlContent, s
 import type { CounterpartyData, UserProfileData } from './ai/types'
 import { anonymizeForAnalysis, maskPartyForAI } from './anonymize'
 import { logger } from './logger'
+import { refundChargeById } from './token-charges'
 
 // ─── Redis-подключение для BullMQ ─────────────────────────────────────────────
 
@@ -35,6 +36,7 @@ export function createRedisConnection() {
 
 export interface GenerateDocumentJobData {
   versionId: string
+  chargeId?: string           // списание токенов за эту генерацию — вернуть при финальном фейле
   description: string
   counterpartyName: string
   protectionLevel: number
@@ -310,6 +312,11 @@ export function startGenerateWorker() {
         where: { id: job.data.versionId },
         data: { status: 'DRAFT' },
       }).catch((e) => logger.error({ event: 'worker.reset_status_failed', error: e, version_id: job.data.versionId }))
+    }
+    // Генерация окончательно не удалась — возвращаем предоплаченные токены
+    if (isFinalAttempt && job?.data?.chargeId) {
+      refundChargeById(job.data.chargeId, 'генерация не удалась')
+        .catch((e) => logger.error({ event: 'worker.refund_failed', error: e, version_id: job?.data?.versionId }))
     }
   })
 
