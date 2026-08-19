@@ -14,6 +14,7 @@ import {
   replaceDocumentPreamble,
   replaceRequisitesSection,
 } from './html-document'
+import { hasInlineRequisites } from './html-document'
 import { getStructuredContentCached, looksLikeUpload } from './structure-uploaded'
 import { logger } from './logger'
 
@@ -127,6 +128,39 @@ function partyMatches(html: string, name: string | null, inn: string | null): bo
  * Контент версии для предпросмотра и выгрузки: структурирован + с эталонными
  * шапкой и реквизитами из ЛК (для загруженных документов).
  */
+/**
+ * Полная сборка версии для показа/шаринга/экспорта с учётом слоя оформления.
+ *
+ * Два поколения контента:
+ *  - legacy: шапка и реквизиты вклеены в Version.content (до слоя оформления,
+ *    а также загруженные документы со своей шапкой) — отдаём как есть;
+ *  - новый: Version.content — только тело; шапка/реквизиты берутся из
+ *    Document.preambleHtml/requisitesHtml (шаг «Оформление») и оборачивают тело.
+ */
+export async function assemblePresentation(opts: {
+  versionId: string
+  documentId: string
+  content: string | null
+  userId: string
+  userRole?: string
+}): Promise<{ full: string; body: string; legacyInline: boolean }> {
+  const presented = await getPresentationContent(
+    opts.versionId, opts.documentId, opts.content, opts.userId, opts.userRole,
+  )
+  if (hasInlineRequisites(presented)) {
+    return { full: presented, body: presented, legacyInline: true }
+  }
+
+  const doc = await prisma.document.findUnique({
+    where: { id: opts.documentId },
+    select: { preambleHtml: true, requisitesHtml: true },
+  })
+  const full = [doc?.preambleHtml, presented, doc?.requisitesHtml]
+    .filter((s): s is string => Boolean(s && s.trim()))
+    .join('\n')
+  return { full, body: presented, legacyInline: false }
+}
+
 export async function getPresentationContent(
   versionId: string,
   documentId: string,

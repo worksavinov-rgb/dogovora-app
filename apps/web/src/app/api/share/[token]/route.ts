@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { getPresentationContent } from '@/lib/presentation-content'
+import { assemblePresentation } from '@/lib/presentation-content'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 import { sanitizeHtml, isHtmlContent } from '@/lib/html-document'
 import { rateLimit } from '@/lib/rate-limit'
@@ -51,9 +51,13 @@ export async function GET(req: NextRequest, { params }: Params) {
     parentDocumentId: doc.parentDocumentId,
     userId: doc.userId,
   })
-  const raw = await getPresentationContent(
-    version.id, doc.id, version.content, doc.userId, toLowerRole(role),
-  )
+  const { full: raw } = await assemblePresentation({
+    versionId: version.id,
+    documentId: doc.id,
+    content: version.content,
+    userId: doc.userId,
+    userRole: toLowerRole(role),
+  })
   // Дополнительная санитация перед публичной отдачей HTML
   const content = isHtmlContent(raw) ? sanitizeHtml(raw) : raw
 

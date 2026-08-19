@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { getPresentationContent } from '@/lib/presentation-content'
+import { assemblePresentation } from '@/lib/presentation-content'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 
 type Params = { params: Promise<{ id: string }> }
@@ -54,15 +54,24 @@ export async function GET(req: NextRequest, { params }: Params) {
     parentDocumentId: version.document.parentDocumentId,
     userId,
   })
-  const content = await getPresentationContent(
-    version.id, version.document.id, version.content, userId, toLowerRole(role),
-  )
+  const assembled = await assemblePresentation({
+    versionId: version.id,
+    documentId: version.document.id,
+    content: version.content,
+    userId,
+    userRole: toLowerRole(role),
+  })
 
   return NextResponse.json({
     id: version.id,
     number: version.number,
     status: version.status,
-    content,
+    // Полный вид (шапка + тело + реквизиты) — для карточки, сравнения, просмотра
+    content: assembled.full,
+    // Только тело — для редактора рабочего экрана (слой оформления рендерится отдельно)
+    bodyContent: assembled.body,
+    // true — блоки вклеены в контент (legacy/загруженные), слой не показывать
+    legacyInline: assembled.legacyInline,
     fileSize: version.fileSize,
     aiSettings: version.aiSettings,
     createdAt: version.createdAt,
