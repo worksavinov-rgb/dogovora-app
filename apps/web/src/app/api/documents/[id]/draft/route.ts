@@ -23,7 +23,13 @@ export async function GET(req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!(await assertOwner(id, userId))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json(null)
+  const draft = await prisma.versionDraft.findUnique({ where: { documentId: id } })
+  return NextResponse.json(draft ? {
+    content: draft.content,
+    baseVersionId: draft.baseVersionId,
+    revision: draft.revision,
+    updatedAt: draft.updatedAt,
+  } : null)
 }
 
 // PUT /api/documents/:id/draft — автосохранение рабочей копии (upsert)
@@ -42,7 +48,21 @@ export async function PUT(req: NextRequest, { params }: Params) {
     throw err
   }
 
-  return NextResponse.json({ revision: 1, updatedAt: new Date() })
+  // Конфликт ревизий: другая вкладка сохранила позже — не затираем её правки молча
+  const existing = await prisma.versionDraft.findUnique({ where: { documentId: id } })
+  if (existing && data.revision != null && data.revision < existing.revision) {
+    return NextResponse.json(
+      { error: 'Черновик изменён в другой вкладке', code: 'DRAFT_CONFLICT', revision: existing.revision },
+      { status: 409 },
+    )
+  }
+
+  const draft = await prisma.versionDraft.upsert({
+    where: { documentId: id },
+    create: { documentId: id, content: data.content, baseVersionId: data.baseVersionId ?? null },
+    update: { content: data.content, baseVersionId: data.baseVersionId ?? null, revision: { increment: 1 } },
+  })
+  return NextResponse.json({ revision: draft.revision, updatedAt: draft.updatedAt })
 }
 
 // DELETE /api/documents/:id/draft — удалить рабочую копию (после фиксации версии)
@@ -53,5 +73,6 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params
   if (!(await assertOwner(id, userId))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  await prisma.versionDraft.deleteMany({ where: { documentId: id } })
   return NextResponse.json({ ok: true })
 }
