@@ -601,6 +601,28 @@ export default function UploadPage() {
     }
   }
 
+  // «Сохранить в систему» — бесплатно, без анализа и без списаний.
+  // Парсим файл и открываем модалку выбора контрагента/названия → createAndOpen.
+  const [parsing, setParsing] = useState(false)
+  const saveDirectly = async () => {
+    if (!file || parsing) return
+    setError(null)
+    setParsing(true)
+    try {
+      const text = await parseFileToText(file)
+      if (!text || !text.replace(/<[^>]*>/g, '').trim()) {
+        setError('Не удалось распознать текст в файле')
+        return
+      }
+      setDocText(text)
+      setShowSaveModal(true)
+    } catch {
+      setError('Не удалось прочитать файл')
+    } finally {
+      setParsing(false)
+    }
+  }
+
   const createAndOpen = async () => {
     if (!docTitle.trim()) return
     // Если контрагент не определён — нужен выбор
@@ -676,7 +698,7 @@ export default function UploadPage() {
         <p className="text-[14px] text-[var(--ink-3)]">
           {step === 'result'
             ? 'Догодок проверил документ и распознал стороны. Сохраните реквизиты и перейдите к редактированию.'
-            : 'Догодок проверит документ и распознает реквизиты сторон для автоматического сохранения.'}
+            : 'Загрузите готовый договор в систему — бесплатно. Проверить на риски можно по желанию.'}
         </p>
       </div>
 
@@ -740,9 +762,22 @@ export default function UploadPage() {
 
           {error && <p className="text-[13px]" style={{ color: 'var(--danger)' }}>{error}</p>}
 
-          <Button variant="primary" size="lg" disabled={!file} onClick={analyze} className="w-full">
-            Анализировать документ · {formatTokens(analyzePrice)}
-          </Button>
+          {/* Развилка: бесплатно сохранить как есть vs платно проверить на риски.
+              Плашка объясняет, что правки документа станут платными позже. */}
+          <div className="rounded-[var(--radius-md)] px-[14px] py-[10px] text-[12px] leading-[1.5]"
+            style={{ background: 'var(--surface-inset)', color: 'var(--ink-3)' }}>
+            Загрузка и хранение — <strong>бесплатно</strong>. Когда захотите изменить документ через
+            Догодок-чат, спишется 50 токенов (в них входит пакет из 10 правок). Проверка на риски — 25 токенов, по желанию.
+          </div>
+
+          <div className="flex flex-col gap-[10px]">
+            <Button variant="primary" size="lg" disabled={!file || parsing} onClick={saveDirectly} className="w-full">
+              {parsing ? 'Сохраняем…' : 'Сохранить в систему · бесплатно'}
+            </Button>
+            <Button variant="secondary" size="lg" disabled={!file || parsing} onClick={analyze} className="w-full">
+              Проверить на риски · {formatTokens(analyzePrice)}
+            </Button>
+          </div>
         </div>
       )}
 
