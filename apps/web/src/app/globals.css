@@ -441,7 +441,18 @@ button { font-family: inherit; }
   margin: 0 0 7px;
   font-size: 13.5px;
   line-height: 1.85;
+  /* Выключка по ширине — как в готовом договоре и в экспортируемом DOCX
+     (конвертер тоже ставит JUSTIFIED). Так предпросмотр совпадает с файлом. */
+  text-align: justify;
 }
+
+/* ── Явное выравнивание из тулбара / из Word ────────────────────────────────── */
+/* Храним через class (не inline style — его режет sanitizeHtml). Конвертер DOCX
+   читает эти классы и выставляет соответствующий AlignmentType. */
+.document-viewer .ta-left,    .document-viewer .ProseMirror .ta-left    { text-align: left; }
+.document-viewer .ta-center,  .document-viewer .ProseMirror .ta-center  { text-align: center; }
+.document-viewer .ta-right,   .document-viewer .ProseMirror .ta-right   { text-align: right; }
+.document-viewer .ta-justify, .document-viewer .ProseMirror .ta-justify { text-align: justify; }
 .document-viewer p:has(> strong:only-child),
 .document-viewer .ProseMirror p:has(> strong:only-child) {
   margin-top: 16px;

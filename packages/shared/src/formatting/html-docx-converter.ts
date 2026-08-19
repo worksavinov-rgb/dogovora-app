@@ -165,6 +165,18 @@ function headingFor(tag: string) {
   return { heading: HeadingLevel.HEADING_4, align: AlignmentType.CENTER }
 }
 
+// Явное выравнивание из класса ta-* (тулбар предпросмотра / выравнивание из Word).
+// Переопределяет дефолт (тело — JUSTIFIED, заголовки — CENTER). undefined = нет класса.
+type DocxAlign = (typeof AlignmentType)[keyof typeof AlignmentType]
+function alignFromClass(cls: string | undefined): DocxAlign | undefined {
+  if (!cls) return undefined
+  if (/\bta-justify\b/.test(cls)) return AlignmentType.JUSTIFIED
+  if (/\bta-center\b/.test(cls)) return AlignmentType.CENTER
+  if (/\bta-right\b/.test(cls)) return AlignmentType.RIGHT
+  if (/\bta-left\b/.test(cls)) return AlignmentType.LEFT
+  return undefined
+}
+
 /** Преобразует список блочных узлов в массив docx-параграфов/таблиц. */
 // Абзац основного текста: выключка по ширине, красная строка (~1,25 см) и
 // межстрочный интервал 1,5 — так документ выглядит как аккуратно свёрстанный
@@ -177,10 +189,10 @@ function nodeText(n: Node): string {
   if (n.type === 'text') return n.text ?? ''
   return (n.children ?? []).map(nodeText).join('')
 }
-function bodyParagraph(runs: TextRun[]): Paragraph {
+function bodyParagraph(runs: TextRun[], align?: DocxAlign): Paragraph {
   return new Paragraph({
     children: runs,
-    alignment: AlignmentType.JUSTIFIED,
+    alignment: align ?? AlignmentType.JUSTIFIED,
     spacing: { after: 120, line: BODY_LINE_SPACING },
     indent: { firstLine: BODY_FIRST_LINE },
   })
@@ -223,7 +235,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         const { heading, align } = headingFor(n.tag)
         out.push(new Paragraph({
           children: collectRuns(n.children, { bold: true }),
-          heading, alignment: align, spacing: { before: 220, after: 100 },
+          heading, alignment: alignFromClass(n.attribs['class']) ?? align, spacing: { before: 220, after: 100 },
           // Приложение/допсоглашение начинаем с новой страницы
           pageBreakBefore: !isDocumentStart && isAttachmentStart(nodeText(n)),
         }))
@@ -255,7 +267,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
           break
         }
         const runs = collectRuns(n.children)
-        out.push(bodyParagraph(runs))
+        out.push(bodyParagraph(runs, alignFromClass(n.attribs['class'])))
         break
       }
       case 'ul': case 'ol': {

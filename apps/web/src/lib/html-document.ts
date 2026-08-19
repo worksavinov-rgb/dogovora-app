@@ -337,17 +337,39 @@ export function groupRequisitesColumns(html: string): string {
 // ─── Подстановка эталонных шапки и реквизитов (из ЛК) в загруженный документ ───
 
 /** Блоки верхнего уровня документа с их границами. */
+/** Индекс ПОСЛЕ парного `</tag>` с учётом вложенности одноимённых тегов. -1 если не найден. */
+function findMatchingClose(html: string, tag: string, afterOpenTag: number): number {
+  const re = new RegExp(`<${tag}\\b[^>]*>|</${tag}\\s*>`, 'gi')
+  re.lastIndex = afterOpenTag
+  let depth = 1
+  let t: RegExpExecArray | null
+  while ((t = re.exec(html))) {
+    if (t[0][1] === '/') {
+      depth--
+      if (depth === 0) return t.index + t[0].length
+    } else depth++
+  }
+  return -1
+}
+
 function topLevelBlocks(html: string): { start: number; end: number; tag: string; text: string }[] {
   const out: { start: number; end: number; tag: string; text: string }[] = []
-  const re = /<(h[1-6]|p|table|div|ul|ol)\b[^>]*>[\s\S]*?<\/\1>/gi
+  // Только ОТКРЫВАЮЩИЙ тег: парный закрывающий ищем с учётом вложенности.
+  // Прежний нежадный `[\s\S]*?</\1>` останавливался на первом же </div>, из-за
+  // чего двухколоночный блок реквизитов из Word (div.doc-layout-table с вложенными
+  // div.doc-layout-cell) распознавался обрезанным — и замена реквизитов ломалась.
+  const openRe = /<(h[1-6]|p|table|div|ul|ol)\b[^>]*>/gi
   let m: RegExpExecArray | null
   let pos = 0
-  while ((m = re.exec(html))) {
+  while ((m = openRe.exec(html))) {
     if (m.index < pos) continue
-    const text = m[0].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-    out.push({ start: m.index, end: m.index + m[0].length, tag: m[1].toLowerCase(), text })
-    pos = m.index + m[0].length
-    re.lastIndex = pos
+    const tag = m[1].toLowerCase()
+    const end = findMatchingClose(html, tag, m.index + m[0].length)
+    if (end < 0) continue
+    const text = html.slice(m.index, end).replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+    out.push({ start: m.index, end, tag, text })
+    pos = end
+    openRe.lastIndex = end
   }
   return out
 }

@@ -25,6 +25,7 @@ import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
+import { TextAlignClass } from '@/lib/tiptap/text-align-class'
 import { isHtmlContent, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
 
 interface DocumentViewerProps {
@@ -52,6 +53,7 @@ const TIPTAP_EXTENSIONS = [
   TableRow,
   TableCell,
   TableHeader,
+  TextAlignClass,
 ]
 
 export function DocumentViewer({ content, editable = false, onUpdate, externalContentKey, onEditorReady, onReady }: DocumentViewerProps) {
