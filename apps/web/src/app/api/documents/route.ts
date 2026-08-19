@@ -24,8 +24,6 @@ const createSchema = z.object({
   // Замороженные HTML-блоки шапки (преамбулы) и реквизитов/подписей — собраны и,
   // возможно, отредактированы пользователем на шаге настройки. Сохраняются как есть
   // и больше не пересчитываются из текущих данных Profile/Counterparty.
-  preambleHtml: z.string().optional(),
-  requisitesHtml: z.string().optional(),
   // AI-настройки для первой версии.
   // ВАЖНО: мастер создания документа (documents/new/page.tsx) кладёт сюда же userRole,
   // profileId и referenceContent — эти поля ОБЯЗАТЕЛЬНО должны быть объявлены здесь,
@@ -173,8 +171,6 @@ export async function POST(req: NextRequest) {
       // Шапка и реквизиты, согласованные пользователем в мастере (он мог их
       // отредактировать вручную). Раньше принимались схемой, но НЕ сохранялись —
       // правки пользователя молча терялись.
-      preambleHtml: data.preambleHtml || undefined,
-      requisitesHtml: data.requisitesHtml || undefined,
       versions: {
         create: {
           number: 1,
