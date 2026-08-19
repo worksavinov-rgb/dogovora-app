@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { getGenerateQueue } from '@/lib/queue'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
-import { resolveDocumentProfile, resolveCounterpartySignatory } from '@/lib/party-data'
+import { buildDocumentParties } from '@/lib/party-data'
 import { chargeTokens, InsufficientTokensError, insufficientTokensResponse } from '@/lib/token-charges'
 import { TOKEN_PRICES } from '@/lib/token-pricing'
 
@@ -84,74 +84,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     throw err
   }
 
-  // Профиль — через единый resolveDocumentProfile (тот же, что в download и
-  // предпросмотре): Document.profileId → aiSettings.profileId (fallback для
-  // старых документов) → первый созданный. Раньше generate и download выбирали
-  // профиль по-разному, и реквизиты в тексте и в DOCX могли разойтись.
-  const profile = await resolveDocumentProfile({
+  // Стороны документа — единая сборка buildDocumentParties (та же, что в decor
+  // и выгрузке): Document.profileId → aiSettings.profileId (fallback для старых
+  // документов) → первый созданный; подписант контрагента — дефолтный.
+  const { userProfile, counterpartyData } = await buildDocumentParties({
     userId,
     profileId: doc.profileId,
     fallbackProfileId: aiSettings?.profileId,
+    counterpartyId: doc.counterpartyId,
   })
-  const profileSignatory = profile ? { fullName: profile.signatorName, position: profile.signatorPosition, basisType: profile.signatorBasis } : null
-  const userProfile = profile ? {
-    type: profile.type,
-    name: profile.name,
-    inn: profile.inn,
-    kpp: profile.kpp,
-    ogrn: profile.ogrn,
-    ogrnDate: profile.ogrnDate ?? null,
-    legalAddress: profile.legalAddress,
-    // Если выбран подписант из ProfileSignatory — используем его, иначе fallback
-    // на legacy одиночное поле profile.signatorName (старые профили без подписантов)
-    signatorName: profileSignatory?.fullName ?? profile.signatorName,
-    signatorPosition: profileSignatory?.position ?? profile.signatorPosition,
-    // В signatorBasis может лежать и enum-код ('CHARTER'/'POA' — так пишет
-    // /api/profiles/:id/signatories), и свободный текст из формы реквизитов.
-    // Номер доверенности у профиля не хранится (в отличие от подписантов
-    // контрагента) — поэтому просто «Доверенности».
-    signatorBasis: profile.signatorBasis === 'CHARTER'
-      ? 'Устава'
-      : profile.signatorBasis === 'POA'
-        ? 'Доверенности'
-        : profile.signatorBasis,
-    bankName: profile.bankDetails[0]?.bankName ?? null,
-    checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
-    bik: profile.bankDetails[0]?.bik ?? null,
-    correspondentAccount: profile.bankDetails[0]?.correspondentAccount ?? null,
-    email: profile.email ?? null,
-  } : undefined
-
-  // Полные данные контрагента для формирования шапки и реквизитов.
-  // Источник истины для подписанта — Document.counterpartySignatoryId, выбранный
-  // на шаге настройки; если не выбран — берём дефолтного подписанта контрагента.
-  const cp = doc.counterparty
-  // Подписант — через единый resolveCounterpartySignatory: дефолтный, иначе
-  // первый. Раньше generate требовал строго isDefault:true и при его отсутствии
-  // генерировал документ вовсе без подписанта, а download подставлял любого.
-  const cpSignatory = await resolveCounterpartySignatory(cp.id)
-  const counterpartyData = {
-    name: cp.name,
-    inn: cp.inn,
-    kpp: cp.kpp,
-    ogrn: cp.ogrn,
-    legalAddress: cp.legalAddress,
-    email: cp.email,
-    phone: cp.phone,
-    bankName: cp.bankDetails[0]?.bankName ?? null,
-    checkingAccount: cp.bankDetails[0]?.checkingAccount ?? null,
-    bik: cp.bankDetails[0]?.bik ?? null,
-    correspondentAccount: cp.bankDetails[0]?.correspondentAccount ?? null,
-    signatorName: cpSignatory?.fullName ?? null,
-    signatorPosition: cpSignatory?.position ?? null,
-    signatorBasis: cpSignatory
-      ? (cpSignatory.basisType === 'CHARTER'
-          ? 'Устава'
-          : cpSignatory.poaNumber
-            ? `Доверенности № ${cpSignatory.poaNumber}`
-            : 'Доверенности')
-      : null,
-  }
 
   // Для APPENDIX/AMENDMENT — находим финальную версию родительского договора
   // Приоритет: SIGNED → PAID → APPROVED → последняя по номеру
