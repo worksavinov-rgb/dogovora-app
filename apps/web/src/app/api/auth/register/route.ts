@@ -7,6 +7,7 @@ import { recordLoginAudit } from '@/lib/login-audit'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 import { buildConsentRows } from '@/lib/consent'
+import { WELCOME_BONUS_TOKENS } from '@/lib/token-pricing'
 
 const CONSENT_REQUIRED = 'Для создания аккаунта примите оферту и согласия на обработку данных'
 
@@ -23,8 +24,6 @@ const RegisterSchema = z.object({
   consentCrossBorder: z.literal(true, CONSENT_REQUIRED),
   consentMarketing: z.boolean().optional().default(false),
 })
-
-const WELCOME_BONUS = 5000
 
 export async function POST(req: Request) {
   try {
@@ -83,7 +82,7 @@ export async function POST(req: Request) {
       const wallet = await tx.wallet.create({
         data: {
           userId: newUser.id,
-          balance: WELCOME_BONUS,
+          balance: WELCOME_BONUS_TOKENS,
         },
       })
 
@@ -91,7 +90,8 @@ export async function POST(req: Request) {
         data: {
           walletId: wallet.id,
           type: 'CREDIT',
-          amount: WELCOME_BONUS,
+          amount: WELCOME_BONUS_TOKENS,
+          currency: 'TOKEN',
           description: 'Приветственный бонус за регистрацию',
         },
       })
