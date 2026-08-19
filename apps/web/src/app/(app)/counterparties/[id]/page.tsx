@@ -507,7 +507,7 @@ export default function CounterpartyPage({ params }: { params: Promise<{ id: str
   if (!cp) return null
 
   const totalVersions = cp.documents.reduce((s, d) => s + d.versions.length, 0)
-  const totalPaid = cp.documents.reduce((s, d) => s + d.versions.filter(v => v.purchase).length, 0)
+  const totalSigned = cp.documents.reduce((s, d) => s + d.versions.filter(v => v.status === 'SIGNED').length, 0)
 
   const tabs = [
     { key: 'documents', label: 'Все документы', count: cp.documents.length },
@@ -542,7 +542,7 @@ export default function CounterpartyPage({ params }: { params: Promise<{ id: str
           {[
             { label: 'Документов', value: cp.documents.length, sub: `${cp.documents.filter(d => d.versions.some(v => v.status !== 'DRAFT')).length} активных` },
             { label: 'Версий', value: totalVersions, sub: `${cp.documents.reduce((s, d) => s + d.versions.filter(v => v.status === 'APPROVED' || v.status === 'PAID').length, 0)} утверждено` },
-            { label: 'Оплачено за всё время', value: totalPaid > 0 ? `${totalPaid} вер.` : '—', sub: '' },
+            { label: 'Подписано', value: totalSigned > 0 ? `${totalSigned} вер.` : '—', sub: '' },
             { label: 'Последняя активность', value: relativeDate(cp.updatedAt), sub: `версия v.${cp.documents[0]?.versions[0]?.number ?? '—'}` },
           ].map((s) => (
             <div key={s.label}>

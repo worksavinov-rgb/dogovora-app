@@ -18,7 +18,6 @@ interface RecentDoc {
     id: string
     number: number
     status: string
-    purchase: { id: string } | null
   }[]
 }
 
@@ -108,7 +107,6 @@ export default function HomePage() {
   const [docs, setDocs] = useState<RecentDoc[]>([])
   const [wallet, setWallet] = useState<WalletData | null>(null)
   const [storage, setStorage] = useState<StorageData | null>(null)
-  const [pendingCount, setPendingCount] = useState(0)
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([])
   const [userName, setUserName] = useState<string | null>(null)
   const [myProfileName, setMyProfileName] = useState<string | null>(null)
@@ -134,11 +132,6 @@ export default function HomePage() {
       const firstProfile = Array.isArray(profilesData) ? profilesData[0] : null
       if (firstProfile?.name) setMyProfileName(firstProfile.name)
 
-      // Считаем версии ждущие оплаты (APPROVED без Purchase)
-      const approved = (docsData.items ?? []).reduce((count: number, doc: RecentDoc) => {
-        return count + doc.versions.filter((v) => v.status === 'APPROVED' && !v.purchase).length
-      }, 0)
-      setPendingCount(approved)
       setDeadlines(deadlinesData?.items ?? [])
     }).catch(() => {
       // Любая упавшая ручка раньше оставляла главную на вечных скелетонах
@@ -158,17 +151,9 @@ export default function HomePage() {
         <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 400, marginBottom: 6 }}>
           Доброе утро{userName ? `, ${userName}` : ''}!
         </h1>
-        {pendingCount > 0 ? (
-          <p className="text-[14px] text-[var(--ink-3)]">
-            {pendingCount === 1
-              ? '1 версия ждёт оплаты'
-              : `${pendingCount} версии ждут оплаты`} — подтвердите чтобы скачать.
-          </p>
-        ) : (
-          <p className="text-[14px] text-[var(--ink-3)]">
-            Создайте договор или откройте существующий для работы.
-          </p>
-        )}
+        <p className="text-[14px] text-[var(--ink-3)]">
+          Создайте договор или откройте существующий для работы.
+        </p>
       </div>
 
       {/* Единая сетка: карточки и контент выровнены по одной оси */}
@@ -297,10 +282,10 @@ export default function HomePage() {
               <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em]">Баланс</p>
               <p className="leading-none" style={{ fontFamily: 'var(--font-serif)', fontSize: 36, fontWeight: 400 }}>
                 {wallet ? wallet.balance.toLocaleString('ru') : '…'}
-                <span className="text-[var(--ink-3)] ml-[6px]" style={{ fontSize: 20 }}>₽</span>
+                <span className="text-[var(--ink-3)] ml-[8px]" style={{ fontSize: 17 }}>токенов</span>
               </p>
               <p className="text-[12px] text-[var(--ink-4)]">
-                ≈ {wallet ? Math.floor(wallet.balance / 60) : 0} документов по средней цене
+                ≈ {wallet ? Math.floor(wallet.balance / 100) : 0} документов с проверками
               </p>
               <button
                 onClick={() => router.push('/balance')}
@@ -336,33 +321,6 @@ export default function HomePage() {
                 ))}
               </div>
             </Card>
-          )}
-
-          {/* Версии ждут оплаты */}
-          {pendingCount > 0 && (
-            <div
-              className="rounded-[var(--radius-lg)] p-[14px]"
-              style={{ background: 'oklch(0.97 0.015 60)', border: '1px solid oklch(0.88 0.04 60)' }}
-            >
-              <div className="flex items-start gap-[8px] mb-[10px]">
-                <span className="text-[14px]">✦</span>
-                <div>
-                  <p className="text-[12px] font-medium" style={{ color: 'oklch(0.5 0.08 60)' }}>
-                    {pendingCount} {pendingCount === 1 ? 'версия ждёт' : 'версии ждут'} оплаты
-                  </p>
-                  <p className="text-[11px] mt-[2px]" style={{ color: 'oklch(0.6 0.06 60)' }}>
-                    Спишется ~{(pendingCount * 60).toLocaleString('ru')} ₽ — на балансе {wallet ? (wallet.balance - pendingCount * 60 > 0 ? 'хватает' : 'не хватает') : '…'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => router.push('/documents')}
-                className="w-full h-[30px] rounded-[var(--radius-md)] text-[11px] font-medium cursor-pointer transition-colors"
-                style={{ background: 'oklch(0.88 0.04 60)', color: 'oklch(0.45 0.08 60)' }}
-              >
-                Открыть очередь
-              </button>
-            </div>
           )}
 
           {/* Хранилище: лимитов нет — показываем только занятое место */}
