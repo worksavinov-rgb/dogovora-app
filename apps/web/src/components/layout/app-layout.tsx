@@ -245,8 +245,8 @@ function Topbar({ breadcrumbs = [], actions, balance, onMenuClick }: TopbarProps
         {balance !== undefined && (
           <div className="flex items-center gap-[6px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] px-[10px] h-[32px]">
             <IconWallet />
-            <span className="font-[var(--font-mono)] text-[13px] font-medium text-[var(--ink)] tabular-nums">
-              {balance.toLocaleString('ru')} ₽
+            <span className="font-[var(--font-mono)] text-[13px] font-medium text-[var(--ink)] tabular-nums" title="Баланс в токенах">
+              {balance.toLocaleString('ru')} ⬡
             </span>
           </div>
         )}

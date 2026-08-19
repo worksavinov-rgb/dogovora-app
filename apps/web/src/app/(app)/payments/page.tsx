@@ -7,6 +7,7 @@ interface Transaction {
   id: string
   type: 'CREDIT' | 'DEBIT'
   amount: number
+  currency?: 'RUB' | 'TOKEN'
   description: string
   createdAt: string
   document: string | null
@@ -14,6 +15,11 @@ interface Transaction {
 
 function formatMoney(n: number): string {
   return n.toLocaleString('ru', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+// Сумма операции: легаси-записи в рублях, новые — в токенах
+function formatAmount(tx: Transaction): string {
+  return tx.currency === 'RUB' ? `${formatMoney(tx.amount)} ₽` : formatMoney(tx.amount)
 }
 
 function formatDate(iso: string): string {
@@ -54,9 +60,9 @@ export default function PaymentsPage() {
       .finally(() => setLoading(false))
   }, [page])
 
-  // Сводные цифры
-  const credited = transactions.filter((t) => t.type === 'CREDIT').reduce((s, t) => s + t.amount, 0)
-  const debited  = transactions.filter((t) => t.type === 'DEBIT').reduce((s, t) => s + t.amount, 0)
+  // Сводные цифры — только токеновые операции (легаси-₽ показываются в строках)
+  const credited = transactions.filter((t) => t.type === 'CREDIT' && t.currency !== 'RUB').reduce((s, t) => s + t.amount, 0)
+  const debited  = transactions.filter((t) => t.type === 'DEBIT' && t.currency !== 'RUB').reduce((s, t) => s + t.amount, 0)
   const grouped  = groupByDate(transactions)
 
   if (loading) {
@@ -78,9 +84,9 @@ export default function PaymentsPage() {
       {/* Summary плитки */}
       <div className="grid grid-cols-3 gap-[12px] mb-[20px]">
         {[
-          { label: 'Текущий баланс', value: `${formatMoney(balance)} ₽`, mono: true, accent: false },
-          { label: 'Пополнено', value: `+ ${formatMoney(credited)} ₽`, mono: true, accent: true },
-          { label: 'Потрачено', value: `− ${formatMoney(debited)} ₽`, mono: true, accent: false },
+          { label: 'Баланс, токенов', value: formatMoney(balance), mono: true, accent: false },
+          { label: 'Начислено, токенов', value: `+ ${formatMoney(credited)}`, mono: true, accent: true },
+          { label: 'Списано, токенов', value: `− ${formatMoney(debited)}`, mono: true, accent: false },
         ].map((card) => (
           <Card key={card.label}>
             <p className="text-[11px] text-[var(--ink-4)] mb-[6px]">{card.label}</p>
@@ -184,7 +190,7 @@ export default function PaymentsPage() {
                       color: tx.type === 'CREDIT' ? 'oklch(0.45 0.1 145)' : 'var(--ink)',
                     }}
                   >
-                    {tx.type === 'CREDIT' ? '+' : '−'}{formatMoney(tx.amount)} ₽
+                    {tx.type === 'CREDIT' ? '+' : '−'}{formatAmount(tx)}
                   </p>
                 </div>
               ))}

@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
       id: t.id,
       type: t.type,
       amount: Number(t.amount),
+      currency: t.currency,
       description: t.description,
       createdAt: t.createdAt,
       document: t.relatedVersion?.document?.title ?? null,

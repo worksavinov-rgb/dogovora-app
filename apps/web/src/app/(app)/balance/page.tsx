@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
+import { formatTokens } from '@/lib/token-pricing'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -9,19 +10,29 @@ interface Transaction {
   id: string
   type: 'CREDIT' | 'DEBIT'
   amount: number
+  currency?: 'RUB' | 'TOKEN'
   description: string
   createdAt: string
   document: string | null
 }
 
-// ─── Константы ────────────────────────────────────────────────────────────────
-
-// Ориентир средней цены версии для оценки «хватит примерно на N».
-// Реальная цена считается calcVersionPrice (40–100 ₽) в момент покупки.
-const AVG_VERSION_PRICE = 60
+interface Prices {
+  generate: number
+  uploadEditStart: number
+  rewrite: number
+  editPackage: number
+  review: number
+  analyzeUpload: number
+  editsPerPackage: number
+}
 
 function formatMoney(n: number): string {
   return n.toLocaleString('ru', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+// Сумма операции: легаси-записи в рублях, новые — в токенах
+function formatAmount(tx: Transaction): string {
+  return tx.currency === 'RUB' ? `${formatMoney(tx.amount)} ₽` : formatMoney(tx.amount)
 }
 
 function relDate(iso: string): string {
@@ -37,6 +48,7 @@ function relDate(iso: string): string {
 
 export default function BalancePage() {
   const [balance, setBalance] = useState<number | null>(null)
+  const [prices, setPrices] = useState<Prices | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -47,7 +59,11 @@ export default function BalancePage() {
         fetch('/api/wallet'),
         fetch('/api/wallet/transactions?limit=5'),
       ])
-      if (walletRes.ok) setBalance((await walletRes.json()).balance)
+      if (walletRes.ok) {
+        const w = await walletRes.json()
+        setBalance(w.balance)
+        if (w.prices) setPrices(w.prices)
+      }
       if (txRes.ok) setTransactions((await txRes.json()).items ?? [])
       if (!walletRes.ok && !txRes.ok) setLoadError(true)
     } catch {
@@ -78,6 +94,9 @@ export default function BalancePage() {
     )
   }
 
+  const generatePrice = prices?.generate ?? 100
+  const docsLeft = Math.floor((balance ?? 0) / generatePrice)
+
   return (
     <div className="max-w-[860px]">
       <div className="mb-[24px]">
@@ -93,10 +112,10 @@ export default function BalancePage() {
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[8px]">Доступно</p>
             <p className="leading-[1] mb-[4px]" style={{ fontFamily: 'var(--font-serif)', fontSize: 52, fontWeight: 400 }}>
               {formatMoney(balance ?? 0)}
-              <span className="text-[var(--ink-3)] ml-[6px]" style={{ fontSize: 28 }}>₽</span>
+              <span className="text-[var(--ink-3)] ml-[10px]" style={{ fontSize: 24 }}>токенов</span>
             </p>
             <p className="text-[12px] text-[var(--ink-4)]">
-              Хватит примерно на {Math.floor((balance ?? 0) / AVG_VERSION_PRICE)} {pluralVersions(Math.floor((balance ?? 0) / AVG_VERSION_PRICE))} документов
+              Хватит примерно на {docsLeft} {pluralDocs(docsLeft)} с проверками
             </p>
           </Card>
 
@@ -104,7 +123,7 @@ export default function BalancePage() {
           <Card>
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Пополнение</p>
             <p className="text-[13px] text-[var(--ink-2)] leading-[1.6]">
-              Пока Догодок работает бесплатно: стартового баланса хватает на десятки документов.
+              Токены списываются за генерацию документов, пакеты правок, проверку и анализ.
               Пополнение появится вместе с подключением платёжного шлюза.
             </p>
           </Card>
@@ -131,7 +150,7 @@ export default function BalancePage() {
                   </div>
                   <p className="shrink-0 text-[14px] font-medium"
                     style={{ fontFamily: 'var(--font-mono)', color: tx.type === 'CREDIT' ? 'oklch(0.45 0.1 145)' : 'var(--ink)' }}>
-                    {tx.type === 'CREDIT' ? '+' : '−'}{formatMoney(tx.amount)} ₽
+                    {tx.type === 'CREDIT' ? '+' : '−'}{formatAmount(tx)}
                   </p>
                 </div>
               ))}
@@ -145,7 +164,7 @@ export default function BalancePage() {
                   Операций пока нет
                 </p>
                 <p className="text-[12px] text-[var(--ink-4)] mt-[4px]">
-                  Здесь появится история покупок версий
+                  Здесь появится история списаний токенов
                 </p>
               </div>
             </Card>
@@ -158,11 +177,14 @@ export default function BalancePage() {
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Стоимость</p>
             <div className="flex flex-col gap-[8px]">
               {[
-                { label: 'Договор', value: '50–100 ₽' },
-                { label: 'Приложение / ДС', value: '40–100 ₽' },
-                { label: 'Повторное скачивание', value: 'Бесплатно' },
-                { label: 'Проверка рисков', value: 'Бесплатно' },
-                { label: 'Догодок-чат (правки)', value: 'Бесплатно' },
+                { label: 'Генерация документа', value: formatTokens(prices?.generate ?? 100) },
+                { label: `Пакет ${prices?.editsPerPackage ?? 10} ИИ-правок`, value: 'включён' },
+                { label: 'Правки загруженного', value: formatTokens(prices?.uploadEditStart ?? 50) },
+                { label: 'Переписать заново', value: formatTokens(prices?.rewrite ?? 100) },
+                { label: 'Проверка рисков', value: formatTokens(prices?.review ?? 25) },
+                { label: 'Анализ при загрузке', value: formatTokens(prices?.analyzeUpload ?? 25) },
+                { label: 'Вопросы в чате', value: 'Бесплатно' },
+                { label: 'Скачивание и печать', value: 'Бесплатно' },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between items-center text-[13px]">
                   <p className="text-[var(--ink-4)]">{row.label}</p>
@@ -175,9 +197,9 @@ export default function BalancePage() {
           <Card>
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Как работает</p>
             <div className="flex flex-col gap-[6px] text-[12px] text-[var(--ink-3)] leading-[1.6]">
-              <p>Платите только за финальную утверждённую версию.</p>
-              <p>Все правки через Догодок-чат и проверки — бесплатны.</p>
-              <p>Купленные версии можно скачивать повторно без доп. оплаты.</p>
+              <p>Вы предоплачиваете действие токенами — как во многих ИИ-сервисах.</p>
+              <p>В оплаченную генерацию входит пакет из {prices?.editsPerPackage ?? 10} ИИ-правок.</p>
+              <p>Готовый документ сразу можно копировать, скачивать и печатать — без доплат.</p>
             </div>
           </Card>
         </div>
@@ -186,8 +208,8 @@ export default function BalancePage() {
   )
 }
 
-function pluralVersions(n: number): string {
-  if (n % 10 === 1 && n % 100 !== 11) return 'версию'
-  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'версии'
-  return 'версий'
+function pluralDocs(n: number): string {
+  if (n % 10 === 1 && n % 100 !== 11) return 'документ'
+  if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'документа'
+  return 'документов'
 }
