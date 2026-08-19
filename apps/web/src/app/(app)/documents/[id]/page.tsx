@@ -38,6 +38,9 @@ interface Document {
   counterparty: Counterparty
   // Своё юрлицо документа — от него зависит формат номера (GET /api/documents/:id его отдаёт)
   profile: { id: string } | null
+  // Слой оформления: если пусто — шапка/реквизиты ещё не собраны (шаг «Оформление»)
+  preambleHtml: string | null
+  requisitesHtml: string | null
   versions: Version[]
   parentDocument: { id: string; title: string; number: string | null } | null
   childDocuments: ChildDoc[]
@@ -249,6 +252,13 @@ function VersionMenu({ ver, doc, onStatusChange, onDeleted, onSign, onDeleteDocu
     { key: 'SIGNED',      label: 'Подписано',         color: 'oklch(0.32 0.08 155)' },
   ]
   async function handleDownload() {
+    // Оформление ещё не собрано → на рабочий экран, там шаг «Оформление»
+    // корректно учитывает legacy-версии (шапка уже в теле — качается сразу).
+    if (!doc.preambleHtml && !doc.requisitesHtml) {
+      router.push(`/documents/${doc.id}/work?version=${ver.id}`)
+      setOpen(false)
+      return
+    }
     const res = await fetch(`/api/versions/${ver.id}/download`)
     if (!res.ok) return
     const blob = await res.blob()
@@ -702,6 +712,11 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   { icon: '🔗', label: 'Показать контрагенту', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: handleShare },
                   ...(hasContent ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
+                      // Нет собранного оформления → на рабочий экран пройти шаг «Оформление»
+                      if (!doc.preambleHtml && !doc.requisitesHtml) {
+                        router.push(`/documents/${id}/work?version=${currentVersion.id}`)
+                        return
+                      }
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
                       if (!res.ok) return
                       const blob = await res.blob()
