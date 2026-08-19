@@ -288,6 +288,13 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         // Без этой ветки колонки схлопывались в один столбик.
         const cls = n.attribs['class'] ?? ''
         if (cls.includes('doc-requisites') || cls.includes('doc-layout-table')) {
+          // Заголовок блока («РЕКВИЗИТЫ И ПОДПИСИ СТОРОН» — h1-h4 внутри div)
+          // рендерим отдельным абзацем: buildRequisitesTable собирает только
+          // div-колонки и иначе заголовок терялся в Word.
+          const titleEl = n.children.find(
+            (c): c is ElNode => c.type === 'el' && /^h[1-4]$/.test(c.tag),
+          )
+          if (titleEl) out.push(...buildBlocks([titleEl]))
           out.push(buildRequisitesTable(n))
         } else {
           out.push(...buildBlocks(n.children))
