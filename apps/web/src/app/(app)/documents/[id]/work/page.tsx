@@ -1119,6 +1119,19 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
+            {/* Оформление — переоткрыть шаг (сменить подписанта/город, скачать без шапки).
+                Для legacy-версий (шапка в теле) слой не применяется — кнопку не показываем. */}
+            {!legacyInline && docContent && !generating && (
+              <button
+                onClick={() => setDecorModalOpen(true)}
+                className="shrink-0 h-[30px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer hidden md:flex items-center gap-[4px]"
+                title="Настроить шапку и реквизиты"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/></svg>
+                <span className="hidden lg:inline">Оформление</span>
+              </button>
+            )}
+
             {/* Скачать DOCX — предоплатная модель: доступно всегда */}
             <button
               onClick={downloadDocx}
