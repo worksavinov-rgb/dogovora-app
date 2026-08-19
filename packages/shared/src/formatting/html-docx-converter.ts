@@ -177,6 +177,65 @@ function alignFromClass(cls: string | undefined): DocxAlign | undefined {
   return undefined
 }
 
+// ─── Многоуровневая нумерация списков ──────────────────────────────────────────
+// Номера считаем сами и вставляем текстом — так DOCX 1:1 совпадает с предпросмотром
+// (CSS-счётчики), включая вложенность 1., 1.1., 1.1.1. Стиль читаем из класса <ol>.
+type ListStyle = 'legal' | 'alpha' | 'roman'
+function listStyleOf(node: ElNode): ListStyle {
+  const cls = node.attribs['class'] ?? ''
+  if (/\bol-alpha\b/.test(cls)) return 'alpha'
+  if (/\bol-roman\b/.test(cls)) return 'roman'
+  return 'legal'
+}
+function toAlpha(n: number): string {
+  let s = ''
+  while (n > 0) { n--; s = String.fromCharCode(97 + (n % 26)) + s; n = Math.floor(n / 26) }
+  return s
+}
+function toRoman(n: number): string {
+  const map: [number, string][] = [[1000,'m'],[900,'cm'],[500,'d'],[400,'cd'],[100,'c'],[90,'xc'],[50,'l'],[40,'xl'],[10,'x'],[9,'ix'],[5,'v'],[4,'iv'],[1,'i']]
+  let s = ''
+  for (const [v, sym] of map) while (n >= v) { s += sym; n -= v }
+  return s
+}
+function orderedPrefix(style: ListStyle, arabicPath: number[], levelIndex: number): string {
+  if (style === 'alpha') return `${toAlpha(levelIndex)}) `
+  if (style === 'roman') return `${toRoman(levelIndex)}) `
+  return `${arabicPath.join('.')}. `
+}
+// Инлайн-содержимое пункта БЕЗ вложенных списков (их обходим рекурсивно).
+// TipTap оборачивает текст пункта в один <p> — разворачиваем.
+function listItemInline(li: ElNode): Node[] {
+  const nonLists = li.children.filter((c) => !(c.type === 'el' && (c.tag === 'ul' || c.tag === 'ol')))
+  const els = nonLists.filter((c): c is ElNode => c.type === 'el')
+  const only = els.length === 1 ? els[0] : undefined
+  if (only && only.tag === 'p') return only.children
+  return nonLists
+}
+function buildListParagraphs(node: ElNode, depth: number, arabicPath: number[], out: (Paragraph | Table)[]): void {
+  const ordered = node.tag === 'ol'
+  const style = ordered ? listStyleOf(node) : 'legal'
+  let idx = 0
+  for (const li of node.children) {
+    if (li.type !== 'el' || li.tag !== 'li') continue
+    idx++
+    const path = [...arabicPath, idx]
+    const prefix = ordered ? orderedPrefix(style, path, idx) : (depth === 0 ? '•  ' : '–  ')
+    out.push(new Paragraph({
+      children: [new TextRun({ text: prefix }), ...collectRuns(listItemInline(li))],
+      alignment: AlignmentType.JUSTIFIED,
+      indent: { left: 480 + depth * 360, hanging: 240 },
+      spacing: { after: 40 },
+    }))
+    // Вложенные списки пункта — с новым уровнем; для нумерации путь = путь пункта.
+    for (const sub of li.children) {
+      if (sub.type === 'el' && (sub.tag === 'ul' || sub.tag === 'ol')) {
+        buildListParagraphs(sub, depth + 1, path, out)
+      }
+    }
+  }
+}
+
 /** Преобразует список блочных узлов в массив docx-параграфов/таблиц. */
 // Абзац основного текста: выключка по ширине, красная строка (~1,25 см) и
 // межстрочный интервал 1,5 — так документ выглядит как аккуратно свёрстанный
@@ -271,18 +330,8 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         break
       }
       case 'ul': case 'ol': {
-        const ordered = n.tag === 'ol'
-        let idx = 0
-        for (const li of n.children) {
-          if (li.type === 'el' && li.tag === 'li') {
-            idx++
-            const prefix = ordered ? `${idx}. ` : '•  '
-            out.push(new Paragraph({
-              children: [new TextRun({ text: prefix }), ...collectRuns(li.children)],
-              indent: { left: 480, hanging: 240 }, spacing: { after: 40 },
-            }))
-          }
-        }
+        // Рекурсивно, с многоуровневой нумерацией (1., 1.1., 1.1.1.) — как в предпросмотре.
+        buildListParagraphs(n, 0, [], out)
         break
       }
       case 'table': {

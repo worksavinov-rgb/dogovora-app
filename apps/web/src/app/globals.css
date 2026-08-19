@@ -480,6 +480,68 @@ button { font-family: inherit; }
   line-height: 1.8;
 }
 
+/* ── Нумерованные списки: многоуровневая нумерация через CSS-счётчики ───────────
+   Пересчёт при добавлении/удалении пункта делает браузер (нативный <ol>).
+   Стиль хранится классом на <ol> (ol-legal / ol-alpha / ol-roman), его же читает
+   DOCX-конвертер. Дефолт — legal (1., 1.1., 1.1.1.), стиль договоров. */
+.document-viewer ol.ol-legal,
+.document-viewer .ProseMirror ol.ol-legal,
+.document-viewer ol.ol-alpha,
+.document-viewer .ProseMirror ol.ol-alpha,
+.document-viewer ol.ol-roman,
+.document-viewer .ProseMirror ol.ol-roman {
+  list-style: none;
+  counter-reset: legal-item;
+  padding-left: 0;
+}
+.document-viewer ol.ol-legal > li,
+.document-viewer .ProseMirror ol.ol-legal > li,
+.document-viewer ol.ol-alpha > li,
+.document-viewer .ProseMirror ol.ol-alpha > li,
+.document-viewer ol.ol-roman > li,
+.document-viewer .ProseMirror ol.ol-roman > li {
+  counter-increment: legal-item;
+  position: relative;
+  padding-left: 2.4em;
+  list-style: none;
+}
+.document-viewer ol.ol-legal > li::before,
+.document-viewer .ProseMirror ol.ol-legal > li::before,
+.document-viewer ol.ol-alpha > li::before,
+.document-viewer .ProseMirror ol.ol-alpha > li::before,
+.document-viewer ol.ol-roman > li::before,
+.document-viewer .ProseMirror ol.ol-roman > li::before {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+/* legal: сквозной путь через точку — 1., 1.1., 1.1.1. */
+.document-viewer ol.ol-legal > li::before,
+.document-viewer .ProseMirror ol.ol-legal > li::before {
+  content: counters(legal-item, ".") ". ";
+}
+/* alpha: буквенная нумерация уровня — a), b), c) */
+.document-viewer ol.ol-alpha > li::before,
+.document-viewer .ProseMirror ol.ol-alpha > li::before {
+  content: counter(legal-item, lower-alpha) ") ";
+}
+/* roman: римские цифры уровня — i), ii), iii) */
+.document-viewer ol.ol-roman > li::before,
+.document-viewer .ProseMirror ol.ol-roman > li::before {
+  content: counter(legal-item, lower-roman) ") ";
+}
+/* Вложенные <ol> внутри <li>: свой отступ и меньший верхний зазор */
+.document-viewer ol.ol-legal ol,
+.document-viewer .ProseMirror ol.ol-legal ol,
+.document-viewer ol.ol-alpha ol,
+.document-viewer .ProseMirror ol.ol-alpha ol,
+.document-viewer ol.ol-roman ol,
+.document-viewer .ProseMirror ol.ol-roman ol {
+  margin: 4px 0 4px;
+}
+
 /* ── Таблицы ───────────────────────────────────────────────────────────────── */
 .document-viewer table,
 .document-viewer .ProseMirror table {
