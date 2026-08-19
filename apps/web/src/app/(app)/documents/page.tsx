@@ -890,10 +890,10 @@ export default function DocumentsPage() {
             <p className="text-[14px] text-[var(--ink-3)]">Договоры, приложения и допсоглашения. Каждое изменение — новая версия.</p>
           </div>
           <div className="flex items-center gap-[8px]">
-            <Button variant="secondary" onClick={() => router.push('/documents/new?tab=upload')}>
-              ↑ Загрузить
+            <Button variant="secondary" onClick={() => router.push('/documents/upload')}>
+              ↑ Загрузить · бесплатно
             </Button>
-            <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать</Button>
+            <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать договор</Button>
           </div>
         </div>
       </div>
@@ -996,7 +996,12 @@ export default function DocumentsPage() {
             <p className="text-[13px] text-[var(--ink-4)]">
               {view === 'archive' ? 'Документы контрагентов, которых вы отправите в архив, появятся здесь' : 'Создайте первый договор или загрузите существующий'}
             </p>
-            {view !== 'archive' && <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать документ</Button>}
+            {view !== 'archive' && (
+              <div className="flex items-center gap-[8px] justify-center">
+                <Button variant="secondary" onClick={() => router.push('/documents/upload')}>↑ Загрузить · бесплатно</Button>
+                <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать договор</Button>
+              </div>
+            )}
           </div>
         ) : (
           pageRows.map(({ doc, depth }, i) => {

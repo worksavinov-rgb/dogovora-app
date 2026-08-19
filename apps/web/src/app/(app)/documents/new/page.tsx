@@ -366,10 +366,11 @@ const DOC_TYPES = [
   )},
 ]
 
+// Загрузка готового файла вынесена в отдельный бесплатный экран /documents/upload
+// (см. спеку 2026-08-19-free-upload). В мастере создания — только генерация ИИ.
 const BASE_OPTIONS = [
   { key: 'scratch' as DocBase, label: 'С нуля по описанию', sub: 'Догодок составит с чистого листа' },
   { key: 'template' as DocBase, label: 'Из шаблона', sub: 'Мои загруженные шаблоны' },
-  { key: 'upload' as DocBase, label: 'Загрузить файл', sub: 'PDF, DOCX, RTF' },
 ]
 
 const QUICK_CHIPS: { label: string; instruction: string }[] = [
