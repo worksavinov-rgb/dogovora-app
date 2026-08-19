@@ -36,17 +36,12 @@ export async function GET(req: NextRequest, { params }: Params) {
           signingDate: true,
         },
       },
-      purchase: true,
     },
   })
 
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Проверяем оплату
-  if (!version.purchase) {
-    return NextResponse.json({ error: 'Версия не оплачена. Для скачивания необходимо купить версию.' }, { status: 403 })
-  }
-
+  // Предоплатная модель: скачивание доступно для любой версии владельца
   if (!version.content) {
     return NextResponse.json({ error: 'Документ ещё не сгенерирован' }, { status: 400 })
   }

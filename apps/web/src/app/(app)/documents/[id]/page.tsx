@@ -8,7 +8,6 @@ import { StatusBadge } from '@/components/ui/badge'
 import { Avatar } from '@/components/ui/avatar'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { calcVersionPrice } from '@/lib/pricing'
 import { parseDocxToHtml } from '@/lib/docx-to-html'
 import { DocumentNumberField } from '@/components/document-number-field'
 
@@ -219,84 +218,11 @@ function SignModal({ ver, docId, docTitle, docNumber, profileId, onConfirm, onCl
   )
 }
 
-// ─── Модалка покупки ──────────────────────────────────────────────────────────
-
-function PurchaseModal({
-  ver, docTitle, docType, balance, onConfirm, onClose, loading,
-}: {
-  ver: Version; docTitle: string; docType: string; balance: number | null
-  onConfirm: () => void; onClose: () => void; loading: boolean
-}) {
-  const price = calcVersionPrice(docType, ver.content?.length ?? 0)
-  const hasEnough = balance !== null && balance >= price
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.4)' }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="bg-white rounded-[var(--radius-xl)] shadow-xl w-[400px]" style={{ padding: '28px' }}>
-        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">
-          Подтверждение покупки
-        </p>
-
-        <div className="mb-[20px]">
-          <p className="text-[13px] text-[var(--ink-3)] mb-[2px]">{docTitle}</p>
-          <p className="text-[15px] font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-mono)' }}>
-            Версия v.{ver.number}
-          </p>
-        </div>
-
-        <div className="rounded-[var(--radius-md)] mb-[16px]"
-          style={{ background: 'var(--surface-inset)', padding: '12px 14px' }}>
-          {[
-            { label: 'Стоимость версии', value: `${price} ₽` },
-            { label: 'Ваш баланс', value: balance !== null ? `${balance.toLocaleString('ru')} ₽` : '…' },
-            { label: 'После списания', value: balance !== null ? `${(balance - price).toLocaleString('ru')} ₽` : '…', bold: true },
-          ].map((row) => (
-            <div key={row.label} className="flex justify-between items-center py-[5px]">
-              <p className="text-[12px] text-[var(--ink-4)]">{row.label}</p>
-              <p className={['text-[13px]', row.bold ? 'font-medium text-[var(--ink)]' : 'text-[var(--ink-2)]'].join(' ')}
-                style={{ fontFamily: 'var(--font-mono)' }}>
-                {row.value}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {!hasEnough && balance !== null && (
-          <div className="rounded-[var(--radius-md)] mb-[16px] px-[12px] py-[10px]"
-            style={{ background: 'oklch(0.96 0.025 20)', border: '1px solid oklch(0.88 0.04 20)' }}>
-            <p className="text-[12px] text-[var(--danger)]">
-              Недостаточно средств. Пополните баланс на странице «Баланс».
-            </p>
-          </div>
-        )}
-
-        <p className="text-[11px] text-[var(--ink-4)] mb-[16px]">
-          После покупки документ доступен для скачивания неограниченное количество раз бесплатно.
-        </p>
-
-        <div className="flex gap-[8px]">
-          <button onClick={onClose}
-            className="flex-1 h-[40px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
-            Отмена
-          </button>
-          <button onClick={onConfirm} disabled={loading || !hasEnough}
-            className="flex-1 h-[40px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40">
-            {loading ? 'Покупаю…' : `Купить · ${price} ₽`}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── Меню трёх точек для версии ──────────────────────────────────────────────
 
-function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign, onDeleteDocument }: {
+function VersionMenu({ ver, doc, onStatusChange, onDeleted, onSign, onDeleteDocument }: {
   ver: Version
   doc: Document
-  onBuy: (ver: Version) => void
   onStatusChange: (verId: string, status: string) => void
   onDeleted: (verId: string) => void
   onSign: (ver: Version) => void
@@ -322,10 +248,7 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign, onDel
     { key: 'APPROVED',    label: 'Утверждено',        color: 'oklch(0.45 0.1 145)' },
     { key: 'SIGNED',      label: 'Подписано',         color: 'oklch(0.32 0.08 155)' },
   ]
-  const canBuy = ver.status === 'APPROVED' && !ver.purchase
-
   async function handleDownload() {
-    if (!ver.purchase) return
     const res = await fetch(`/api/versions/${ver.id}/download`)
     if (!res.ok) return
     const blob = await res.blob()
@@ -362,7 +285,7 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign, onDel
           >
             Открыть в редакторе
           </button>
-          {ver.purchase && (
+          {Boolean(ver.content) && (
             <button
               className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer flex items-center gap-[6px]"
               onClick={handleDownload}
@@ -372,56 +295,33 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign, onDel
             </button>
           )}
 
-          {/* Все статусы — заблокированы для оплаченных версий */}
+          {/* Смена статуса (SIGNED — через модалку подписания) */}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
-          {ver.purchase ? (
-            <p className="px-[14px] py-[6px] text-[11px] text-[var(--ink-4)]">🔒 Версия оплачена — статус защищён</p>
-          ) : (
-            <>
-              <p className="px-[14px] py-[4px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Сменить статус</p>
-              {ALL_STATUSES.filter((s) => s.key !== ver.status).map((s) => (
-                <button
-                  key={s.key}
-                  className="w-full text-left px-[14px] py-[7px] text-[13px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-                  style={{ color: s.color }}
-                  onClick={() => {
-                    if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
-                    else { onStatusChange(ver.id, s.key); setOpen(false) }
-                  }}
-                >
-                  → {s.label}
-                </button>
-              ))}
-            </>
-          )}
+          <p className="px-[14px] py-[4px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Сменить статус</p>
+          {ALL_STATUSES.filter((s) => s.key !== ver.status).map((s) => (
+            <button
+              key={s.key}
+              className="w-full text-left px-[14px] py-[7px] text-[13px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+              style={{ color: s.color }}
+              onClick={() => {
+                if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
+                else { onStatusChange(ver.id, s.key); setOpen(false) }
+              }}
+            >
+              → {s.label}
+            </button>
+          ))}
 
-          {/* Купить */}
-          {canBuy && (
-            <>
-              <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
-              <button
-                className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
-                onClick={() => { onBuy(ver); setOpen(false) }}
-              >
-                Купить · {calcVersionPrice(doc.type, ver.content?.length ?? 0)} ₽
-              </button>
-            </>
-          )}
-
-          {/* Удалить версию (только неоплаченные) */}
-          {!ver.purchase && (
-            <>
-              <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
-              <button
-                className="w-full text-left px-[14px] py-[8px] text-[13px] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer flex items-center gap-[8px]"
-                style={{ color: 'oklch(0.5 0.15 20)' }}
-                onClick={() => { setOpen(false); onDeleted(ver.id) }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-                Удалить версию
-              </button>
-            </>
-          )}
+          {/* Удалить версию */}
+          <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+          <button
+            className="w-full text-left px-[14px] py-[8px] text-[13px] hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer flex items-center gap-[8px]"
+            style={{ color: 'oklch(0.5 0.15 20)' }}
+            onClick={() => { setOpen(false); onDeleted(ver.id) }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+            Удалить версию
+          </button>
 
           {/* Удалить документ */}
           {onDeleteDocument && (
@@ -446,10 +346,9 @@ function VersionMenu({ ver, doc, onBuy, onStatusChange, onDeleted, onSign, onDel
 // ─── Компонент строки версии ──────────────────────────────────────────────────
 
 function VersionRow({
-  ver, isCurrent, doc, onBuy, onStatusChange, onDeleted, onSign, onDeleteDocument,
+  ver, isCurrent, doc, onStatusChange, onDeleted, onSign, onDeleteDocument,
 }: {
   ver: Version; isCurrent: boolean; doc: Document
-  onBuy: (ver: Version) => void
   onStatusChange: (verId: string, status: string) => void
   onDeleted: (verId: string) => void
   onSign: (ver: Version) => void
@@ -475,28 +374,16 @@ function VersionRow({
         </div>
 
         <div className="flex items-center gap-[8px] shrink-0">
-          <StatusBadge status={ver.purchase ? 'paid' : (STATUS_MAP[ver.status] ?? 'draft')} />
+          <StatusBadge status={STATUS_MAP[ver.status] ?? 'draft'} />
 
-          {ver.status === 'APPROVED' && !ver.purchase ? (
-            <button
-              onClick={() => onBuy(ver)}
-              className="h-[28px] px-[10px] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] rounded-[var(--radius-md)] hover:opacity-90 transition-opacity cursor-pointer"
-            >
-              Купить · {calcVersionPrice(doc.type, ver.content?.length ?? 0)} ₽
-            </button>
-          ) : (
-            <button
-              onClick={() => router.push(`/documents/${doc.id}/work?version=${ver.id}`)}
-              className="h-[28px] px-[10px] text-[12px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer flex items-center gap-[4px]"
-            >
-              {ver.purchase && (
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              )}
-              {ver.purchase ? 'Скачать' : 'Открыть'}
-            </button>
-          )}
+          <button
+            onClick={() => router.push(`/documents/${doc.id}/work?version=${ver.id}`)}
+            className="h-[28px] px-[10px] text-[12px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer flex items-center gap-[4px]"
+          >
+            Открыть
+          </button>
 
-          <VersionMenu ver={ver} doc={doc} onBuy={onBuy} onStatusChange={onStatusChange} onDeleted={onDeleted} onSign={onSign} onDeleteDocument={onDeleteDocument} />
+          <VersionMenu ver={ver} doc={doc} onStatusChange={onStatusChange} onDeleted={onDeleted} onSign={onSign} onDeleteDocument={onDeleteDocument} />
         </div>
       </div>
     </div>
@@ -511,9 +398,6 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   const { toast: showToast } = useToast()
   const [doc, setDoc] = useState<Document | null>(null)
   const [loading, setLoading] = useState(true)
-  const [balance, setBalance] = useState<number | null>(null)
-  const [buyingVer, setBuyingVer] = useState<Version | null>(null)
-  const [purchasing, setPurchasing] = useState(false)
   const [signingVer, setSigningVer] = useState<Version | null>(null)
   const [signing, setSigning] = useState(false)
   const [sortAsc, setSortAsc] = useState(false) // false = по убыванию (новые сначала)
@@ -547,41 +431,8 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   }
 
   useEffect(() => {
-    Promise.all([
-      loadDoc(),
-      fetch('/api/wallet').then((r) => r.ok ? r.json() : null).then((w) => w && setBalance(w.balance)),
-    ]).finally(() => setLoading(false))
+    loadDoc().finally(() => setLoading(false))
   }, [id])
-
-  async function handlePurchase() {
-    if (!buyingVer) return
-    setPurchasing(true)
-    try {
-      const res = await fetch(`/api/versions/${buyingVer.id}/purchase`, { method: 'POST' })
-      const data = await res.json()
-
-      if (res.status === 402) {
-        showToast('Недостаточно средств — пополните баланс', 'error')
-        setBuyingVer(null)
-        return
-      }
-      if (!res.ok) {
-        showToast('Ошибка при покупке. Попробуйте ещё раз.', 'error')
-        return
-      }
-
-      showToast(data.alreadyPurchased ? 'Уже куплено ранее' : 'Версия успешно куплена!', 'success')
-      setBuyingVer(null)
-      // Обновляем баланс и документ
-      const [walletRes] = await Promise.all([
-        fetch('/api/wallet').then((r) => r.ok ? r.json() : null),
-        loadDoc(),
-      ])
-      if (walletRes) setBalance(walletRes.balance)
-    } finally {
-      setPurchasing(false)
-    }
-  }
 
   async function handleSign(number: string, date: string) {
     if (!signingVer) return
@@ -749,17 +600,6 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
 
   return (
     <>
-      {buyingVer && (
-        <PurchaseModal
-          ver={buyingVer}
-          docTitle={doc.title}
-          docType={doc.type}
-          balance={balance}
-          onConfirm={handlePurchase}
-          onClose={() => setBuyingVer(null)}
-          loading={purchasing}
-        />
-      )}
       {signingVer && doc && (
         <SignModal
           ver={signingVer}
@@ -839,7 +679,6 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                       ver={ver}
                       isCurrent={ver.id === doc.versions[0]?.id}
                       doc={doc}
-                      onBuy={setBuyingVer}
                       onStatusChange={handleVersionStatusChange}
                       onDeleted={handleVersionDeleted}
                       onSign={setSigningVer}
@@ -861,7 +700,7 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
                   { icon: '◎', label: 'Проверить риски', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: () => router.push(`/documents/${id}/check`) },
                   { icon: '↑', label: uploadingVersion ? 'Загрузка версии…' : 'Загрузить версию с правками', primary: false, disabled: uploadingVersion, onClick: handleUploadRevisedVersion },
                   { icon: '🔗', label: 'Показать контрагенту', primary: false, disabled: !hasContent, disabledHint: 'Сначала сгенерируйте документ через Догодок-чат', onClick: handleShare },
-                  ...(currentVersion?.purchase ? [
+                  ...(hasContent ? [
                     { icon: '↓', label: 'Скачать версию', primary: false, onClick: async () => {
                       const res = await fetch(`/api/versions/${currentVersion.id}/download`)
                       if (!res.ok) return

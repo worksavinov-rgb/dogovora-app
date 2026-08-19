@@ -2,14 +2,10 @@
 
 import { useState, useEffect, useRef, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { calcVersionPrice } from '@/lib/pricing'
 // При 401 (истёк 15-мин access-токен) сессия прозрачно обновляется глобальным
 // перехватчиком fetch (см. lib/install-fetch-auth.ts) — отдельная обёртка не нужна.
 import { useAuthStore } from '@/store/auth'
 import { DocumentViewer } from '@/components/document-viewer'
-// marked нужен для LEGACY DocumentRenderer_LEGACY (старые markdown-документы)
-import { marked } from 'marked'
-marked.setOptions({ gfm: true, breaks: false })
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -39,7 +35,15 @@ interface Version {
     type: string
     counterparty: { name: string }
   }
-  purchase?: { id: string } | null
+}
+
+interface EditQuota {
+  limit: number
+  used: number
+  remaining: number
+  packages: number
+  isUploaded: boolean
+  prices: { editPackage: number; rewrite: number; generate: number; uploadEditStart: number; review: number }
 }
 
 // ─── Константы ────────────────────────────────────────────────────────────────
@@ -102,220 +106,6 @@ function stripMarkdown(s: string): string {
     .replace(/\*(.+?)\*/g, '$1')      // *курсив*
     .replace(/^[-*]\s+/gm, '')        // маркеры списка
     .trim()
-}
-
-// ─── Legacy: двухколоночный блок реквизитов (для обратной совместимости) ─────
-
-function parseReqsParty(lines: string[]) {
-  let role = '', name = '', signTitle = '', signName = ''
-  const details: string[] = []
-  for (const line of lines) {
-    if (line.startsWith('ROLE:')) { role = line.slice(5); continue }
-    if (line.startsWith('NAME:')) { name = line.slice(5); continue }
-    if (line.startsWith('SIGN_TITLE:')) { signTitle = line.slice(11); continue }
-    if (line.startsWith('SIGN_NAME:')) { signName = line.slice(10); continue }
-    if (line.trim()) details.push(line.trim())
-  }
-  return { role, name, signTitle, signName, details }
-}
-
-function RequisitesColumn({ role, name, signTitle, signName, details }: { role: string; name: string; signTitle: string; signName: string; details: string[] }) {
-  return (
-    <div className="flex flex-col gap-[4px]">
-      <p className="text-[13px] text-[var(--ink)] mb-[6px]" style={{ fontWeight: 600 }}>{role}:</p>
-      <p className="text-[13px] text-[var(--ink)]" style={{ fontWeight: 600 }}>{name}</p>
-      {details.map((d, i) => (
-        <p key={i} className="text-[12.5px] text-[var(--ink)] leading-[1.7]"
-          style={{ fontFamily: 'var(--font-mono)' }}>{d}</p>
-      ))}
-      {/* Строка подписи */}
-      <div className="mt-[24px]">
-        {signTitle && <p className="text-[12.5px] text-[var(--ink)]">{signTitle}</p>}
-        <div className="flex items-end gap-[8px] mt-[4px]">
-          <p className="text-[12.5px] text-[var(--ink)]">{signName}</p>
-          <div className="flex-1 border-b border-[var(--ink)] mb-[2px]" style={{ minWidth: 80, maxWidth: 140 }} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Парсит одну сторону из текстового блока реквизитов
-function parseLegacyPartyBlock(blockLines: string[]) {
-  const role = blockLines[0]?.replace(/:$/, '').trim() ?? ''
-  const rest = blockLines.slice(1)
-
-  // Найти последнюю строку с подписью (___)
-  let signIdx = -1
-  for (let i = rest.length - 1; i >= 0; i--) {
-    if (rest[i].includes('___')) { signIdx = i; break }
-  }
-  const signLine = signIdx >= 0 ? rest[signIdx] : ''
-  const bodyLines = rest.filter((_, i) => i !== signIdx)
-
-  // Первые строки до «Адрес:» — это название стороны
-  const firstDetailIdx = bodyLines.findIndex(l => /^(Адрес|ИНН|КПП|ОГРН|Р\/|К\/|Банк|БИК|E-mail)/i.test(l))
-  const name = firstDetailIdx > 0 ? bodyLines.slice(0, firstDetailIdx).join(' ') : (bodyLines[0] ?? '')
-  const details = firstDetailIdx >= 0 ? bodyLines.slice(firstDetailIdx) : bodyLines.slice(1)
-
-  // Разбиваем строку подписи: «Индивидуальный предприниматель Савинов П.А. ___»
-  const signClean = signLine.replace(/_{3,}/g, '').trim()
-  // Ищем имя в конце (Фамилия И.О. или Фамилия Имя Отчество)
-  const nameAtEnd = signClean.match(/([А-ЯЁ][а-яё]+(?: [А-ЯЁ][а-яё.]+){1,2})\s*$/)
-  const signName = nameAtEnd ? nameAtEnd[1].trim() : signClean
-  const signTitle = nameAtEnd ? signClean.slice(0, signClean.lastIndexOf(signName)).trim() : ''
-
-  return { role, name, signTitle, signName, details }
-}
-
-// Парсит старый текстовый блок реквизитов (две стороны подряд)
-function parseLegacyReqs(block: string): { col1: ReturnType<typeof parseLegacyPartyBlock>; col2: ReturnType<typeof parseLegacyPartyBlock> } | null {
-  const ROLES = ['Исполнитель', 'Заказчик', 'Арендодатель', 'Арендатор', 'Продавец', 'Покупатель', 'Подрядчик', 'Лицензиар', 'Лицензиат']
-  const roleRx = new RegExp(`^(${ROLES.join('|')}):?\\s*$`, 'i')
-
-  const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
-  // Ищем начало второго блока
-  let splitIdx = -1
-  for (let i = 1; i < lines.length; i++) {
-    if (roleRx.test(lines[i])) { splitIdx = i; break }
-  }
-  if (splitIdx < 1) return null
-
-  return {
-    col1: parseLegacyPartyBlock(lines.slice(0, splitIdx)),
-    col2: parseLegacyPartyBlock(lines.slice(splitIdx)),
-  }
-}
-
-// Разворачивает layout-таблицы Word (1-3 строки, 2-4 колонки с длинным текстом) в блоки.
-// Применяется при рендере HTML-документов (загруженных из Word).
-// Ключевые слова реквизитов — если хотя бы 2 ячейки из 2-колоночной таблицы
-// содержат такие слова, это блок подписей/реквизитов, а не таблица данных
-const REQUISITES_KEYWORDS = /\b(ИНН|КПП|ОГРН|ОГРНИП|Р\/счет|р\/сч|БИК|К\/счет|к\/сч|расчётный счет|корр\. счет|e-mail|E-mail|Исполнитель:|Заказчик:)/i
-
-function isRequisitesTable(table: HTMLTableElement): boolean {
-  // Только двух-колоночные таблицы — кандидаты на блок реквизитов
-  const allCells = Array.from(table.querySelectorAll('td, th'))
-  if (allCells.length === 0) return false
-  const matchCount = allCells.filter(c => REQUISITES_KEYWORDS.test(c.textContent ?? '')).length
-  // Если больше половины ячеек содержат ключевые слова реквизитов → это подписной блок
-  return matchCount >= 2
-}
-
-function fixLayoutTables(html: string): string {
-  if (typeof window === 'undefined') return html
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(html, 'text/html')
-
-  doc.querySelectorAll('table').forEach((table) => {
-    if (table.closest('td, th')) return // пропускаем вложенные
-
-    const directRows = Array.from(table.children)
-      .flatMap(el => (el.tagName === 'TBODY' || el.tagName === 'THEAD')
-        ? Array.from(el.children) : [el])
-      .filter(el => el.tagName === 'TR') as HTMLTableRowElement[]
-
-    if (directRows.length === 0) return
-
-    const directCells = directRows.flatMap(row =>
-      Array.from(row.children).filter(el => el.tagName === 'TD' || el.tagName === 'TH')
-    )
-    if (directCells.length === 0) return
-
-    const cols = Math.max(...directRows.map(r =>
-      Array.from(r.children).filter(el => el.tagName === 'TD' || el.tagName === 'TH').length
-    ))
-    const avgLen = directCells.reduce((s, c) => s + (c.textContent?.length ?? 0), 0) / directCells.length
-
-    // Таблица — layout если:
-    // A) ≤3 строк, 2-4 колонки, средний текст > 300 символов (широкая layout-таблица)
-    // B) 2 колонки и содержит ключевые слова реквизитов (высокий блок подписей)
-    const isLayoutBySize = directRows.length <= 3 && cols >= 2 && cols <= 4 && avgLen > 300
-    const isLayoutByContent = cols === 2 && isRequisitesTable(table)
-
-    if (isLayoutBySize || isLayoutByContent) {
-      const wrapper = document.createElement('div')
-      wrapper.className = 'doc-layout-table'
-      directCells.forEach((cell) => {
-        const div = document.createElement('div')
-        div.className = 'doc-layout-cell'
-        div.innerHTML = cell.innerHTML
-        wrapper.appendChild(div)
-      })
-      table.replaceWith(wrapper)
-    }
-  })
-
-  return doc.body.innerHTML
-}
-
-
-// DocumentRenderer оставлен для совместимости — теперь заменён на DocumentViewer
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function DocumentRenderer_LEGACY({ text, canCopy }: { text: string; canCopy: boolean }) {
-  const isHtml = /<(p|h[1-6]|strong|em|ul|ol|li|table|br|div)\b/i.test(text.slice(0, 500))
-  if (isHtml) {
-    // Применяем post-processing к уже сохранённым документам (старые версии в БД)
-    const processedHtml = fixLayoutTables(text)
-    return (
-      <div
-        className="uploaded-doc-html"
-        style={{ userSelect: canCopy ? 'text' : 'none' }}
-        onCopy={!canCopy ? (e) => e.preventDefault() : undefined}
-        dangerouslySetInnerHTML={{ __html: processedHtml }}
-      />
-    )
-  }
-
-  // AI-генерированный markdown — вырезаем блок реквизитов для отдельного рендера
-  const reqsMatch = text.match(/%%REQS_TABLE%%\n([\s\S]*?)%%COL_SEP%%\n([\s\S]*?)%%END_REQS%%/)
-  let mainText = text
-  let reqsHeading: string | null = null
-  type PartyData = { role: string; name: string; signTitle: string; signName: string; details: string[] }
-  let col1: PartyData | null = null
-  let col2: PartyData | null = null
-
-  if (reqsMatch) {
-    mainText = text.slice(0, text.indexOf('%%REQS_TABLE%%')).trim()
-    reqsHeading = text.slice(text.lastIndexOf('\n', text.indexOf('%%REQS_TABLE%%')), text.indexOf('%%REQS_TABLE%%')).trim() || null
-    col1 = parseReqsParty(reqsMatch[1].trim().split('\n'))
-    col2 = parseReqsParty(reqsMatch[2].trim().split('\n'))
-  } else {
-    const legacyMatch = text.match(/\n(\*{0,2}(?:\d+\.\s+)?РЕКВИЗИТЫ[^\n]*\*{0,2})\n([\s\S]+)$/i)
-    if (legacyMatch) {
-      mainText = text.slice(0, text.indexOf(legacyMatch[0])).trim()
-      reqsHeading = legacyMatch[1].replace(/\*\*/g, '').trim()
-      const parsed = parseLegacyReqs(legacyMatch[2])
-      if (parsed) { col1 = parsed.col1; col2 = parsed.col2 }
-    }
-  }
-
-  // Конвертируем markdown → HTML через marked (поддержка таблиц, списков, жирного)
-  const html = marked.parse(mainText) as string
-
-  return (
-    <div
-      style={{ userSelect: canCopy ? 'text' : 'none' }}
-      onCopy={!canCopy ? (e) => e.preventDefault() : undefined}
-    >
-      <div className="doc-content" dangerouslySetInnerHTML={{ __html: html }} />
-
-      {/* Блок реквизитов — двухколоночная таблица */}
-      {col1 && col2 && (
-        <div className="mt-[32px]" style={{ borderTop: '1px solid var(--line)', paddingTop: 20 }}>
-          {reqsHeading && (
-            <p className="text-[13px] text-[var(--ink)] uppercase tracking-[0.06em] mb-[20px]">
-              {reqsHeading.replace(/\*\*/g, '')}
-            </p>
-          )}
-          <div className="grid gap-[32px]" style={{ gridTemplateColumns: '1fr 1fr' }}>
-            <RequisitesColumn {...col1} />
-            <RequisitesColumn {...col2} />
-          </div>
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ─── Экран генерации (пока документ создаётся) ───────────────────────────────
@@ -446,10 +236,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle') // статус автосохранения
   const [maxVersionNumber, setMaxVersionNumber] = useState<number>(1) // максимальный номер версии по документу
   const [downloading, setDownloading] = useState(false)
-  const [purchasing, setPurchasing] = useState(false)
-  const [purchased, setPurchased] = useState(false)
-  const [purchaseConfirmOpen, setPurchaseConfirmOpen] = useState(false) // модалка подтверждения покупки
-  const authBalance = useAuthStore((s) => s.balance)
+  const [editQuota, setEditQuota] = useState<EditQuota | null>(null) // пакет ИИ-правок документа
+  const [packageNeeded, setPackageNeeded] = useState(false) // пакет исчерпан — предложить докупку
+  const [buyingPackage, setBuyingPackage] = useState(false)
+  const [rewriteConfirmOpen, setRewriteConfirmOpen] = useState(false) // «Переписать заново» (загруженные)
+  const [rewriting, setRewriting] = useState(false)
   const [statusChanging, setStatusChanging] = useState(false)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
@@ -623,6 +414,81 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
 
+  // Квота ИИ-правок документа (пакеты предоплатной модели)
+  const refreshQuota = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/documents/${id}/edit-quota`)
+      if (res.ok) {
+        const q = await res.json() as EditQuota
+        setEditQuota(q)
+        if (q.remaining > 0) setPackageNeeded(false)
+      }
+    } catch { /* не критично */ }
+  }, [id])
+
+  useEffect(() => { void refreshQuota() }, [refreshQuota])
+
+  // Докупка пакета ИИ-правок
+  async function buyEditPackage() {
+    if (buyingPackage) return
+    setBuyingPackage(true)
+    try {
+      const res = await fetch(`/api/documents/${id}/edit-package`, { method: 'POST' })
+      const data = await res.json().catch(() => ({})) as { balance?: number; quota?: EditQuota; error?: string }
+      if (res.ok) {
+        if (typeof data.balance === 'number') useAuthStore.getState().setBalance(data.balance)
+        setPackageNeeded(false)
+        await refreshQuota()
+        setMessages((prev) => [...prev, {
+          id: `pkg-${Date.now()}`, role: 'WARNING' as const,
+          content: 'Пакет правок куплен — можно продолжать.', createdAt: new Date().toISOString(),
+        }])
+      } else if (data.error) {
+        setMessages((prev) => [...prev, {
+          id: `pkg-err-${Date.now()}`, role: 'WARNING' as const,
+          content: data.error!, createdAt: new Date().toISOString(),
+        }])
+      }
+    } finally {
+      setBuyingPackage(false)
+    }
+  }
+
+  // «Переписать заново» — полная перегенерация загруженного документа (REWRITE)
+  async function rewriteDocument() {
+    if (rewriting) return
+    setRewriteConfirmOpen(false)
+    setRewriting(true)
+    try {
+      const res = await fetch(`/api/documents/${id}/rewrite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json().catch(() => ({})) as { versionId?: string; error?: string }
+      if (!res.ok || !data.versionId) {
+        setMessages((prev) => [...prev, {
+          id: `rw-err-${Date.now()}`, role: 'WARNING' as const,
+          content: data.error ?? 'Не удалось запустить переписку.', createdAt: new Date().toISOString(),
+        }])
+        return
+      }
+      const genRes = await fetch(`/api/versions/${data.versionId}/generate`, { method: 'POST' })
+      if (genRes.status === 402) {
+        const err = await genRes.json().catch(() => ({})) as { error?: string }
+        setMessages((prev) => [...prev, {
+          id: `rw-402-${Date.now()}`, role: 'WARNING' as const,
+          content: err.error ?? 'Не хватает токенов для переписки.', createdAt: new Date().toISOString(),
+        }])
+        return
+      }
+      // Переходим на новую версию — экран сам запустит поллинг генерации
+      window.location.href = `/documents/${id}/work?version=${data.versionId}`
+    } finally {
+      setRewriting(false)
+    }
+  }
+
   // Префилл из страницы проверки рисков: «Исправить через ИИ-чат» кладёт
   // готовое задание в sessionStorage — подставляем его в поле ввода один раз.
   useEffect(() => {
@@ -717,11 +583,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       })
 
       if (!response.ok || !response.body) {
-        // Лимит бесплатных правок / частотный лимит приходят как JSON {error}.
+        // Исчерпан пакет правок / не хватает токенов / частотный лимит — JSON {error, code}.
         let warnText = 'Ошибка соединения. Попробуйте ещё раз.'
         try {
-          const errJson = await response.json() as { error?: string }
+          const errJson = await response.json() as { error?: string; code?: string }
           if (errJson?.error) warnText = errJson.error
+          if (errJson?.code === 'EDIT_PACKAGE_NEEDED') setPackageNeeded(true)
         } catch { /* тело не JSON — оставляем дефолт */ }
         setMessages((prev) => [
           ...prev,
@@ -763,7 +630,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           }
 
           try {
-            const parsed = JSON.parse(data) as { type?: string; chunk?: string }
+            const parsed = JSON.parse(data) as { type?: string; chunk?: string; editsRemaining?: number; editsLimit?: number }
+
+            if (parsed.type === 'done' && typeof parsed.editsRemaining === 'number') {
+              // Сервер сообщает остаток пакета после успешной правки
+              setEditQuota((prev) => prev ? { ...prev, remaining: parsed.editsRemaining!, limit: parsed.editsLimit ?? prev.limit, used: (parsed.editsLimit ?? prev.limit) - parsed.editsRemaining! } : prev)
+            }
 
             if (parsed.type === 'doc' && parsed.chunk) {
               if (!docPhase) {
@@ -883,44 +755,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     router.push(`/documents/${id}`)
   }
 
-  async function purchaseVersion() {
-    if (!version || purchasing) return
-    setPurchaseConfirmOpen(false)
-    setPurchasing(true)
-    try {
-      // Если в чате/редакторе есть несохранённые правки — сначала фиксируем их
-      // как новую версию, иначе мы купим устаревший текст (version.content
-      // в БД не обновляется автосохранением рабочей копии).
-      let targetVersionId = version.id
-      if (hasUnsavedEdits) {
-        const newVersionId = await persistEditsAsNewVersion()
-        if (!newVersionId) return
-        targetVersionId = newVersionId
-      }
-
-      const res = await fetch(`/api/versions/${targetVersionId}/purchase`, { method: 'POST' })
-      if (res.ok) {
-        setPurchased(true)
-        setVersion((prev) => prev ? {
-          ...prev,
-          id: targetVersionId,
-          content: docContent ?? prev.content,
-          purchase: { id: 'done' },
-          status: 'PAID',
-        } : prev)
-        // Синхронизируем баланс в шапке (authStore) — иначе там висело старое значение.
-        try {
-          const data = await res.json()
-          if (typeof data?.balance === 'number') {
-            useAuthStore.getState().setBalance(data.balance)
-          }
-        } catch { /* тело ответа необязательно */ }
-      }
-    } finally {
-      setPurchasing(false)
-    }
-  }
-
   async function changeStatus(newStatus: string) {
     if (!version || statusChanging) return
     setStatusChanging(true)
@@ -983,34 +817,14 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const docTitle = version.document?.title ?? 'Документ'
   const charCount = docContent?.length ?? 0
   const wordCount = docContent ? docContent.trim().split(/\s+/).filter(Boolean).length : 0
-  const isPurchased = Boolean(version.purchase) || purchased
-  // «Оплачено и без правок»: только в этом состоянии документ считается купленным
-  // именно в том виде, что показан. Любая правка после покупки создаёт новый,
-  // ещё не оплаченный текст — защита от копирования/скачивания/печати возвращается,
-  // пока пользователь не купит новую версию (иначе можно отредактировать и
-  // бесплатно скопировать/скачать неоплаченный вариант из окна предпросмотра).
-  const paidClean = isPurchased && !hasUnsavedEdits
-  const docType = version.document?.type ?? 'CONTRACT'
-  const versionPrice = calcVersionPrice(docType, charCount)
-
-  // Остаток бесплатных ИИ-правок на неоплаченную версию (лимит от злоупотреблений;
-  // синхронизирован с FREE_AI_EDITS_PER_VERSION в API чата). Купленная версия — без лимита.
-  const FREE_AI_REQUESTS_PER_VERSION = 20
-  const freeRequestsUsed = messages.filter((m) => m.role === 'USER').length
-  const freeRequestsLeft = Math.max(0, FREE_AI_REQUESTS_PER_VERSION - freeRequestsUsed)
-  const showFreeLimitHint = !isPurchased && freeRequestsLeft <= 5
 
   const STATUS_OPTIONS = [
     { value: 'DRAFT', label: 'Черновик', color: 'var(--ink-3)' },
     { value: 'IN_PROGRESS', label: 'В работе', color: 'oklch(0.45 0.10 235)' },
     { value: 'REVIEW', label: 'На проверке', color: 'oklch(0.45 0.10 75)' },
     { value: 'APPROVED', label: 'Утверждено', color: 'var(--ok)' },
-    { value: 'PAID', label: 'Оплачено', color: 'oklch(0.25 0.10 145)' },
   ]
-  // Источник правды для «оплачено» — наличие Purchase, а не сырое поле status:
-  // при сохранении новой версии статусы других версий документа сбрасываются
-  // на сервере, и оплаченная версия может временно не совпадать с purchase.
-  const effectiveStatusValue = isPurchased ? 'PAID' : version.status
+  const effectiveStatusValue = version.status
   const currentStatus = STATUS_OPTIONS.find(s => s.value === effectiveStatusValue)
   const currentStatusLabel = currentStatus?.label ?? effectiveStatusValue
   const currentStatusColor = currentStatus?.color ?? 'var(--ink-3)'
@@ -1155,7 +969,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               <div ref={statusDropdownRef} className="relative hidden md:block">
                 <button
                   onClick={() => setStatusDropdownOpen(v => !v)}
-                  disabled={statusChanging || isPurchased}
+                  disabled={statusChanging}
                   className="h-[30px] w-[120px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium border transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-between gap-[4px]"
                   style={{ background: 'transparent', borderColor: 'var(--line-2)', color: 'var(--ink-3)' }}
                 >
@@ -1182,51 +996,67 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
-            {/* Купить. Показываем и когда версия не куплена, и когда в купленную
-                внесли правки — тогда покупается новая версия с текущим текстом. */}
-            {!paidClean && !generating && docContent && (
-              <button
-                onClick={() => setPurchaseConfirmOpen(true)}
-                disabled={purchasing}
-                className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 flex items-center gap-[5px]"
-                style={{ background: 'var(--ok)' }}
-              >
-                {purchasing
-                  ? 'Покупаю…'
-                  : isPurchased
-                    ? `Купить правки · ${versionPrice} ₽`
-                    : `Купить · ${versionPrice} ₽`}
-              </button>
+            {/* Переписать заново — только для загруженных документов */}
+            {editQuota?.isUploaded && !generating && docContent && (
+              <div className="relative hidden md:block">
+                <button
+                  onClick={() => setRewriteConfirmOpen(v => !v)}
+                  disabled={rewriting || streaming}
+                  className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-[var(--ink)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer disabled:opacity-40"
+                >
+                  {rewriting ? 'Запускаю…' : 'Переписать заново'}
+                </button>
+                {rewriteConfirmOpen && (
+                  <div
+                    className="absolute right-0 top-[38px] z-50 rounded-[var(--radius-lg)] w-[280px]"
+                    style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '16px' }}
+                  >
+                    <p className="text-[12px] font-medium text-[var(--ink)] mb-[4px]">
+                      Переписать документ заново?
+                    </p>
+                    <p className="text-[11px] text-[var(--ink-4)] mb-[14px] leading-[1.5]">
+                      Догодок полностью перепишет договор по мотивам текущего текста — создастся новая версия.
+                      Спишется {editQuota.prices.rewrite} токенов, в цену входит пакет из 10 правок.
+                    </p>
+                    <div className="flex gap-[6px]">
+                      <button
+                        onClick={() => setRewriteConfirmOpen(false)}
+                        className="flex-1 h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--surface-inset)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                      >
+                        Отмена
+                      </button>
+                      <button
+                        onClick={rewriteDocument}
+                        className="flex-1 h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
+                      >
+                        Переписать
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
-            {/* Скачать DOCX */}
-            {paidClean ? (
-              <button
-                onClick={downloadDocx}
-                disabled={downloading || generating}
-                className="shrink-0 h-[30px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-[4px]"
-              >
-                {downloading ? (
-                  <div className="w-[8px] h-[8px] rounded-full border border-[var(--ink-3)] border-t-transparent animate-spin" />
-                ) : (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                )}
-                <span className="hidden md:inline">{downloading ? 'Скачиваю…' : 'Скачать'}</span>
-              </button>
-            ) : (
-              <button disabled title={isPurchased ? 'Купите правки, чтобы скачать обновлённый документ' : 'Купите версию, чтобы скачать'}
-                className="shrink-0 h-[30px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-4)] cursor-not-allowed opacity-40 hidden md:flex items-center gap-[4px]">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                <span className="hidden md:inline">Скачать</span>
-              </button>
-            )}
+            {/* Скачать DOCX — предоплатная модель: доступно всегда */}
+            <button
+              onClick={downloadDocx}
+              disabled={downloading || generating || !docContent}
+              className="shrink-0 h-[30px] px-[9px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer disabled:opacity-40 flex items-center gap-[4px]"
+            >
+              {downloading ? (
+                <div className="w-[8px] h-[8px] rounded-full border border-[var(--ink-3)] border-t-transparent animate-spin" />
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              )}
+              <span className="hidden md:inline">{downloading ? 'Скачиваю…' : 'Скачать'}</span>
+            </button>
 
             {/* Печать */}
             <button
-              onClick={() => paidClean && window.print()}
-              disabled={!paidClean || generating}
+              onClick={() => window.print()}
+              disabled={generating || !docContent}
               className="shrink-0 h-[30px] w-[30px] rounded-[var(--radius-md)] text-[11px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
-              title={paidClean ? 'Печать' : isPurchased ? 'Купите правки, чтобы распечатать обновлённый документ' : 'Купите версию, чтобы распечатать'}
+              title="Печать"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>
@@ -1296,16 +1126,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 20px rgba(0,0,0,0.13)',
               }}
             >
-              {/* Ватермарк «ЧЕРНОВИК» — на неоплаченном тексте, а также когда в
-                  оплаченный документ внесли правки (текущий вид ещё не оплачен). */}
-              {!paidClean && docContent && (
-                <div className="absolute inset-0 pointer-events-none select-none z-[1]" style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='IBM Plex Sans, sans-serif' font-size='22' font-weight='600' fill='rgba(0,0,0,0.06)' transform='rotate(-35 150 100)'%3EЧЕРНОВИК%3C/text%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'repeat',
-                  backgroundSize: '300px 200px',
-                }} />
-              )}
-
               {(() => {
                 const displayText = streamingDoc !== null ? streamingDoc : docContent
                 const isUpdating = streaming
@@ -1321,7 +1141,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
                 return (
                   <div className="relative z-[2]" style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s' }}>
-                    <DocumentViewer content={displayText} canCopy={paidClean} />
+                    <DocumentViewer content={displayText} />
                   </div>
                 )
               })()}
@@ -1468,19 +1288,40 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             ))}
           </div>
 
-          {/* Остаток бесплатных ИИ-правок (показываем ближе к лимиту) */}
-          {showFreeLimitHint && (
+          {/* Остаток пакета ИИ-правок (правки платные, вопросы бесплатны) */}
+          {chatMode === 'edit' && editQuota && editQuota.limit > 0 && (
             <span
               className="text-[11px] font-medium whitespace-nowrap"
-              style={{ color: freeRequestsLeft === 0 ? 'var(--danger)' : 'var(--ink-4)' }}
-              title="После лимита купите версию, чтобы продолжить редактирование"
+              style={{ color: editQuota.remaining === 0 ? 'var(--danger)' : 'var(--ink-4)' }}
+              title="В оплаченную генерацию входит пакет ИИ-правок; вопросы не тратят пакет"
             >
-              {freeRequestsLeft === 0
-                ? 'Лимит бесплатных правок исчерпан'
-                : `Бесплатных правок осталось: ${freeRequestsLeft}`}
+              Правок осталось: {editQuota.remaining} из {editQuota.limit}
+            </span>
+          )}
+          {chatMode === 'edit' && editQuota && editQuota.isUploaded && editQuota.packages === 0 && (
+            <span className="text-[11px] font-medium whitespace-nowrap text-[var(--ink-4)]"
+              title="Для загруженного документа первая правка открывает пакет из 10 правок">
+              Первая правка · {editQuota.prices.uploadEditStart ?? 50} токенов
             </span>
           )}
         </div>
+
+        {/* Пакет исчерпан — предложение докупки */}
+        {packageNeeded && chatMode === 'edit' && (
+          <div className="shrink-0 mx-[12px] mb-[8px] rounded-[var(--radius-md)] px-[12px] py-[10px] flex items-center justify-between gap-[10px]"
+            style={{ background: 'oklch(0.97 0.015 60)', border: '1px solid oklch(0.88 0.04 60)' }}>
+            <p className="text-[12px]" style={{ color: 'oklch(0.45 0.08 60)' }}>
+              Пакет правок исчерпан
+            </p>
+            <button
+              onClick={buyEditPackage}
+              disabled={buyingPackage}
+              className="shrink-0 h-[28px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
+            >
+              {buyingPackage ? 'Покупаю…' : `Купить 10 правок · ${editQuota?.prices.editPackage ?? 100} токенов`}
+            </button>
+          </div>
+        )}
 
         {/* Быстрые чипы */}
         <div className="shrink-0 px-[12px] pb-[8px] flex gap-[6px] flex-wrap">
@@ -1538,78 +1379,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     </div>
 
     {/* Предупреждение о несохранённых правках при выходе «Назад» */}
-    {purchaseConfirmOpen && (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setPurchaseConfirmOpen(false)} />
-        <div
-          className="relative z-10 w-[380px] rounded-[var(--radius-xl)] p-[24px] flex flex-col gap-[16px]"
-          style={{ background: 'var(--bg)', border: '1px solid var(--line)', boxShadow: '0 16px 40px rgba(0,0,0,0.14)' }}
-        >
-          <div>
-            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">
-              Подтверждение покупки
-            </p>
-            <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">
-              {isPurchased
-                ? 'Правки после покупки создают новую платную версию. Списываем стоимость этой версии.'
-                : 'Оплачивается финальная версия. Купленную версию можно скачивать повторно бесплатно, правки и проверки — бесплатны.'}
-            </p>
-          </div>
-          <div className="rounded-[var(--radius-md)]" style={{ background: 'var(--surface-inset)', padding: '12px 14px' }}>
-            {[
-              { label: 'Стоимость версии', value: `${versionPrice} ₽`, bold: false, danger: false },
-              { label: 'Баланс сейчас', value: `${authBalance.toLocaleString('ru')} ₽`, bold: false, danger: false },
-              { label: 'Останется', value: `${(authBalance - versionPrice).toLocaleString('ru')} ₽`, bold: true, danger: authBalance < versionPrice },
-            ].map((row) => (
-              <div key={row.label} className="flex justify-between items-center py-[5px]">
-                <p className="text-[12px] text-[var(--ink-4)]">{row.label}</p>
-                <p className={['text-[13px]', row.bold ? 'font-medium' : '', row.danger ? 'text-[var(--danger)]' : 'text-[var(--ink)]'].join(' ')}
-                  style={{ fontFamily: 'var(--font-mono)' }}>
-                  {row.value}
-                </p>
-              </div>
-            ))}
-          </div>
-          {authBalance < versionPrice ? (
-            <div className="flex flex-col gap-[8px]">
-              <p className="text-[12px] text-[var(--danger)]">Недостаточно средств на балансе. Пополнение появится вместе с платёжным шлюзом.</p>
-              <div className="flex gap-[8px]">
-                <button
-                  onClick={() => setPurchaseConfirmOpen(false)}
-                  className="flex-1 h-[38px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-2)] bg-[var(--surface)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={() => { setPurchaseConfirmOpen(false); router.push('/balance') }}
-                  className="flex-1 h-[38px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
-                >
-                  Пополнить баланс
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex gap-[8px]">
-              <button
-                onClick={() => setPurchaseConfirmOpen(false)}
-                className="flex-1 h-[40px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-2)] bg-[var(--surface)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={purchaseVersion}
-                disabled={purchasing}
-                className="flex-1 h-[40px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
-                style={{ background: 'var(--ok)' }}
-              >
-                {purchasing ? 'Покупаю…' : `Купить · ${versionPrice} ₽`}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    )}
-
     {backConfirmOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center">
         <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={() => setBackConfirmOpen(false)} />

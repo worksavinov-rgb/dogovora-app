@@ -7,10 +7,8 @@
  * TipTap парсит HTML, хранит в своём внутреннем формате и рендерит стабильно:
  * - заголовки, списки, таблицы, жирный/курсив
  * - реквизиты и подписи
- * - копирование (если canCopy = true)
  *
- * НЕ редактируемый — editable={false}.
- * Будущий ручной редактор: поменять editable на true.
+ * Предоплатная модель: контент всегда доступен для выделения и копирования.
  */
 
 import { useEffect, useMemo } from 'react'
@@ -25,8 +23,6 @@ import { isHtmlContent, markdownToLegalHtml, sanitizeHtml, normalizeLegalHtml, m
 interface DocumentViewerProps {
   /** HTML или Markdown контент документа */
   content: string
-  /** Разрешено ли копирование (после покупки) */
-  canCopy?: boolean
   /** Вызывается когда контент обработан и готов */
   onReady?: () => void
 }
@@ -39,7 +35,7 @@ const TIPTAP_EXTENSIONS = [
   TableHeader,
 ]
 
-export function DocumentViewer({ content, canCopy = false, onReady }: DocumentViewerProps) {
+export function DocumentViewer({ content, onReady }: DocumentViewerProps) {
   // Конвертируем контент в HTML (с кэшированием)
   const htmlContent = useMemo(() => {
     if (!content) return '<p></p>'
@@ -78,11 +74,7 @@ export function DocumentViewer({ content, canCopy = false, onReady }: DocumentVi
   if (!editor) return null
 
   return (
-    <div
-      className="document-viewer"
-      style={{ userSelect: canCopy ? 'text' : 'none' }}
-      onCopy={!canCopy ? (e) => e.preventDefault() : undefined}
-    >
+    <div className="document-viewer">
       <EditorContent editor={editor} />
     </div>
   )

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
-import { isVersionPaid } from '@/lib/version-payment'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -13,7 +12,8 @@ const schema = z.object({
 })
 
 // PATCH /api/versions/:id/status — смена статуса версии
-// Флоу: DRAFT → IN_PROGRESS → REVIEW → APPROVED → (PAID через /purchase) → SIGNED
+// Флоу: DRAFT → IN_PROGRESS → REVIEW → APPROVED → SIGNED (предоплатная модель:
+// оплата версии не требуется, PAID — legacy-статус старых оплаченных версий)
 export async function PATCH(req: NextRequest, { params }: Params) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -31,7 +31,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const version = await prisma.version.findFirst({
     where: { id, document: { userId } },
-    include: { purchase: true },
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -39,15 +38,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Нельзя изменить статус подписанной версии' }, { status: 400 })
   }
 
-  // Версия оплачена — статус заморожен (единый isVersionPaid, см. version-payment.ts)
-  if (isVersionPaid(version)) {
-    if (data.status !== 'SIGNED') {
-      return NextResponse.json({ error: 'Нельзя изменить статус оплаченной версии' }, { status: 403 })
-    }
-  }
-
-  if (data.status === 'SIGNED' && !isVersionPaid(version)) {
-    return NextResponse.json({ error: 'Можно подписать только оплаченную версию' }, { status: 400 })
+  // Подписать можно утверждённую версию (или legacy-оплаченную).
+  if (data.status === 'SIGNED' && !['APPROVED', 'PAID'].includes(version.status)) {
+    return NextResponse.json({ error: 'Подписать можно только утверждённую версию' }, { status: 400 })
   }
 
   const updated = await prisma.version.update({

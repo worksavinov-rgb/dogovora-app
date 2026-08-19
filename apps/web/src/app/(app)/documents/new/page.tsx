@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useId } from 'react'
-import { calcVersionPrice } from '@/lib/pricing'
+import { formatTokens } from '@/lib/token-pricing'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -1326,10 +1326,10 @@ export default function NewDocumentPage() {
   // Реальный баланс: раньше в правой панели был захардкожен «Баланс: 0 ₽ — будет
   // недостаточно» независимо от фактического баланса пользователя.
   const [balance, setBalance] = useState<number | null>(null)
+  const [generatePrice, setGeneratePrice] = useState(100) // цена генерации в токенах (прайс с сервера)
   const [loadingTemplate, setLoadingTemplate] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [step2Visited, setStep2Visited] = useState(false)
 
   const [step1, setStep1] = useState<Step1Data>({
     type: preselectedType,
@@ -1375,7 +1375,10 @@ export default function NewDocumentPage() {
       .catch(console.error)
     fetch('/api/wallet')
       .then((r) => r.ok ? r.json() : null)
-      .then((w: { balance?: number } | null) => { if (w && typeof w.balance === 'number') setBalance(w.balance) })
+      .then((w: { balance?: number; prices?: { generate?: number; editsPerPackage?: number } } | null) => {
+        if (w && typeof w.balance === 'number') setBalance(w.balance)
+        if (w?.prices?.generate) setGeneratePrice(w.prices.generate)
+      })
       .catch(console.error)
   }, [])
 
@@ -1408,7 +1411,7 @@ export default function NewDocumentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step1.templateId])
 
-  const versionPrice = calcVersionPrice(step1.type, step2.targetSize)
+  const versionPrice = generatePrice
 
   const handleSaveDraft = async () => {
     // Если базовые поля не заполнены — возвращаемся на шаг 1 с ошибкой
@@ -1574,35 +1577,27 @@ export default function NewDocumentPage() {
         <div className="flex flex-col gap-[12px]">
           <Card>
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">
-              {step === 1 ? 'Стоимость версии' : 'Предпросмотр настроек'}
+              {step === 1 ? 'Стоимость генерации' : 'Предпросмотр настроек'}
             </p>
             {step === 1 ? (
               <>
-                {step2Visited ? (
-                  <>
-                    <p style={{ fontFamily:'var(--font-display)', fontSize:32, fontWeight:400, marginBottom:4 }}>
-                      {versionPrice} ₽
+                <p style={{ fontFamily:'var(--font-display)', fontSize:32, fontWeight:400, marginBottom:4 }}>
+                  {formatTokens(versionPrice)}
+                </p>
+                <p className="text-[12px] text-[var(--ink-4)] mb-[12px]">
+                  Списывается при запуске генерации. В цену входит пакет из 10 ИИ-правок.
+                </p>
+                {balance !== null && (
+                  <div className="bg-[var(--surface-inset)] rounded-[var(--radius-md)] px-[12px] py-[10px]">
+                    <p className="text-[12px] text-[var(--ink-3)]">
+                      Баланс: <span className="font-medium text-[var(--ink)]">{formatTokens(balance)}</span>
+                      {balance < versionPrice ? ' — не хватит на генерацию' : ' — хватает'}
                     </p>
-                    <p className="text-[12px] text-[var(--ink-4)] mb-[12px]">
-                      Предварительно, от желаемого объёма. Финальная цена — по фактическому объёму при утверждении v.1.
-                    </p>
-                    {balance !== null && (
-                      <div className="bg-[var(--surface-inset)] rounded-[var(--radius-md)] px-[12px] py-[10px]">
-                        <p className="text-[12px] text-[var(--ink-3)]">
-                          Баланс: <span className="font-medium text-[var(--ink)]">{balance.toLocaleString('ru')} ₽</span>
-                          {balance < versionPrice ? ' — не хватит на эту версию' : ' — хватает'}
-                        </p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex flex-col gap-[6px]">
-                    <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">Стоимость рассчитается на шаге «Настройки Догодка» — зависит от объёма и уровня защищённости.</p>
                   </div>
                 )}
                 <div className="mt-[12px] pt-[12px] border-t border-[var(--line)]">
-                  <p className="text-[11px] text-[var(--ink-4)] mb-[6px]">Как считается стоимость?</p>
-                  <p className="text-[12px] text-[var(--ink-3)] leading-[1.5]">Цена зависит от типа документа, объёма и уровня юридической защищённости. Деньги списываются только когда вы утверждаете версию.</p>
+                  <p className="text-[11px] text-[var(--ink-4)] mb-[6px]">Как это работает?</p>
+                  <p className="text-[12px] text-[var(--ink-3)] leading-[1.5]">Вы предоплачиваете генерацию токенами. Готовый документ сразу можно копировать, редактировать и скачивать в Word — без доплат.</p>
                 </div>
               </>
             ) : (
@@ -1610,9 +1605,9 @@ export default function NewDocumentPage() {
                 {/* Стоимость */}
                 <div>
                   <p style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 400, lineHeight: 1.1 }}>
-                    {versionPrice} ₽
+                    {formatTokens(versionPrice)}
                   </p>
-                  <p className="text-[12px] text-[var(--ink-4)] mt-[2px]">Списание при утверждении v.1</p>
+                  <p className="text-[12px] text-[var(--ink-4)] mt-[2px]">Списание при запуске генерации</p>
                 </div>
                 <div className="pt-[8px] border-t border-[var(--line)] flex flex-col gap-[6px]">
                   <div className="flex justify-between">
@@ -1689,7 +1684,7 @@ export default function NewDocumentPage() {
                 if (step1.base === 'upload' && step1.uploadedText) {
                   void handleCreate()
                 } else {
-                  setStep(2); setStep2Visited(true)
+                  setStep(2)
                 }
               }}>
                 {step1.base === 'upload' && step1.uploadedText ? '✦ Создать черновик' : 'Далее →'}

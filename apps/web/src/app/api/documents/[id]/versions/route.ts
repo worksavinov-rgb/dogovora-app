@@ -13,7 +13,7 @@ const versionSchema = z.object({
     base: z.string().optional(),
     description: z.string().optional(),
   }),
-  status: z.enum(['DRAFT', 'IN_PROGRESS', 'REVIEW', 'APPROVED', 'PAID']).optional(),
+  status: z.enum(['DRAFT', 'IN_PROGRESS', 'REVIEW', 'APPROVED']).optional(),
   // Текст документа — передаётся при сохранении отредактированного через ИИ документа
   content: z.string().optional(),
 })
