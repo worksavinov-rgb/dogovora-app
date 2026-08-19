@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { DocumentNumberField } from '@/components/document-number-field'
+import { formatTokens } from '@/lib/token-pricing'
 import type { ReviewResult, ExtractPartiesResult, ExtractedParty } from '@/lib/ai/types'
 
 // Ключевые слова блока реквизитов/подписей
@@ -320,6 +321,7 @@ export default function UploadPage() {
   const [error, setError] = useState<string | null>(null)
   const [docText, setDocText] = useState('')
   const [analysisProgress, setAnalysisProgress] = useState('Подготовка…')
+  const [analyzePrice, setAnalyzePrice] = useState(25) // цена анализа в токенах (с сервера)
 
   // Результаты анализа
   const [result, setResult] = useState<ReviewResult | null>(null)
@@ -363,6 +365,16 @@ export default function UploadPage() {
     const f = e.dataTransfer.files[0]
     if (f) handleFile(f)
   }, [handleFile])
+
+  // Цена анализа (с сервера) для показа на кнопке
+  useEffect(() => {
+    fetch('/api/wallet')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((w: { prices?: { analyzeUpload?: number } } | null) => {
+        if (w?.prices?.analyzeUpload) setAnalyzePrice(w.prices.analyzeUpload)
+      })
+      .catch(() => {})
+  }, [])
 
   const analyze = async () => {
     if (!file) return
@@ -729,7 +741,7 @@ export default function UploadPage() {
           {error && <p className="text-[13px]" style={{ color: 'var(--danger)' }}>{error}</p>}
 
           <Button variant="primary" size="lg" disabled={!file} onClick={analyze} className="w-full">
-            Анализировать документ
+            Анализировать документ · {formatTokens(analyzePrice)}
           </Button>
         </div>
       )}
