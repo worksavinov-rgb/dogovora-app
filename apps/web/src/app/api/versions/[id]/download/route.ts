@@ -5,7 +5,7 @@ import { readFile, saveFile, versionFileKey } from '@/lib/storage'
 import { convertToDocx, type RequisitesParty } from '@shared/formatting/html-docx-converter'
 import { stripAiRequisitesBlock } from '@/lib/html-document'
 import { looksLikeUpload } from '@/lib/structure-uploaded'
-import { getPresentationContent } from '@/lib/presentation-content'
+import { assemblePresentation } from '@/lib/presentation-content'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 import { resolveDocumentProfile, resolveCounterpartySignatory } from '@/lib/party-data'
 import { logger } from '@/lib/logger'
@@ -48,6 +48,9 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   let docxBuffer: Buffer | null = null
 
+  // ?bare=1 — «скачать без шапки»: только тело, без слоя оформления
+  const bare = req.nextUrl.searchParams.get('bare') === '1'
+
   // Всегда генерируем заново — чтобы реквизиты были актуальными
   {
     try {
@@ -65,6 +68,24 @@ export async function GET(req: NextRequest, { params }: Params) {
         userId,
       })
 
+      // Единая сборка слоёв — та же, что в предпросмотре и публичной ссылке
+      const assembled = await assemblePresentation({
+        versionId: id,
+        documentId: version.document.id,
+        content: version.content,
+        userId,
+        userRole: toLowerRole(userRole),
+      })
+
+      if (!assembled.legacyInline) {
+        // ── Новое поколение: тело + сохранённые блоки оформления (Document.
+        // preambleHtml/requisitesHtml). Конвертер понимает doc-preamble-meta и
+        // doc-requisites-разметку блоков напрямую из HTML.
+        const contentForDocx = bare ? assembled.body : assembled.full
+        docxBuffer = await convertToDocx(contentForDocx, { title: version.document.title })
+      } else {
+      // ── Legacy: блоки вклеены в контент — прежний путь с пересборкой
+      // структурированных шапки/реквизитов из карточек ЛК.
       // Профиль и подписант — через единые резолверы (те же, что в generate):
       // раньше выбор расходился, и в тексте был один подписант, в DOCX — другой.
       const [profile, counterparty] = await Promise.all([
@@ -151,12 +172,9 @@ export async function GET(req: NextRequest, { params }: Params) {
         executor: executorParty,
       } : undefined
 
-      // Для загруженных документов достраиваем заголовки (эвристика + ИИ, с кэшем —
-      // тем же, что предпросмотр), чтобы разделы центрировались и в Word. Оригинал цел.
-      const contentPromoted = await getPresentationContent(
-        id, version.document.id, version.content, userId,
-        toLowerRole(userRole),
-      )
+      // Заголовки уже достроены единой сборкой (assemblePresentation → тот же кэш,
+      // что у предпросмотра). Оригинал цел.
+      const contentPromoted = assembled.full
       // Вырезаем блок реквизитов/подписей который мог быть в оригинальном Word-файле
       // (загруженные документы хранятся «как есть», без предварительной очистки).
       const contentForDocx = requisites ? stripAiRequisitesBlock(contentPromoted) : contentPromoted
@@ -166,6 +184,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         requisites,
         preamble,
       })
+      }
 
       const formattedKey = versionFileKey(id, 'formatted.docx')
       await saveFile(formattedKey, docxBuffer)

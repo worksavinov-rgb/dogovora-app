@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/auth'
 import { DocumentViewer } from '@/components/document-viewer'
 import { EditorToolbar } from '@/components/editor-toolbar'
+import { DecorModal } from '@/components/decor-modal'
 import type { Editor } from '@tiptap/react'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
@@ -35,8 +36,14 @@ interface Version {
     id: string
     title: string
     type: string
-    counterparty: { name: string }
+    counterparty: { id?: string; name: string }
   }
+}
+
+interface DecorState {
+  preambleHtml: string | null
+  requisitesHtml: string | null
+  confirmed: boolean
 }
 
 interface EditQuota {
@@ -108,6 +115,34 @@ function stripMarkdown(s: string): string {
     .replace(/\*(.+?)\*/g, '$1')      // *курсив*
     .replace(/^[-*]\s+/gm, '')        // маркеры списка
     .trim()
+}
+
+// ─── Блок слоя оформления (шапка / реквизиты) ────────────────────────────────
+// Часть «листа», но НЕ часть тела версии: хранится на документе, редактируется
+// по клику (contentEditable), сохраняется по blur через PATCH /decor.
+
+function DecorBlock({ html, hint, onSave }: { html: string; hint: string; onSave: (html: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  return (
+    <div className="group relative my-[4px]">
+      <div
+        contentEditable={editing}
+        suppressContentEditableWarning
+        onClick={() => !editing && setEditing(true)}
+        onBlur={(e) => { setEditing(false); onSave(e.currentTarget.innerHTML) }}
+        className={[
+          'doc-content rounded-[4px] transition-shadow',
+          editing ? 'outline-none ring-1 ring-[var(--accent)] cursor-text' : 'cursor-pointer hover:ring-1 hover:ring-[var(--line-2)]',
+        ].join(' ')}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {!editing && (
+        <span className="absolute -top-[16px] right-0 hidden group-hover:block text-[10px] text-[var(--ink-4)] select-none pointer-events-none">
+          {hint}
+        </span>
+      )}
+    </div>
+  )
 }
 
 // ─── Экран генерации (пока документ создаётся) ───────────────────────────────
@@ -255,6 +290,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
   const [externalKey, setExternalKey] = useState(0)
 
+  // Слой оформления: шапка/реквизиты документа + legacy-признак (блоки вклеены в тело)
+  const [decor, setDecor] = useState<DecorState | null>(null)
+  const [legacyInline, setLegacyInline] = useState(false)
+  const [decorModalOpen, setDecorModalOpen] = useState(false)
+
   const chatEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -323,14 +363,15 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         if (!ver) throw new Error('no version')
 
         // Контент берём через /api/versions/:id — там применяются структурирование
-        // заголовков и подстановка эталонных шапки/реквизитов из ЛК. В списке версий
-        // (/api/documents/:id) лежит сырой контент, из-за чего экран показывал
-        // старые реквизиты загруженного файла.
+        // заголовков и сборка слоя оформления. Для редактора нужен bodyContent
+        // (только тело); legacy-версии (блоки вклеены) отдаются как есть.
         try {
           const vRes = await fetch(`/api/versions/${ver.id}`)
           if (vRes.ok) {
-            const full = await vRes.json() as { content?: string | null }
-            if (typeof full.content === 'string' && full.content) ver.content = full.content
+            const full = await vRes.json() as { content?: string | null; bodyContent?: string | null; legacyInline?: boolean }
+            const body = full.bodyContent ?? full.content
+            if (typeof body === 'string' && body) ver.content = body
+            setLegacyInline(Boolean(full.legacyInline))
           }
         } catch { /* не критично — покажем контент из списка версий */ }
 
@@ -420,6 +461,28 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
+
+  // Слой оформления документа
+  const refreshDecor = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/documents/${id}/decor`)
+      if (res.ok) setDecor(await res.json() as DecorState)
+    } catch { /* не критично */ }
+  }, [id])
+
+  useEffect(() => { void refreshDecor() }, [refreshDecor])
+
+  // Сохранение вручную отредактированного блока оформления
+  async function patchDecor(patch: { preambleHtml?: string; requisitesHtml?: string }) {
+    try {
+      await fetch(`/api/documents/${id}/decor`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      await refreshDecor()
+    } catch { /* не критично */ }
+  }
 
   // Квота ИИ-правок документа (пакеты предоплатной модели)
   const refreshQuota = useCallback(async () => {
@@ -781,11 +844,22 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     }
   }
 
-  async function downloadDocx() {
+  // Гейт «Оформление»: перед первым скачиванием нового документа предлагаем
+  // собрать шапку и реквизиты (legacy-версии со вклеенными блоками — сразу качаем).
+  function downloadDocx() {
+    if (!version || downloading) return
+    if (!legacyInline && !decor?.confirmed) {
+      setDecorModalOpen(true)
+      return
+    }
+    void performDownload(false)
+  }
+
+  async function performDownload(bare: boolean) {
     if (!version || downloading) return
     setDownloading(true)
     try {
-      const res = await fetch(`/api/versions/${version.id}/download`)
+      const res = await fetch(`/api/versions/${version.id}/download${bare ? '?bare=1' : ''}`)
       if (!res.ok) return
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
@@ -1159,6 +1233,26 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
                 return (
                   <div className="relative z-[2]" style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s' }}>
+                    {/* Слой оформления: шапка над телом (редактируется по клику) */}
+                    {!legacyInline && decor?.preambleHtml && (
+                      <DecorBlock
+                        html={decor.preambleHtml}
+                        hint="Шапка · оформление, кликните чтобы поправить"
+                        onSave={(html) => void patchDecor({ preambleHtml: html })}
+                      />
+                    )}
+                    {!legacyInline && !decor?.preambleHtml && !streaming && (
+                      <div className="mb-[16px] flex items-center justify-between gap-[10px] rounded-[var(--radius-md)] px-[12px] py-[8px]"
+                        style={{ background: 'var(--surface-inset)', border: '1px dashed var(--line-2)' }}>
+                        <p className="text-[11.5px] text-[var(--ink-4)]">Шапка и реквизиты добавятся при скачивании</p>
+                        <button
+                          onClick={() => setDecorModalOpen(true)}
+                          className="shrink-0 text-[11.5px] font-medium text-[var(--accent-ink)] hover:underline cursor-pointer"
+                        >
+                          Настроить сейчас
+                        </button>
+                      </div>
+                    )}
                     <DocumentViewer
                       content={displayText}
                       editable={!streaming && !generating}
@@ -1171,6 +1265,14 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                       externalContentKey={externalKey}
                       onEditorReady={setEditorInstance}
                     />
+                    {/* Слой оформления: реквизиты под телом */}
+                    {!legacyInline && decor?.requisitesHtml && (
+                      <DecorBlock
+                        html={decor.requisitesHtml}
+                        hint="Реквизиты · оформление, кликните чтобы поправить"
+                        onSave={(html) => void patchDecor({ requisitesHtml: html })}
+                      />
+                    )}
                   </div>
                 )
               })()}
@@ -1407,6 +1509,19 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         </div>
       </div>
     </div>
+
+    {/* Шаг «Оформление» перед скачиванием */}
+    <DecorModal
+      documentId={id}
+      counterpartyId={version.document?.counterparty?.id ?? null}
+      open={decorModalOpen}
+      onClose={() => setDecorModalOpen(false)}
+      onConfirmed={(opts) => {
+        setDecorModalOpen(false)
+        void refreshDecor()
+        void performDownload(Boolean(opts?.bare))
+      }}
+    />
 
     {/* Предупреждение о несохранённых правках при выходе «Назад» */}
     {backConfirmOpen && (
