@@ -1438,7 +1438,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             <span
               className="text-[11px] font-medium whitespace-nowrap"
               style={{ color: editQuota.remaining === 0 ? 'var(--danger)' : 'var(--ink-4)' }}
-              title="В оплаченную генерацию входит пакет ИИ-правок; вопросы не тратят пакет"
+              title="В оплаченную генерацию входит пакет правок Догодка; вопросы не тратят пакет"
             >
               Правок осталось: {editQuota.remaining} из {editQuota.limit}
             </span>

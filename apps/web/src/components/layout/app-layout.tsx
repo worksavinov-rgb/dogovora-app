@@ -117,7 +117,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
         ...group,
         items: [
           ...group.items,
-          { href: '/admin/ai', label: 'Настройки ИИ', icon: <IconSparkles /> },
+          { href: '/admin/ai', label: 'Настройки Догодка', icon: <IconSparkles /> },
         ],
       }
     })

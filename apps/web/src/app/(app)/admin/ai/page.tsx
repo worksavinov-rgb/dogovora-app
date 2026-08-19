@@ -463,7 +463,7 @@ export default function AdminAIPage() {
 
   if (loading) {
     return (
-      <div className="p-8 text-[13px] text-[var(--ink-4)]">Загрузка конфигуратора ИИ…</div>
+      <div className="p-8 text-[13px] text-[var(--ink-4)]">Загрузка конфигуратора Догодка…</div>
     )
   }
 
@@ -482,7 +482,7 @@ export default function AdminAIPage() {
     <div className="max-w-[1100px] mx-auto p-6 md:p-8 space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <h1 className="text-[28px] font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-serif)' }}>
-          Настройки ИИ
+          Настройки Догодка
         </h1>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={importFromEnv} disabled={saving === 'import'}>

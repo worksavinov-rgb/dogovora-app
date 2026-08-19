@@ -178,7 +178,7 @@ export default function BalancePage() {
             <div className="flex flex-col gap-[8px]">
               {[
                 { label: 'Генерация документа', value: formatTokens(prices?.generate ?? 100) },
-                { label: `Пакет ${prices?.editsPerPackage ?? 10} ИИ-правок`, value: 'включён' },
+                { label: `Пакет ${prices?.editsPerPackage ?? 10} правок Догодка`, value: 'включён' },
                 { label: 'Правки загруженного', value: formatTokens(prices?.uploadEditStart ?? 50) },
                 { label: 'Переписать заново', value: formatTokens(prices?.rewrite ?? 100) },
                 { label: 'Проверка рисков', value: formatTokens(prices?.review ?? 25) },
@@ -197,8 +197,8 @@ export default function BalancePage() {
           <Card>
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Как работает</p>
             <div className="flex flex-col gap-[6px] text-[12px] text-[var(--ink-3)] leading-[1.6]">
-              <p>Вы предоплачиваете действие токенами — как во многих ИИ-сервисах.</p>
-              <p>В оплаченную генерацию входит пакет из {prices?.editsPerPackage ?? 10} ИИ-правок.</p>
+              <p>Вы предоплачиваете действие токенами — как во многих подобных сервисах.</p>
+              <p>В оплаченную генерацию входит пакет из {prices?.editsPerPackage ?? 10} правок Догодка.</p>
               <p>Готовый документ сразу можно копировать, скачивать и печатать — без доплат.</p>
             </div>
           </Card>

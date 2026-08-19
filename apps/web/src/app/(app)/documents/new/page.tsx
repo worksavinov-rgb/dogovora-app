@@ -1444,7 +1444,7 @@ export default function NewDocumentPage() {
                   {formatTokens(versionPrice)}
                 </p>
                 <p className="text-[12px] text-[var(--ink-4)] mb-[12px]">
-                  Списывается при запуске генерации. В цену входит пакет из 10 ИИ-правок.
+                  Списывается при запуске генерации. В цену входит пакет из 10 правок Догодка.
                 </p>
                 {balance !== null && (
                   <div className="bg-[var(--surface-inset)] rounded-[var(--radius-md)] px-[12px] py-[10px]">

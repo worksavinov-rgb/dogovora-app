@@ -606,18 +606,27 @@ export default function UploadPage() {
   const [parsing, setParsing] = useState(false)
   const saveDirectly = async () => {
     if (!file || parsing) return
+    // Старый бинарный .doc mammoth не читает — нужен .docx. Ловим до парсинга.
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext === 'doc') {
+      setError('Формат .doc не поддерживается. Пересохраните файл в Word как .docx и загрузите снова.')
+      return
+    }
     setError(null)
     setParsing(true)
     try {
       const text = await parseFileToText(file)
       if (!text || !text.replace(/<[^>]*>/g, '').trim()) {
-        setError('Не удалось распознать текст в файле')
+        setError('В файле не найден текст. Проверьте, что документ не пустой и не защищён паролем.')
         return
       }
       setDocText(text)
       setShowSaveModal(true)
-    } catch {
-      setError('Не удалось прочитать файл')
+    } catch (e) {
+      // Показываем реальную причину — «молчаливый» текст скрывал источник сбоя
+      console.error('[upload/saveDirectly] parse failed:', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      setError(`Не удалось прочитать файл: ${msg}`)
     } finally {
       setParsing(false)
     }
@@ -755,7 +764,7 @@ export default function UploadPage() {
               onChange={(e) => setConsentPii(e.target.checked)}
             />
             <span className="text-[13px] text-[var(--ink-2)] leading-snug">
-              Разрешаю отправить текст договора в ИИ для <strong>извлечения реквизитов сторон</strong>
+              Разрешаю отправить текст договора Догодку для <strong>извлечения реквизитов сторон</strong>
               (ИНН, названия, адреса). Без согласия проверка рисков всё равно выполнится, но реквизиты нужно будет ввести вручную.
             </span>
           </label>
