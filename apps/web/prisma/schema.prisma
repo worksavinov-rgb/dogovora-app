@@ -232,6 +232,8 @@ model Document {
   expiresAt          DateTime?  // дата окончания срока действия
   autoRenewal        Boolean    @default(false) // договор продлевается автоматически
   renewalNoticeDays  Int?       // за сколько дней нужно заявить об отказе (п. вида «за 14 дней»)
+  // Использовано ИИ-правок (лимит = пакеты × EDITS_PER_PACKAGE, см. token-pricing.ts)
+  aiEditsUsed      Int          @default(0)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
@@ -241,6 +243,7 @@ model Document {
   versions       Version[]
   parentDocument Document?    @relation("DocumentHierarchy", fields: [parentDocumentId], references: [id])
   childDocuments Document[]   @relation("DocumentHierarchy")
+  draft          VersionDraft?
 
   // Нумерация договоров: расчёт следующего номера выбирает номера одного
   // юрлица, проверка дубля ищет точное совпадение в том же скоупе.
@@ -264,6 +267,21 @@ model ShareLink {
 
   @@index([versionId])
   @@map("share_links")
+}
+
+// Рабочая копия документа (несохранённые правки рабочего экрана).
+// Одна на документ, при сохранении версии удаляется. НЕ версия — append-only не требуется.
+model VersionDraft {
+  id            String   @id @default(cuid())
+  documentId    String   @unique
+  content       String
+  baseVersionId String?
+  revision      Int      @default(1)
+  updatedAt     DateTime @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("version_drafts")
 }
 
 model Version {
@@ -354,6 +372,7 @@ model Transaction {
   walletId         String
   type             TransactionType
   amount           Decimal         @db.Decimal(10, 2)
+  currency         Currency        @default(TOKEN)
   description      String
   relatedVersionId String?
   createdAt        DateTime        @default(now())
@@ -367,6 +386,38 @@ model Transaction {
 enum TransactionType {
   CREDIT  // Пополнение
   DEBIT   // Списание
+}
+
+enum Currency {
+  RUB   // legacy-записи до перехода на токены
+  TOKEN
+}
+
+enum ChargeKind {
+  GENERATE          // генерация документа с нуля
+  UPLOAD_EDIT_START // старт правок загруженного документа
+  REWRITE           // полная переписка загруженного
+  EDIT_PACKAGE      // докупка пакета правок
+  REVIEW            // проверка на риски
+  ANALYZE           // анализ при загрузке файла
+}
+
+// Списания токенов — APPEND-ONLY (как версии и согласия).
+// Возврат = refundedAt + CREDIT-транзакция, строка не удаляется.
+// Число пакетов правок документа = count неотменённых GENERATE/UPLOAD_EDIT_START/REWRITE/EDIT_PACKAGE.
+model TokenCharge {
+  id         String     @id @default(cuid())
+  userId     String
+  documentId String?    // null для ANALYZE до создания документа
+  versionId  String?    // для GENERATE/REWRITE/REVIEW — какая версия
+  kind       ChargeKind
+  tokens     Int
+  createdAt  DateTime   @default(now())
+  refundedAt DateTime?
+
+  @@index([documentId])
+  @@index([userId, createdAt])
+  @@map("token_charges")
 }
 
 // ─── Шаблоны документов ───────────────────────────────────────────────────────
