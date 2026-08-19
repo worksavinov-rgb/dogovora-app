@@ -5,6 +5,8 @@ import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 import { rateLimit } from '@/lib/rate-limit'
+import { chargeTokens, refundChargeById, InsufficientTokensError } from '@/lib/token-charges'
+import { TOKEN_PRICES, formatTokens } from '@/lib/token-pricing'
 
 export const maxDuration = 180
 
@@ -41,6 +43,32 @@ export async function POST(req: NextRequest) {
       JSON.stringify({ error: `Документ слишком большой для анализа (${Math.round(text.length / 1000)} тыс. знаков, максимум ${Math.round(MAX_ANALYZE_TEXT_CHARS / 1000)} тыс.). Разбейте файл на части.` }),
       { status: 413 },
     )
+  }
+
+  // Предоплата: списание за каждый анализ (документа ещё нет — documentId null),
+  // возврат при сбое ИИ внутри стрима.
+  let analyzeChargeId: string | null = null
+  try {
+    const res = await chargeTokens({
+      userId,
+      kind: 'ANALYZE',
+      tokens: TOKEN_PRICES.analyzeUpload,
+      description: 'Анализ загруженного документа',
+    })
+    analyzeChargeId = res.chargeId
+  } catch (err) {
+    if (err instanceof InsufficientTokensError) {
+      return new Response(
+        JSON.stringify({
+          error: `Не хватает токенов: нужно ${formatTokens(err.required)}, на балансе ${formatTokens(err.balance)}.`,
+          code: 'INSUFFICIENT_TOKENS',
+          balance: err.balance,
+          required: err.required,
+        }),
+        { status: 402 },
+      )
+    }
+    throw err
   }
 
   const roleLabel = customRoleLabel ?? (role === 'executor' ? 'Исполнитель' : 'Заказчик')
@@ -92,6 +120,12 @@ export async function POST(req: NextRequest) {
           ? 'Догодок не смог обработать документ — попробуйте ещё раз'
           : msg
 
+        // Анализ не состоялся — возвращаем токены
+        if (analyzeChargeId) {
+          await refundChargeById(analyzeChargeId, 'анализ не выполнен').catch((re) =>
+            logger.error({ event: 'documents.analyze_refund_failed', error: re, user_id: userId }),
+          )
+        }
         send({ type: 'error', message: userMsg })
       } finally {
         controller.close()

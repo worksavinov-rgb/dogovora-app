@@ -6,6 +6,8 @@ import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { resolvePartyRole } from '@/lib/party-roles'
 import { logger } from '@/lib/logger'
 import { rateLimit } from '@/lib/rate-limit'
+import { chargeTokens, refundChargeById, InsufficientTokensError, insufficientTokensResponse } from '@/lib/token-charges'
+import { TOKEN_PRICES } from '@/lib/token-pricing'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -50,6 +52,23 @@ export async function GET(req: NextRequest, { params }: Params) {
     userRoleName: (role === 'CUSTOMER' ? 'Заказчик' : 'Исполнитель') as 'Заказчик' | 'Исполнитель',
   }
 
+  // Предоплата: списание за каждый запуск проверки, возврат при сбое ИИ
+  let reviewChargeId: string | null = null
+  try {
+    const res = await chargeTokens({
+      userId,
+      kind: 'REVIEW',
+      tokens: TOKEN_PRICES.review,
+      documentId: version.documentId,
+      versionId: id,
+      description: 'Проверка документа на риски',
+    })
+    reviewChargeId = res.chargeId
+  } catch (err) {
+    if (err instanceof InsufficientTokensError) return insufficientTokensResponse(err)
+    throw err
+  }
+
   try {
     const result = await runWithAI('review', { userId, versionId: id }, (aiProvider) =>
       aiProvider.review(anonymizeForAnalysis(version.content ?? ''), settings),
@@ -59,8 +78,9 @@ export async function GET(req: NextRequest, { params }: Params) {
     // Мусорный ответ модели или сбой провайдера — отдаём человекочитаемую ошибку,
     // а не голый 500 (текст ответа модели пользователю не показываем).
     logger.error({ event: 'review.failed', version_id: id, error: err instanceof Error ? err.message : String(err) })
+    if (reviewChargeId) await refundChargeById(reviewChargeId, 'проверка не выполнена')
     return NextResponse.json(
-      { error: 'Не удалось выполнить проверку. Попробуйте ещё раз через минуту.' },
+      { error: 'Не удалось выполнить проверку. Токены возвращены. Попробуйте ещё раз через минуту.' },
       { status: 502 },
     )
   }
