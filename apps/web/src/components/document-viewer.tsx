@@ -18,7 +18,7 @@
  *   родитель инкрементирует externalContentKey → заменяем содержимое целиком.
  */
 
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { Table } from '@tiptap/extension-table'
@@ -55,30 +55,30 @@ const TIPTAP_EXTENSIONS = [
 ]
 
 export function DocumentViewer({ content, editable = false, onUpdate, externalContentKey, onEditorReady, onReady }: DocumentViewerProps) {
-  // Конвертируем контент в HTML (с кэшированием)
-  const htmlContent = useMemo(() => {
-    if (!content) return '<p></p>'
-
-    if (isHtmlContent(content)) {
-      // maybePromoteHeadings достраивает заголовки для ранее загруженных документов,
-      // у которых их нет (на лету, не меняя оригинал). Сгенерированные и новые
-      // загрузки уже с заголовками — их не трогает.
-      // layoutDivsToTables: TipTap не знает тега <div> и разворачивал блок реквизитов
-      // в один столбик — переводим его в таблицу 1×2, её редактор сохраняет.
-      return layoutDivsToTables(normalizeLegalHtml(maybePromoteHeadings(sanitizeHtml(content))))
+  // Тяжёлый пайплайн (sanitize→normalize→promote→layout) вызываем ЛЕНИВО — только
+  // когда контент реально применяется в редактор, а не на каждый ререндер.
+  // Раньше это был useMemo по `content`: в editable-режиме `content` меняется на
+  // каждый ввод символа (onUpdate → setDocContent), и пайплайн гонялся вхолостую.
+  const process = useCallback((raw: string): string => {
+    if (!raw) return '<p></p>'
+    if (isHtmlContent(raw)) {
+      // maybePromoteHeadings достраивает заголовки для ранее загруженных документов;
+      // layoutDivsToTables переводит блок реквизитов в таблицу 1×2 (TipTap не знает <div>).
+      return layoutDivsToTables(normalizeLegalHtml(maybePromoteHeadings(sanitizeHtml(raw))))
     }
-
-    // Старый Markdown — конвертируем синхронно через inline-замены
-    // (полная асинхронная миграция выполняется отдельно)
-    return convertMarkdownSync(content)
-  }, [content])
+    return convertMarkdownSync(raw)
+  }, [])
 
   const onUpdateRef = useRef(onUpdate)
   onUpdateRef.current = onUpdate
 
+  // Начальный контент вычисляем один раз (не на каждый ререндер)
+  const initialContentRef = useRef<string | null>(null)
+  if (initialContentRef.current === null) initialContentRef.current = process(content)
+
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
-    content: htmlContent,
+    content: initialContentRef.current,
     editable,
     immediatelyRender: false,
     onUpdate: ({ editor, transaction }) => {
@@ -101,20 +101,23 @@ export function DocumentViewer({ content, editable = false, onUpdate, externalCo
     if (editor && !editor.isDestroyed) editor.setEditable(editable)
   }, [editor, editable])
 
-  // Применение внешнего контента.
-  // В editable-режиме — только по externalContentKey (иначе курсор прыгает);
-  // в read-only — при каждом изменении htmlContent (историческое поведение).
+  // Read-only: контент реагирует на каждое изменение `content` (стриминг генерации,
+  // смена версии). В editable-режиме этот эффект молчит — там работает следующий.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || editable) return
+    const processed = process(content)
+    if (editor.getHTML() !== processed) editor.commands.setContent(processed, { emitUpdate: false })
+  }, [editor, content, editable, process])
+
+  // Editable: внешнюю замену применяем ТОЛЬКО по externalContentKey (ИИ-стрим,
+  // undo, восстановление черновика) — иначе курсор прыгал бы на каждом вводе.
   const isFirstRender = useRef(true)
   useEffect(() => {
-    if (!editor || editor.isDestroyed) return
-    if (editable && externalContentKey !== undefined && isFirstRender.current) {
-      // Контент уже задан при инициализации редактора
-      isFirstRender.current = false
-      return
-    }
-    editor.commands.setContent(htmlContent, { emitUpdate: false })
+    if (!editor || editor.isDestroyed || !editable) return
+    if (isFirstRender.current) { isFirstRender.current = false; return }
+    editor.commands.setContent(process(content), { emitUpdate: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editor, editable && externalContentKey !== undefined ? externalContentKey : htmlContent])
+  }, [editor, editable, externalContentKey])
 
   if (!editor) return null
 
