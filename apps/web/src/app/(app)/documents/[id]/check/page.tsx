@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
+import { formatTokens } from '@/lib/token-pricing'
 
 interface ReviewIssue {
   id: string
@@ -75,28 +76,38 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
   const { id } = use(params)
   const router = useRouter()
   const [result, setResult] = useState<ReviewResult | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)   // загрузка документа (не проверка)
+  const [reviewing, setReviewing] = useState(false) // идёт платная проверка
   const [error, setError] = useState<string | null>(null)
   const [selectedIssue, setSelectedIssue] = useState<string | null>(null)
   const [versionId, setVersionId] = useState<string | null>(null)
   const [docContent, setDocContent] = useState<string>('')
+  const [reviewPrice, setReviewPrice] = useState(25) // цена проверки в токенах (с сервера)
+  const [balance, setBalance] = useState<number | null>(null)
   // Мобильная вкладка: на <md показываем либо документ, либо панель замечаний
   // (тот же паттерн, что и «Документ / Догодок-чат» на рабочем экране)
   const [mobileTab, setMobileTab] = useState<'doc' | 'issues'>('doc')
 
+  // Загрузка документа и цены — БЕЗ запуска проверки (проверка платная, стоит
+  // токенов, поэтому запускается только явной кнопкой, а не при каждом открытии).
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const vid = searchParams.get('version')
     setVersionId(vid)
 
-    let resolvedVerId: string | null = null
+    fetch('/api/wallet')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((w: { balance?: number; prices?: { review?: number } } | null) => {
+        if (w && typeof w.balance === 'number') setBalance(w.balance)
+        if (w?.prices?.review) setReviewPrice(w.prices.review)
+      })
+      .catch(() => {})
 
     fetch(`/api/documents/${id}`)
       .then((r) => r.ok ? r.json() : Promise.reject(new Error('Документ не найден')))
       .then((doc) => {
         const ver = vid ? doc.versions.find((v: { id: string }) => v.id === vid) : doc.versions[0]
         if (!ver) throw new Error('Нет версий для проверки')
-        resolvedVerId = ver.id
         setVersionId(ver.id)
         // Контент берём из /api/versions/:id — там презентационные трансформы
         // (структурирование + эталонные шапка/реквизиты из ЛК), как на рабочем
@@ -109,19 +120,88 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
         // Контент хранится как HTML — для построчного просмотра с подсветкой
         // рисков конвертируем в plain text, иначе теги <p>/<h2> видны буквально.
         setDocContent(isHtmlString(ver.content) ? htmlToPlainText(ver.content) : ver.content)
-        return fetch(`/api/versions/${resolvedVerId}/review`)
       })
-      .then((r) => r.ok ? r.json() : r.json().then((e: { error?: string }) => Promise.reject(new Error(e.error ?? 'Ошибка проверки'))))
-      .then(setResult)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [id])
 
-  if (loading) {
+  // Запуск платной проверки — по явной кнопке. Списывает reviewPrice токенов.
+  async function runReview() {
+    if (!versionId || reviewing) return
+    setReviewing(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/versions/${versionId}/review`)
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 402) {
+        setError(data.error ?? 'Не хватает токенов для проверки.')
+        return
+      }
+      if (!res.ok) {
+        setError(data.error ?? 'Ошибка проверки')
+        return
+      }
+      setResult(data)
+      // Обновляем баланс в шапке и на экране
+      fetch('/api/wallet').then((r) => r.ok ? r.json() : null).then((w) => {
+        if (w && typeof w.balance === 'number') setBalance(w.balance)
+      }).catch(() => {})
+    } catch {
+      setError('Ошибка соединения. Попробуйте ещё раз.')
+    } finally {
+      setReviewing(false)
+    }
+  }
+
+  if (loading || reviewing) {
     return (
       <div className="flex flex-col items-center justify-center gap-[16px]" style={{ height: 'calc(100vh - 56px)' }}>
         <div className="w-[32px] h-[32px] border-2 border-[var(--line)] border-t-[var(--ink)] rounded-full animate-spin" />
-        <p className="text-[13px] text-[var(--ink-4)]">Анализирую документ…</p>
+        <p className="text-[13px] text-[var(--ink-4)]">{reviewing ? 'Анализирую документ…' : 'Загружаю документ…'}</p>
+      </div>
+    )
+  }
+
+  // Заставка перед платной проверкой: показываем цену и ждём явного запуска.
+  // Проверка стоит токенов — не запускаем автоматически при открытии экрана.
+  if (!result && !error) {
+    const enough = balance === null || balance >= reviewPrice
+    return (
+      <div className="flex flex-col items-center justify-center gap-[20px] px-6" style={{ height: 'calc(100vh - 56px)' }}>
+        <div className="w-[56px] h-[56px] rounded-full flex items-center justify-center"
+          style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div className="text-center max-w-[380px]">
+          <p className="text-[16px] font-medium text-[var(--ink)] mb-[6px]" style={{ fontFamily: 'var(--font-serif)' }}>
+            Проверка договора на риски
+          </p>
+          <p className="text-[13px] text-[var(--ink-4)] leading-relaxed">
+            Догодок проанализирует условия, найдёт риски и слабые места, оценит документ и предложит правки.
+          </p>
+        </div>
+        <div className="flex flex-col items-center gap-[10px] w-full max-w-[280px]">
+          <button
+            onClick={runReview}
+            disabled={!enough}
+            className="w-full h-[42px] rounded-[var(--radius-md)] text-[14px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Проверить · {formatTokens(reviewPrice)}
+          </button>
+          {balance !== null && (
+            <p className="text-[11px]" style={{ color: enough ? 'var(--ink-4)' : 'var(--danger)' }}>
+              {enough
+                ? `На балансе ${formatTokens(balance)}`
+                : `Не хватает токенов: нужно ${reviewPrice}, на балансе ${balance}`}
+            </p>
+          )}
+          <button
+            onClick={() => router.push(`/documents/${id}`)}
+            className="text-[12px] text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+          >
+            ← Вернуться к документу
+          </button>
+        </div>
       </div>
     )
   }
