@@ -4,7 +4,7 @@ import { getUserId } from '@/lib/api-auth'
 import { getGenerateQueue } from '@/lib/queue'
 import { resolvePartyRole, toLowerRole } from '@/lib/party-roles'
 import { buildDocumentParties } from '@/lib/party-data'
-import { chargeTokens, InsufficientTokensError, insufficientTokensResponse } from '@/lib/token-charges'
+import { chargeTokens, refundChargeById, InsufficientTokensError, insufficientTokensResponse } from '@/lib/token-charges'
 import { TOKEN_PRICES } from '@/lib/token-pricing'
 
 type Params = { params: Promise<{ id: string }> }
@@ -109,36 +109,46 @@ export async function POST(req: NextRequest, { params }: Params) {
     parentDocContent = best?.content ?? undefined
   }
 
-  const queue = getGenerateQueue()
-  const job = await queue.add('generate', {
-    versionId: id,
-    chargeId,
-    description: aiSettings?.description ?? '',
-    counterpartyName: doc.counterparty.name,
-    protectionLevel: aiSettings?.protectionLevel ?? 70,
-    targetSize: aiSettings?.targetSize ?? 8000,
-    customInstruction: aiSettings?.customInstruction ?? '',
-    docType: doc.type,
-    docNumber: doc.number ?? undefined,
-    signingDate: doc.signingDate ? doc.signingDate.toISOString() : undefined,
-    documentNumber: doc.documentNumber ?? undefined,
-    referenceContent: aiSettings?.referenceContent ?? undefined,
-    base: aiSettings?.base ?? undefined,
-    parentDocTitle: doc.parentDocument?.title ?? undefined,
-    parentDocNumber: doc.parentDocument?.number ?? undefined,
-    parentDocContent,
-    // Роль пользователя (Заказчик/Исполнитель) — единый resolvePartyRole, тот же,
-    // что в предпросмотре, выгрузке и проверке рисков. Иначе документ генерируется
-    // с одной ролью, а показывается/скачивается с другой (болезнь уже ловили).
-    // Для приложений/ДС роль наследуется от родительского договора.
-    userRole: toLowerRole(await resolvePartyRole({
-      aiSettings: version.aiSettings,
-      parentDocumentId: doc.parentDocumentId,
-      userId,
-    })),
-    userProfile,
-    counterpartyData,
-  })
+  const userRole = toLowerRole(await resolvePartyRole({
+    aiSettings: version.aiSettings,
+    parentDocumentId: doc.parentDocumentId,
+    userId,
+  }))
+
+  // Постановка в очередь. Если Redis недоступен и задача не создалась — возвращаем
+  // токены здесь: обработчик воркера (где живёт автовозврат) в этом случае не
+  // сработает, потому что задачи нет.
+  let job
+  try {
+    const queue = getGenerateQueue()
+    job = await queue.add('generate', {
+      versionId: id,
+      chargeId,
+      description: aiSettings?.description ?? '',
+      counterpartyName: doc.counterparty.name,
+      protectionLevel: aiSettings?.protectionLevel ?? 70,
+      targetSize: aiSettings?.targetSize ?? 8000,
+      customInstruction: aiSettings?.customInstruction ?? '',
+      docType: doc.type,
+      docNumber: doc.number ?? undefined,
+      signingDate: doc.signingDate ? doc.signingDate.toISOString() : undefined,
+      documentNumber: doc.documentNumber ?? undefined,
+      referenceContent: aiSettings?.referenceContent ?? undefined,
+      base: aiSettings?.base ?? undefined,
+      parentDocTitle: doc.parentDocument?.title ?? undefined,
+      parentDocNumber: doc.parentDocument?.number ?? undefined,
+      parentDocContent,
+      // Роль пользователя (Заказчик/Исполнитель) — единый resolvePartyRole, тот же,
+      // что в предпросмотре, выгрузке и проверке рисков. Для приложений/ДС роль
+      // наследуется от родительского договора.
+      userRole,
+      userProfile,
+      counterpartyData,
+    })
+  } catch (err) {
+    if (chargeId) await refundChargeById(chargeId, 'не удалось поставить генерацию в очередь').catch(() => {})
+    throw err
+  }
 
   return NextResponse.json({ jobId: job.id }, { status: 202 })
 }
