@@ -1190,6 +1190,45 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           </div>
         </div>
 
+        {/* Второй этаж панели: режим просмотра/правки и инструменты форматирования.
+            Раньше это была плавающая панель поверх листа — она уезжала вместе с
+            документом при прокрутке. Закреплена отдельной строкой под панелью
+            действий, поэтому инструменты всегда под рукой. */}
+        {!genError && !generating && !streaming && docContent && (
+          <div
+            className="shrink-0 flex items-center gap-[8px] px-[12px]"
+            style={{ height: 42, borderBottom: '1px solid var(--line)', background: 'var(--bg)', minWidth: 0, overflowX: 'auto' }}
+          >
+            <button
+              onClick={() => setViewMode((m) => (m === 'view' ? 'edit' : 'view'))}
+              className="shrink-0 h-[28px] px-[12px] rounded-[var(--radius-md)] text-[12px] font-medium transition-colors cursor-pointer flex items-center gap-[5px]"
+              style={viewMode === 'edit'
+                ? { background: 'var(--ink)', color: 'var(--bg)' }
+                : { background: 'transparent', color: 'var(--ink)', border: '1px solid var(--line-2)' }}
+              title={viewMode === 'view' ? 'Редактировать вручную' : 'Вернуться к точному виду, как в Word'}
+            >
+              {viewMode === 'view' ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  Редактировать
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Просмотр
+                </>
+              )}
+            </button>
+
+            {viewMode === 'edit' && (
+              <>
+                <div className="w-px h-[22px] bg-[var(--line)] shrink-0" />
+                <EditorToolbar editor={editorInstance} />
+              </>
+            )}
+          </div>
+        )}
+
         {/* Тело документа */}
         {genError ? (
           <GenerationErrorScreen docTitle={docTitle} onRetry={async () => {
@@ -1252,8 +1291,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                     Вы начали править договор — Догодок переформатирует его и вычитывает,
                     чтобы дальше можно было вносить правки. Поэтому оформление может немного
                     отличаться от исходного файла. Чтобы увидеть, каким документ уйдёт в Word,
-                    переключитесь в режим <strong>«Готово · просмотр»</strong> — там показан
-                    ровно тот файл, который скачается.
+                    нажмите <strong>«Просмотр»</strong> — там показан ровно тот файл,
+                    который скачается.
                   </p>
                 </div>
                 <button
@@ -1275,42 +1314,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               >
                 <div className="w-[10px] h-[10px] rounded-full border-2 border-white/30 border-t-white animate-spin" />
                 <span className="text-[12px] font-medium">Догодок работает над документом…</span>
-              </div>
-            )}
-
-            {/* Панель режима: Просмотр (точный вид как в Word) ↔ Правка (редактор).
-                Тулбар форматирования активен только в режиме правки (TipTap). */}
-            {!streaming && docContent && (
-              <div
-                className="sticky top-[12px] z-10 mx-auto w-fit flex items-center gap-[8px] rounded-[var(--radius-md)] px-[6px] py-[4px]"
-                style={{ background: 'var(--bg)', border: '1px solid var(--line-2)', boxShadow: '0 2px 10px rgba(0,0,0,0.10)' }}
-              >
-                {viewMode === 'edit' && (
-                  <>
-                    <EditorToolbar editor={editorInstance} />
-                    <div className="w-px h-[22px] bg-[var(--line)] mx-[2px] shrink-0" />
-                  </>
-                )}
-                <button
-                  onClick={() => setViewMode((m) => (m === 'view' ? 'edit' : 'view'))}
-                  className="shrink-0 h-[30px] px-[12px] rounded-[var(--radius-md)] text-[12px] font-medium transition-colors cursor-pointer flex items-center gap-[5px]"
-                  style={viewMode === 'edit'
-                    ? { background: 'var(--ink)', color: 'var(--bg)' }
-                    : { background: 'transparent', color: 'var(--ink)', border: '1px solid var(--line-2)' }}
-                  title={viewMode === 'view' ? 'Редактировать вручную' : 'Вернуться к точному виду'}
-                >
-                  {viewMode === 'view' ? (
-                    <>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                      Редактировать
-                    </>
-                  ) : (
-                    <>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      Готово · просмотр
-                    </>
-                  )}
-                </button>
               </div>
             )}
 
