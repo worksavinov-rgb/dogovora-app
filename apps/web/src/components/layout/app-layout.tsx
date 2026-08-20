@@ -262,9 +262,11 @@ interface AppLayoutProps {
   breadcrumbs?: { label: string; href?: string }[]
   actions?: React.ReactNode
   balance?: number
+  /** Скрыть верхнюю полосу (рабочий экран отдаёт её высоту документу) */
+  hideTopbar?: boolean
 }
 
-export function AppLayout({ children, breadcrumbs, actions, balance = 0 }: AppLayoutProps) {
+export function AppLayout({ children, breadcrumbs, actions, balance = 0, hideTopbar = false }: AppLayoutProps) {
   const [drawerOpen, setDrawerOpen] = React.useState(false)
 
   return (
@@ -302,12 +304,14 @@ export function AppLayout({ children, breadcrumbs, actions, balance = 0 }: AppLa
 
       {/* Основной контент */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Topbar
-          breadcrumbs={breadcrumbs}
-          actions={actions}
-          balance={balance}
-          onMenuClick={() => setDrawerOpen(true)}
-        />
+        {!hideTopbar && (
+          <Topbar
+            breadcrumbs={breadcrumbs}
+            actions={actions}
+            balance={balance}
+            onMenuClick={() => setDrawerOpen(true)}
+          />
+        )}
         <main className="flex-1 overflow-y-auto p-[16px] md:p-[24px]">
           {children}
         </main>

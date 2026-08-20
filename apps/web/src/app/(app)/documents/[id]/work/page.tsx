@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 // При 401 (истёк 15-мин access-токен) сессия прозрачно обновляется глобальным
 // перехватчиком fetch (см. lib/install-fetch-auth.ts) — отдельная обёртка не нужна.
 import { useAuthStore } from '@/store/auth'
+import { useTopbarStore } from '@/store/topbar'
 import { DocumentViewer } from '@/components/document-viewer'
 import { EditorToolbar } from '@/components/editor-toolbar'
 import { DecorModal } from '@/components/decor-modal'
@@ -260,6 +261,7 @@ function GeneratingScreen({ done, docTitle }: { done: boolean; docTitle: string 
 export default function WorkPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
+  const balance = useAuthStore((s) => s.balance)
 
   const [version, setVersion] = useState<Version | null>(null)
   const [loading, setLoading] = useState(true)
@@ -498,6 +500,15 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   }, [id])
 
   useEffect(() => { void refreshDecor() }, [refreshDecor])
+
+  // Прячем верхнюю полосу приложения на время работы с документом: она здесь
+  // почти пустая, а её высота нужна листу договора. Баланс показываем сами —
+  // в панели действий. При уходе с экрана полосу возвращаем.
+  useEffect(() => {
+    const { setHideTopbar } = useTopbarStore.getState()
+    setHideTopbar(true)
+    return () => setHideTopbar(false)
+  }, [])
 
   // Сохранение вручную отредактированного блока оформления
   async function patchDecor(patch: { preambleHtml?: string; requisitesHtml?: string }) {
@@ -952,9 +963,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   // Отрицательные margins компенсируют padding AppLayout (24px со всех сторон),
   // чтобы рабочий экран занял весь доступный viewport без полос прокрутки.
+  // Верхняя полоса на этом экране скрыта (см. эффект ниже), поэтому забираем
+  // всю высоту окна: лист договора получает на 56px больше.
   const fullBleedStyle: React.CSSProperties = {
     margin: '-24px',
-    height: 'calc(100vh - 56px)',
+    height: '100vh',
     overflow: 'hidden',
   }
 
@@ -1186,6 +1199,17 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               title="Печать"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            </button>
+
+            {/* Баланс токенов — верхняя полоса приложения на этом экране скрыта,
+                поэтому показываем его здесь, чтобы не пропал из виду. */}
+            <button
+              onClick={() => router.push('/balance')}
+              className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[11px] font-medium text-[var(--ink-2)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer hidden md:flex items-center gap-[5px]"
+              title="Баланс токенов"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+              <span style={{ fontFamily: 'var(--font-mono)' }}>{balance.toLocaleString('ru')}</span>
             </button>
           </div>
         </div>

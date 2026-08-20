@@ -12,6 +12,7 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
   const router = useRouter()
   const { user, balance, isInitialized, initialize, needsConsent } = useAuthStore()
   const pageTitle = useTopbarStore((s) => s.pageTitle)
+  const hideTopbar = useTopbarStore((s) => s.hideTopbar)
 
   // Глобально включаем авто-обновление сессии при 401 для всех страниц за логином:
   // истёкший 15-мин токен больше не роняет запросы (админка, баланс, сохранения и т.д.).
@@ -44,7 +45,7 @@ export default function AppGroupLayout({ children }: { children: React.ReactNode
 
   const breadcrumbs = pageTitle ? [{ label: pageTitle }] : undefined
   return (
-    <AppLayout balance={balance} breadcrumbs={breadcrumbs}>
+    <AppLayout balance={balance} breadcrumbs={breadcrumbs} hideTopbar={hideTopbar}>
       {children}
       {/* Аккаунты, созданные до введения согласий, и выход новой редакции документов */}
       {needsConsent && <ConsentGate />}
