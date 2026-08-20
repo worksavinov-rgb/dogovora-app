@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
-import { validateInn, validateOgrn, validateBik, validateCheckingAccount, validateKpp } from '@/lib/validation'
+import { validateInn, validateOgrn, validateBik, validateCheckingAccount, validateKpp, validatePassportSeries, validatePassportNumber, validatePassportDeptCode } from '@/lib/validation'
 import { validateFormat, formatScope, renderNumber, SCOPE_LABELS, PLACEHOLDER_HINTS } from '@/lib/document-number'
 import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
@@ -14,7 +14,7 @@ import { SignatoryModal, SignatoryData } from '@/components/counterparties/signa
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
-type ProfileType = 'SOLE_PROPRIETOR' | 'COMPANY' | 'INDIVIDUAL' | 'ANO' | 'PAO' | 'ZAO'
+type ProfileType = 'SOLE_PROPRIETOR' | 'COMPANY' | 'INDIVIDUAL' | 'SELF_EMPLOYED' | 'ANO' | 'PAO' | 'ZAO'
 
 type ProfileFormData = {
   type: ProfileType; name: string; inn: string; kpp: string; ogrn: string; ogrnDate: string
@@ -50,6 +50,14 @@ interface Profile {
   ogrn: string
   ogrnDate: string
   legalAddress: string
+  actualAddress: string
+  phone: string
+  passportSeries: string
+  passportNumber: string
+  passportIssuedBy: string
+  passportIssueDate: string
+  passportDeptCode: string
+  npdRegisteredDate: string
   email: string
   contractNumberFormat: string
   signatorName: string
@@ -64,6 +72,7 @@ const TYPE_LABELS: Record<ProfileType, string> = {
   SOLE_PROPRIETOR: 'ИП',
   COMPANY: 'ООО/АО',
   INDIVIDUAL: 'Физлицо',
+  SELF_EMPLOYED: 'Самозанятый',
   ANO: 'АНО',
   PAO: 'ПАО',
   ZAO: 'ЗАО',
@@ -73,6 +82,7 @@ const TYPE_COLORS: Record<ProfileType, string> = {
   SOLE_PROPRIETOR: 'bg-[oklch(0.92_0.05_280)] text-[oklch(0.35_0.1_280)]',
   COMPANY: 'bg-[oklch(0.92_0.05_200)] text-[oklch(0.35_0.1_200)]',
   INDIVIDUAL: 'bg-[oklch(0.92_0.04_100)] text-[oklch(0.35_0.08_100)]',
+  SELF_EMPLOYED: 'bg-[oklch(0.92_0.05_160)] text-[oklch(0.35_0.1_160)]',
   ANO: 'bg-[oklch(0.92_0.05_150)] text-[oklch(0.35_0.1_150)]',
   PAO: 'bg-[oklch(0.92_0.05_30)] text-[oklch(0.35_0.1_30)]',
   ZAO: 'bg-[oklch(0.92_0.04_320)] text-[oklch(0.35_0.08_320)]',
@@ -106,6 +116,9 @@ function clearTypeSpecificFields(profile: Omit<Profile, 'id'>, newType: ProfileT
 function emptyProfile(type: ProfileType): Omit<Profile, 'id'> {
   return {
     type, name: '', inn: '', kpp: '', ogrn: '', ogrnDate: '', legalAddress: '', email: '',
+    actualAddress: '', phone: '',
+    passportSeries: '', passportNumber: '', passportIssuedBy: '', passportIssueDate: '',
+    passportDeptCode: '', npdRegisteredDate: '',
     contractNumberFormat: '',
     signatorName: '', signatorPosition: '', signatorBasis: '',
     signatureFilePath: null, stampFilePath: null,
@@ -118,6 +131,10 @@ function profileToForm(p: Profile): Omit<Profile, 'id'> {
     type: p.type, name: p.name,
     inn: p.inn ?? '', kpp: p.kpp ?? '', ogrn: p.ogrn ?? '', ogrnDate: p.ogrnDate ?? '',
     legalAddress: p.legalAddress ?? '', email: p.email ?? '',
+    actualAddress: p.actualAddress ?? '', phone: p.phone ?? '',
+    passportSeries: p.passportSeries ?? '', passportNumber: p.passportNumber ?? '',
+    passportIssuedBy: p.passportIssuedBy ?? '', passportIssueDate: p.passportIssueDate ?? '',
+    passportDeptCode: p.passportDeptCode ?? '', npdRegisteredDate: p.npdRegisteredDate ?? '',
     contractNumberFormat: p.contractNumberFormat ?? '',
     signatorName: p.signatorName ?? '', signatorPosition: p.signatorPosition ?? '',
     signatorBasis: p.signatorBasis ?? '',
@@ -258,7 +275,7 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
             {isNew ? (
               // При создании — выбор типа кнопками
               <div className="flex flex-wrap gap-[6px]">
-                {(['SOLE_PROPRIETOR', 'COMPANY', 'INDIVIDUAL', 'ANO', 'PAO', 'ZAO'] as ProfileType[]).map((t) => (
+                {(['SOLE_PROPRIETOR', 'COMPANY', 'INDIVIDUAL', 'SELF_EMPLOYED', 'ANO', 'PAO', 'ZAO'] as ProfileType[]).map((t) => (
                   <button key={t} onClick={() => handleTypeChange(t)}
                     className={['px-[12px] h-[32px] rounded-[var(--radius-md)] text-[12px] font-medium border transition-colors cursor-pointer',
                       profile.type === t ? 'border-[var(--ink)] bg-[var(--surface-inset)] text-[var(--ink)]' : 'border-[var(--line-2)] text-[var(--ink-3)] hover:border-[var(--line-strong)]',
@@ -287,24 +304,22 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
           {(() => {
             const isLegal = TYPE_HAS_KPP.has(profile.type)
             const inn10 = TYPE_INN_10.has(profile.type)
-            const isIndividual = profile.type === 'INDIVIDUAL'
+            const isPerson = profile.type === 'INDIVIDUAL' || profile.type === 'SELF_EMPLOYED'
             return (
               <div className={`grid gap-[12px] ${isLegal ? 'grid-cols-3' : 'grid-cols-2'}`}>
-                {!isIndividual && (
-                  <Field label={inn10 ? 'ИНН (10 цифр)' : 'ИНН (12 цифр)'}>
-                    <Input value={profile.inn}
-                      onChange={(e) => set('inn', e.target.value.replace(/\D/g, '').slice(0, inn10 ? 10 : 12))}
-                      placeholder={inn10 ? '7723456789' : '772345678901'}
-                      error={innError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
-                  </Field>
-                )}
+                <Field label={inn10 ? 'ИНН (10 цифр)' : 'ИНН (12 цифр)'}>
+                  <Input value={profile.inn}
+                    onChange={(e) => set('inn', e.target.value.replace(/\D/g, '').slice(0, inn10 ? 10 : 12))}
+                    placeholder={inn10 ? '7723456789' : '772345678901'}
+                    error={innError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                </Field>
                 {isLegal && (
                   <Field label="КПП (9 цифр)">
                     <Input value={profile.kpp} onChange={(e) => set('kpp', e.target.value.replace(/\D/g, '').slice(0, 9))}
                       placeholder="772301001" error={kppError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
                   </Field>
                 )}
-                {!isIndividual && (
+                {!isPerson && (
                   <Field label={isLegal ? 'ОГРН (13 цифр)' : 'ОГРНИП (15 цифр)'}>
                     <Input value={profile.ogrn}
                       onChange={(e) => set('ogrn', e.target.value.replace(/\D/g, '').slice(0, isLegal ? 13 : 15))}
@@ -323,10 +338,72 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
             </Field>
           )}
 
-          <Field label="Юридический адрес">
-            <Input value={profile.legalAddress} onChange={(e) => set('legalAddress', e.target.value)}
-              placeholder="123056, г. Москва, ул. Красина, д. 17, кв. 42" />
-          </Field>
+          {(() => {
+            const isPerson = profile.type === 'INDIVIDUAL' || profile.type === 'SELF_EMPLOYED'
+            return (
+              <Field label={isPerson ? 'Адрес регистрации' : 'Юридический адрес'}>
+                <Input value={profile.legalAddress} onChange={(e) => set('legalAddress', e.target.value)}
+                  placeholder="123056, г. Москва, ул. Красина, д. 17, кв. 42" />
+              </Field>
+            )
+          })()}
+
+          {/* Паспорт и контакты физлица/самозанятого (все поля необязательны) */}
+          {(profile.type === 'INDIVIDUAL' || profile.type === 'SELF_EMPLOYED') && (() => {
+            const passSeriesErr = profile.passportSeries ? validatePassportSeries(profile.passportSeries) : null
+            const passNumErr = profile.passportNumber ? validatePassportNumber(profile.passportNumber) : null
+            const deptErr = profile.passportDeptCode ? validatePassportDeptCode(profile.passportDeptCode) : null
+            return (
+              <div className="flex flex-col gap-[12px]">
+                <div className="grid grid-cols-2 gap-[12px]">
+                  <Field label="Серия паспорта">
+                    <Input value={profile.passportSeries}
+                      onChange={(e) => set('passportSeries', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="1234" error={passSeriesErr ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                  <Field label="Номер паспорта">
+                    <Input value={profile.passportNumber}
+                      onChange={(e) => set('passportNumber', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="567890" error={passNumErr ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                </div>
+                <Field label="Кем выдан">
+                  <Input value={profile.passportIssuedBy} onChange={(e) => set('passportIssuedBy', e.target.value)}
+                    placeholder="Отделом УФМS России по г. Москве" />
+                </Field>
+                <div className="grid grid-cols-2 gap-[12px]">
+                  <Field label="Дата выдачи">
+                    <Input value={profile.passportIssueDate} onChange={(e) => set('passportIssueDate', e.target.value)}
+                      placeholder="10.05.2015" />
+                  </Field>
+                  <Field label="Код подразделения">
+                    <Input value={profile.passportDeptCode}
+                      onChange={(e) => set('passportDeptCode', e.target.value.replace(/[^\d-]/g, '').slice(0, 7))}
+                      placeholder="770-053" error={deptErr ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                </div>
+                <Field label="Фактический адрес (если отличается)">
+                  <Input value={profile.actualAddress} onChange={(e) => set('actualAddress', e.target.value)}
+                    placeholder="Если совпадает с адресом регистрации — оставьте пустым" />
+                </Field>
+                <div className="grid grid-cols-2 gap-[12px]">
+                  <Field label="Телефон">
+                    <Input value={profile.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+7 900 000-00-00" />
+                  </Field>
+                  <Field label="Email">
+                    <Input type="email" value={profile.email ?? ''} onChange={(e) => set('email', e.target.value)}
+                      placeholder="your@email.ru" />
+                  </Field>
+                </div>
+                {profile.type === 'SELF_EMPLOYED' && (
+                  <Field label="Дата постановки на учёт по НПД (необязательно)">
+                    <Input value={profile.npdRegisteredDate} onChange={(e) => set('npdRegisteredDate', e.target.value)}
+                      placeholder="01.01.2024" />
+                  </Field>
+                )}
+              </div>
+            )
+          })()}
 
           {profile.type === 'SOLE_PROPRIETOR' && (
             <Field label="Email">
@@ -411,7 +488,7 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
               <Input value={profile.signatorPosition} onChange={(e) => set('signatorPosition', e.target.value)}
                 placeholder={
                   profile.type === 'SOLE_PROPRIETOR' ? 'Индивидуальный предприниматель'
-                  : profile.type === 'INDIVIDUAL' ? ''
+                  : (profile.type === 'INDIVIDUAL' || profile.type === 'SELF_EMPLOYED') ? ''
                   : 'Генеральный директор'
                 } />
             </Field>
@@ -420,7 +497,7 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
             <Input value={profile.signatorBasis} onChange={(e) => set('signatorBasis', e.target.value)}
               placeholder={
                 profile.type === 'SOLE_PROPRIETOR' ? 'Свидетельства о регистрации'
-                : profile.type === 'INDIVIDUAL' ? 'Паспорта'
+                : (profile.type === 'INDIVIDUAL' || profile.type === 'SELF_EMPLOYED') ? 'Паспорта'
                 : 'Устава'
               } />
           </Field>
@@ -847,6 +924,13 @@ function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDr
                         kpp: draft.kpp,
                         ogrn: draft.ogrn,
                         legalAddress: draft.legalAddress,
+                        actualAddress: draft.actualAddress,
+                        passportSeries: draft.passportSeries,
+                        passportNumber: draft.passportNumber,
+                        passportIssuedBy: draft.passportIssuedBy,
+                        passportIssueDate: draft.passportIssueDate,
+                        passportDeptCode: draft.passportDeptCode,
+                        npdRegisteredDate: draft.npdRegisteredDate,
                         email: draft.email,
                         signatorName: draft.signatorName,
                         signatorPosition: draft.signatorPosition,

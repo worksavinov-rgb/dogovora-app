@@ -6,15 +6,36 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
 import { SignatoryModal, SignatoryData } from '@/components/counterparties/signatory-modal'
-import { validateInn, validateBik, validateCheckingAccount } from '@/lib/validation'
+import { validateInn, validateBik, validateCheckingAccount, validatePassportSeries, validatePassportNumber, validatePassportDeptCode } from '@/lib/validation'
 import { Avatar } from '@/components/ui/avatar'
+import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
+
+type CpType = 'INDIVIDUAL' | 'SELF_EMPLOYED' | 'SOLE_PROPRIETOR' | 'COMPANY' | 'ANO' | 'PAO' | 'ZAO'
+
+const TYPE_LABELS: Record<CpType, string> = {
+  SOLE_PROPRIETOR: 'ИП',
+  COMPANY: 'ООО/АО',
+  INDIVIDUAL: 'Физлицо',
+  SELF_EMPLOYED: 'Самозанятый',
+  ANO: 'АНО',
+  PAO: 'ПАО',
+  ZAO: 'ЗАО',
+}
 
 interface FormData {
+  type: CpType
   name: string
   inn: string
   kpp: string
   ogrn: string
   legalAddress: string
+  actualAddress: string
+  passportSeries: string
+  passportNumber: string
+  passportIssuedBy: string
+  passportIssueDate: string
+  passportDeptCode: string
+  npdRegisteredDate: string
   email: string
   phone: string
   bankName: string
@@ -23,12 +44,17 @@ interface FormData {
   correspondentAccount: string
 }
 
-const EMPTY: FormData = { name: '', inn: '', kpp: '', ogrn: '', legalAddress: '', email: '', phone: '', bankName: '', checkingAccount: '', bik: '', correspondentAccount: '' }
+const EMPTY: FormData = {
+  type: 'COMPANY', name: '', inn: '', kpp: '', ogrn: '', legalAddress: '', actualAddress: '',
+  passportSeries: '', passportNumber: '', passportIssuedBy: '', passportIssueDate: '',
+  passportDeptCode: '', npdRegisteredDate: '',
+  email: '', phone: '', bankName: '', checkingAccount: '', bik: '', correspondentAccount: '',
+}
 
-// Угадываем org-форму по ИНН
+// Угадываем org-форму по ИНН (подсказка, тип не переключаем автоматически)
 function guessForm(inn: string): string {
   if (inn.length === 10) return 'ООО'
-  if (inn.length === 12) return 'ИП'
+  if (inn.length === 12) return 'ИП / физлицо'
   return ''
 }
 
@@ -42,20 +68,26 @@ export default function NewCounterpartyPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const set = (key: keyof FormData, val: string) => setForm((p) => ({ ...p, [key]: val }))
+  const isPerson = form.type === 'INDIVIDUAL' || form.type === 'SELF_EMPLOYED'
 
   // Ошибки валидации (только если поле заполнено)
   const innError = form.inn ? validateInn(form.inn) : null
   const bikError = form.bik ? validateBik(form.bik) : null
   const accountError = form.checkingAccount ? validateCheckingAccount(form.checkingAccount, form.bik) : null
+  const passSeriesError = form.passportSeries ? validatePassportSeries(form.passportSeries) : null
+  const passNumError = form.passportNumber ? validatePassportNumber(form.passportNumber) : null
+  const deptError = form.passportDeptCode ? validatePassportDeptCode(form.passportDeptCode) : null
 
   // Шаги прогресса
   const progress = [
     { label: 'ИНН', done: !!form.inn && !innError },
-    { label: 'Название', done: !!form.name },
-    { label: 'Юридический адрес', done: !!form.legalAddress },
+    { label: 'Название / ФИО', done: !!form.name },
+    { label: isPerson ? 'Адрес регистрации' : 'Юридический адрес', done: !!form.legalAddress },
     { label: 'Банк', done: !!form.bankName },
     { label: 'Расч. счёт', done: !!form.checkingAccount && !accountError },
-    { label: 'Подписант для договоров', done: signatories.length > 0 },
+    isPerson
+      ? { label: 'Паспорт', done: !!form.passportSeries && !passSeriesError }
+      : { label: 'Подписант для договоров', done: signatories.length > 0 },
   ]
 
   const handleSave = async () => {
@@ -120,11 +152,24 @@ export default function NewCounterpartyPage() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4"/><path d="M8 6h.01M16 6h.01M12 6h.01M12 10h.01M8 10h.01M16 10h.01M12 14h.01M8 14h.01M16 14h.01"/>
               </svg>
-              <p className="text-[13px] font-medium">Организация</p>
+              <p className="text-[13px] font-medium">{isPerson ? 'Сторона' : 'Организация'}</p>
               <p className="text-[12px] text-[var(--ink-4)]">Поля для вставки в договор</p>
             </div>
             <div className="flex flex-col gap-[12px]">
-              <Field label="ИНН организации или ИП">
+              {/* Тип контрагента */}
+              <Field label="Тип">
+                <div className="flex flex-wrap gap-[6px]">
+                  {(['SOLE_PROPRIETOR', 'COMPANY', 'INDIVIDUAL', 'SELF_EMPLOYED', 'ANO', 'PAO', 'ZAO'] as CpType[]).map((t) => (
+                    <button key={t} type="button" onClick={() => set('type', t)}
+                      className={['px-[12px] h-[32px] rounded-[var(--radius-md)] text-[12px] font-medium border transition-colors cursor-pointer',
+                        form.type === t ? 'border-[var(--ink)] bg-[var(--surface-inset)] text-[var(--ink)]' : 'border-[var(--line-2)] text-[var(--ink-3)] hover:border-[var(--line-strong)]',
+                      ].join(' ')}>
+                      {TYPE_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label={isPerson ? 'ИНН (12 цифр, необязательно)' : 'ИНН организации или ИП'}>
                 <Input
                   value={form.inn}
                   onChange={(e) => set('inn', e.target.value.replace(/\D/g, '').slice(0, 12))}
@@ -132,26 +177,70 @@ export default function NewCounterpartyPage() {
                   error={innError ?? undefined}
                   style={{ fontFamily: 'var(--font-mono)' }}
                 />
-                {form.inn && !innError && (
+                {form.inn && !innError && !isPerson && (
                   <p className="mt-[4px] text-[12px] text-[var(--ok)]">
                     {guessForm(form.inn) ? `Определено: ${guessForm(form.inn)}` : ''}
                   </p>
                 )}
               </Field>
-              <Field label="Полное наименование">
-                <Input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Общество с ограниченной ответственностью «Сирень»" />
+              <Field label={isPerson ? 'ФИО' : 'Полное наименование'}>
+                <Input value={form.name} onChange={(e) => set('name', e.target.value)}
+                  placeholder={isPerson ? 'Иванов Иван Иванович' : 'Общество с ограниченной ответственностью «Сирень»'} />
               </Field>
-              <div className="grid grid-cols-2 gap-[12px]">
-                <Field label="КПП">
-                  <Input value={form.kpp} onChange={(e) => set('kpp', e.target.value.replace(/\D/g, '').slice(0, 9))} placeholder="772701001" style={{ fontFamily: 'var(--font-mono)' }} />
-                </Field>
-                <Field label="ОГРН">
-                  <Input value={form.ogrn} onChange={(e) => set('ogrn', e.target.value.replace(/\D/g, '').slice(0, 15))} placeholder="1027746543218" style={{ fontFamily: 'var(--font-mono)' }} />
-                </Field>
-              </div>
-              <Field label="Юридический адрес">
+              {!isPerson && (
+                <div className="grid grid-cols-2 gap-[12px]">
+                  <Field label="КПП">
+                    <Input value={form.kpp} onChange={(e) => set('kpp', e.target.value.replace(/\D/g, '').slice(0, 9))} placeholder="772701001" style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                  <Field label="ОГРН">
+                    <Input value={form.ogrn} onChange={(e) => set('ogrn', e.target.value.replace(/\D/g, '').slice(0, 15))} placeholder="1027746543218" style={{ fontFamily: 'var(--font-mono)' }} />
+                  </Field>
+                </div>
+              )}
+              <Field label={isPerson ? 'Адрес регистрации' : 'Юридический адрес'}>
                 <Input value={form.legalAddress} onChange={(e) => set('legalAddress', e.target.value)} placeholder="117418, г. Москва, ул. Профсоюзная, д. 23, эт. 4, пом. 12" />
               </Field>
+
+              {/* Паспорт физлица/самозанятого (все поля необязательны) */}
+              {isPerson && (
+                <>
+                  <div className="grid grid-cols-2 gap-[12px]">
+                    <Field label="Серия паспорта">
+                      <Input value={form.passportSeries}
+                        onChange={(e) => set('passportSeries', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        placeholder="1234" error={passSeriesError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                    </Field>
+                    <Field label="Номер паспорта">
+                      <Input value={form.passportNumber}
+                        onChange={(e) => set('passportNumber', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="567890" error={passNumError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                    </Field>
+                  </div>
+                  <Field label="Кем выдан">
+                    <Input value={form.passportIssuedBy} onChange={(e) => set('passportIssuedBy', e.target.value)}
+                      placeholder="Отделом УФМS России по г. Москве" />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-[12px]">
+                    <Field label="Дата выдачи">
+                      <Input value={form.passportIssueDate} onChange={(e) => set('passportIssueDate', e.target.value)} placeholder="10.05.2015" />
+                    </Field>
+                    <Field label="Код подразделения">
+                      <Input value={form.passportDeptCode}
+                        onChange={(e) => set('passportDeptCode', e.target.value.replace(/[^\d-]/g, '').slice(0, 7))}
+                        placeholder="770-053" error={deptError ?? undefined} style={{ fontFamily: 'var(--font-mono)' }} />
+                    </Field>
+                  </div>
+                  <Field label="Фактический адрес (если отличается)">
+                    <Input value={form.actualAddress} onChange={(e) => set('actualAddress', e.target.value)}
+                      placeholder="Если совпадает с адресом регистрации — оставьте пустым" />
+                  </Field>
+                  {form.type === 'SELF_EMPLOYED' && (
+                    <Field label="Дата постановки на учёт по НПД (необязательно)">
+                      <Input value={form.npdRegisteredDate} onChange={(e) => set('npdRegisteredDate', e.target.value)} placeholder="01.01.2024" />
+                    </Field>
+                  )}
+                </>
+              )}
             </div>
           </Card>
 
@@ -201,7 +290,8 @@ export default function NewCounterpartyPage() {
             </div>
           </Card>
 
-          {/* Подписанты */}
+          {/* Подписанты — только для организаций/ИП; физлицо/самозанятый подписывает лично */}
+          {!isPerson && (
           <Card>
             <div className="flex items-center justify-between mb-[16px]">
               <div className="flex items-center gap-[8px]">
@@ -234,6 +324,7 @@ export default function NewCounterpartyPage() {
               </div>
             )}
           </Card>
+          )}
 
           {/* Нижняя панель */}
           <div className="flex items-center justify-between pt-[4px]">
@@ -269,26 +360,30 @@ export default function NewCounterpartyPage() {
           {form.name && (
             <Card>
               <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Как в документе</p>
-              <div className="text-[12px] text-[var(--ink-2)] leading-[1.7] font-[var(--font-ui)]">
-                <p className="font-semibold uppercase text-[10px] tracking-[0.08em] text-[var(--ink-4)] mb-[4px]">ЗАКАЗЧИК</p>
-                <p>{form.name}</p>
-                {form.inn && <p>ИНН {form.inn}{form.kpp ? ` / КПП ${form.kpp}` : ''}</p>}
-                {form.legalAddress && <p>{form.legalAddress}</p>}
-                {form.bankName && (
-                  <>
-                    <p className="mt-[6px]">р/с {form.checkingAccount || '___'}</p>
-                    <p>{form.bankName}</p>
-                    <p>БИК {form.bik || '___'}</p>
-                    {form.correspondentAccount && <p>к/с {form.correspondentAccount}</p>}
-                  </>
-                )}
-                {signatories[0] && (
-                  <>
-                    <div className="border-t border-dashed border-[var(--line)] mt-[8px] pt-[8px]" />
-                    <p>{signatories[0].position} {signatories[0].signatureName || signatories[0].fullName}</p>
-                  </>
-                )}
-              </div>
+              <RequisitesPreview
+                data={{
+                  type: form.type,
+                  name: form.name,
+                  inn: form.inn,
+                  kpp: form.kpp,
+                  ogrn: form.ogrn,
+                  legalAddress: form.legalAddress,
+                  actualAddress: form.actualAddress,
+                  passportSeries: form.passportSeries,
+                  passportNumber: form.passportNumber,
+                  passportIssuedBy: form.passportIssuedBy,
+                  passportIssueDate: form.passportIssueDate,
+                  passportDeptCode: form.passportDeptCode,
+                  npdRegisteredDate: form.npdRegisteredDate,
+                  email: form.email,
+                  signatorName: signatories[0]?.fullName ?? null,
+                  signatorPosition: signatories[0]?.position ?? null,
+                  bankName: form.bankName,
+                  bik: form.bik,
+                  checkingAccount: form.checkingAccount,
+                  correspondentAccount: form.correspondentAccount,
+                } satisfies RequisitesData}
+              />
             </Card>
           )}
         </div>

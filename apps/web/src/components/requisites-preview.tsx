@@ -3,13 +3,20 @@
 // Превью блока реквизитов — показывает как данные встанут в договор
 
 export interface RequisitesData {
-  type: string          // SOLE_PROPRIETOR | COMPANY | ZAO | PAO | ANO | INDIVIDUAL
+  type: string          // SOLE_PROPRIETOR | COMPANY | ZAO | PAO | ANO | INDIVIDUAL | SELF_EMPLOYED
   name: string
   inn?: string | null
   kpp?: string | null
   ogrn?: string | null
   ogrnDate?: string | null
   legalAddress?: string | null
+  actualAddress?: string | null
+  passportSeries?: string | null
+  passportNumber?: string | null
+  passportIssuedBy?: string | null
+  passportIssueDate?: string | null
+  passportDeptCode?: string | null
+  npdRegisteredDate?: string | null
   email?: string | null
   signatorName?: string | null
   signatorPosition?: string | null
@@ -32,8 +39,10 @@ function ReqRow({ label, value }: { label: string; value?: string | null }) {
 export function RequisitesPreview({ data, role }: { data: RequisitesData; role?: string }) {
   const isIP = data.type === 'SOLE_PROPRIETOR'
   const isIndividual = data.type === 'INDIVIDUAL'
+  const isSelfEmployed = data.type === 'SELF_EMPLOYED'
+  const isPerson = isIndividual || isSelfEmployed
 
-  const hasAnyData = data.name || data.inn || data.ogrn || data.legalAddress || data.bankName
+  const hasAnyData = data.name || data.inn || data.ogrn || data.legalAddress || data.bankName || data.passportSeries
 
   if (!hasAnyData) {
     return (
@@ -66,16 +75,23 @@ export function RequisitesPreview({ data, role }: { data: RequisitesData; role?:
       {/* Реквизиты */}
       <div className="flex flex-col gap-[1px]">
         <ReqRow label="ИНН" value={data.inn} />
-        {!isIP && !isIndividual && <ReqRow label="КПП" value={data.kpp} />}
+        {!isIP && !isPerson && <ReqRow label="КПП" value={data.kpp} />}
         {isIP
           ? <ReqRow label="ОГРНИП" value={data.ogrn} />
-          : !isIndividual && <ReqRow label="ОГРН" value={data.ogrn} />
+          : !isPerson && <ReqRow label="ОГРН" value={data.ogrn} />
         }
+        {isPerson && (
+          <ReqRow label="Паспорт" value={[data.passportSeries, data.passportNumber].filter(Boolean).join(' № ') || null} />
+        )}
+        {isPerson && (
+          <ReqRow label="Выдан" value={[data.passportIssuedBy, data.passportIssueDate].filter(Boolean).join(', ') || null} />
+        )}
+        {isSelfEmployed && <ReqRow label="Статус" value="Плательщик НПД" />}
         <ReqRow label="Р/счёт" value={data.checkingAccount} />
         <ReqRow label="К/счёт" value={data.correspondentAccount} />
         <ReqRow label="Банк" value={data.bankName} />
         <ReqRow label="БИК" value={data.bik} />
-        {isIP && <ReqRow label="E-mail" value={data.email} />}
+        {(isIP || isPerson) && <ReqRow label="E-mail" value={data.email} />}
       </div>
 
       {/* Подпись */}
@@ -95,12 +111,12 @@ export function RequisitesPreview({ data, role }: { data: RequisitesData; role?:
               <div className="flex-1 border-b border-dashed border-[var(--line-strong)] mb-[3px]" />
             </div>
           </div>
-        ) : isIndividual ? (
+        ) : isPerson ? (
           <div className="flex items-end gap-[8px]">
             <p className="text-[12px] text-[var(--ink-4)]">
               {data.signatorName
                 ? data.signatorName.split(' ').map((w, i) => i === 0 ? w : w[0] + '.').join(' ')
-                : '___________'
+                : (data.name || '___________')
               }
             </p>
             <div className="flex-1 border-b border-dashed border-[var(--line-strong)] mb-[3px]" />

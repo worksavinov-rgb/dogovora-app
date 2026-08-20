@@ -74,6 +74,8 @@ export function maskPartyForAI<T extends Record<string, unknown>>(party: T | nul
   const secretKeys = [
     'inn', 'kpp', 'ogrn', 'ogrnip', 'ogrnDate', 'email', 'phone',
     'legalAddress', 'actualAddress',
+    'passportSeries', 'passportNumber', 'passportIssuedBy', 'passportIssueDate',
+    'passportDeptCode', 'npdRegisteredDate',
     'bankName', 'checkingAccount', 'bik', 'correspondentAccount',
   ]
   for (const key of secretKeys) {

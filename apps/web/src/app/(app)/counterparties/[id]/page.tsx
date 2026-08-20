@@ -10,8 +10,15 @@ import { Badge } from '@/components/ui/badge'
 import { Field, Input } from '@/components/ui/input'
 import { SignatoryModal, SignatoryData } from '@/components/counterparties/signatory-modal'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { validateInn, validateBik, validateCheckingAccount } from '@/lib/validation'
+import { validateInn, validateBik, validateCheckingAccount, validatePassportSeries, validatePassportNumber, validatePassportDeptCode } from '@/lib/validation'
 import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
+
+type CpType = 'INDIVIDUAL' | 'SELF_EMPLOYED' | 'SOLE_PROPRIETOR' | 'COMPANY' | 'ANO' | 'PAO' | 'ZAO'
+
+const CP_TYPE_LABELS: Record<CpType, string> = {
+  SOLE_PROPRIETOR: 'ИП', COMPANY: 'ООО/АО', INDIVIDUAL: 'Физлицо', SELF_EMPLOYED: 'Самозанятый',
+  ANO: 'АНО', PAO: 'ПАО', ZAO: 'ЗАО',
+}
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -24,8 +31,10 @@ interface Document { id: string; title: string; type: string; createdAt: string;
 interface ContactPerson { role: string; email: string; phone: string }
 
 interface Counterparty {
-  id: string; name: string; inn: string | null; kpp: string | null; ogrn: string | null
-  legalAddress: string | null; email: string | null; phone: string | null
+  id: string; type: CpType; name: string; inn: string | null; kpp: string | null; ogrn: string | null
+  legalAddress: string | null; actualAddress: string | null; email: string | null; phone: string | null
+  passportSeries: string | null; passportNumber: string | null; passportIssuedBy: string | null
+  passportIssueDate: string | null; passportDeptCode: string | null; npdRegisteredDate: string | null
   contacts: ContactPerson[] | null
   isArchived: boolean; createdAt: string; updatedAt: string
   bankDetails: BankDetail[]; signatories: Signatory[]; documents: Document[]
@@ -157,16 +166,22 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
 
   // Форма редактирования
   const [form, setForm] = useState({
-    name: cp.name, inn: cp.inn ?? '', kpp: cp.kpp ?? '', ogrn: cp.ogrn ?? '',
-    legalAddress: cp.legalAddress ?? '', email: cp.email ?? '', phone: cp.phone ?? '',
+    type: cp.type ?? 'COMPANY', name: cp.name, inn: cp.inn ?? '', kpp: cp.kpp ?? '', ogrn: cp.ogrn ?? '',
+    legalAddress: cp.legalAddress ?? '', actualAddress: cp.actualAddress ?? '', email: cp.email ?? '', phone: cp.phone ?? '',
+    passportSeries: cp.passportSeries ?? '', passportNumber: cp.passportNumber ?? '', passportIssuedBy: cp.passportIssuedBy ?? '',
+    passportIssueDate: cp.passportIssueDate ?? '', passportDeptCode: cp.passportDeptCode ?? '', npdRegisteredDate: cp.npdRegisteredDate ?? '',
     bankName: cp.bankDetails[0]?.bankName ?? '', checkingAccount: cp.bankDetails[0]?.checkingAccount ?? '',
     bik: cp.bankDetails[0]?.bik ?? '', correspondentAccount: cp.bankDetails[0]?.correspondentAccount ?? '',
     contacts: (cp.contacts && cp.contacts.length > 0 ? cp.contacts : [emptyContact()]) as ContactPerson[],
   })
 
+  const isPerson = (editing ? form.type : cp.type) === 'INDIVIDUAL' || (editing ? form.type : cp.type) === 'SELF_EMPLOYED'
   const innError = form.inn ? validateInn(form.inn) : null
   const bikError = form.bik ? validateBik(form.bik) : null
   const accountError = form.checkingAccount ? validateCheckingAccount(form.checkingAccount, form.bik) : null
+  const passSeriesError = form.passportSeries ? validatePassportSeries(form.passportSeries) : null
+  const passNumError = form.passportNumber ? validatePassportNumber(form.passportNumber) : null
+  const deptError = form.passportDeptCode ? validatePassportDeptCode(form.passportDeptCode) : null
 
   const handleSave = async () => {
     setSaving(true)
@@ -233,21 +248,51 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
 
           {editing ? (
             <div className="flex flex-col gap-[10px]">
-              <Field label="Полное наименование"><Input value={form.name} onChange={(e) => setForm(p => ({...p, name: e.target.value}))} /></Field>
+              <Field label="Тип">
+                <div className="flex flex-wrap gap-[6px]">
+                  {(['SOLE_PROPRIETOR', 'COMPANY', 'INDIVIDUAL', 'SELF_EMPLOYED', 'ANO', 'PAO', 'ZAO'] as CpType[]).map((t) => (
+                    <button key={t} type="button" onClick={() => setForm(p => ({ ...p, type: t }))}
+                      className={['px-[10px] h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium border transition-colors cursor-pointer',
+                        form.type === t ? 'border-[var(--ink)] bg-[var(--surface-inset)] text-[var(--ink)]' : 'border-[var(--line-2)] text-[var(--ink-3)] hover:border-[var(--line-strong)]',
+                      ].join(' ')}>
+                      {CP_TYPE_LABELS[t]}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field label={isPerson ? 'ФИО' : 'Полное наименование'}><Input value={form.name} onChange={(e) => setForm(p => ({...p, name: e.target.value}))} /></Field>
               <div className="grid grid-cols-2 gap-[10px]">
                 <Field label="ИНН"><Input value={form.inn} onChange={(e) => setForm(p => ({...p, inn: e.target.value.replace(/\D/g,'').slice(0,12)}))} error={innError ?? undefined} style={{fontFamily:'var(--font-mono)'}} /></Field>
-                <Field label="КПП"><Input value={form.kpp} onChange={(e) => setForm(p => ({...p, kpp: e.target.value.replace(/\D/g,'').slice(0,9)}))} style={{fontFamily:'var(--font-mono)'}} /></Field>
+                {!isPerson && <Field label="КПП"><Input value={form.kpp} onChange={(e) => setForm(p => ({...p, kpp: e.target.value.replace(/\D/g,'').slice(0,9)}))} style={{fontFamily:'var(--font-mono)'}} /></Field>}
               </div>
-              <Field label="ОГРН"><Input value={form.ogrn} onChange={(e) => setForm(p => ({...p, ogrn: e.target.value.replace(/\D/g,'').slice(0,15)}))} style={{fontFamily:'var(--font-mono)'}} /></Field>
-              <Field label="Юридический адрес"><Input value={form.legalAddress} onChange={(e) => setForm(p => ({...p, legalAddress: e.target.value}))} /></Field>
+              {!isPerson && <Field label="ОГРН"><Input value={form.ogrn} onChange={(e) => setForm(p => ({...p, ogrn: e.target.value.replace(/\D/g,'').slice(0,15)}))} style={{fontFamily:'var(--font-mono)'}} /></Field>}
+              <Field label={isPerson ? 'Адрес регистрации' : 'Юридический адрес'}><Input value={form.legalAddress} onChange={(e) => setForm(p => ({...p, legalAddress: e.target.value}))} /></Field>
+              {isPerson && (
+                <>
+                  <div className="grid grid-cols-2 gap-[10px]">
+                    <Field label="Серия паспорта"><Input value={form.passportSeries} onChange={(e) => setForm(p => ({...p, passportSeries: e.target.value.replace(/\D/g,'').slice(0,4)}))} error={passSeriesError ?? undefined} style={{fontFamily:'var(--font-mono)'}} /></Field>
+                    <Field label="Номер паспорта"><Input value={form.passportNumber} onChange={(e) => setForm(p => ({...p, passportNumber: e.target.value.replace(/\D/g,'').slice(0,6)}))} error={passNumError ?? undefined} style={{fontFamily:'var(--font-mono)'}} /></Field>
+                  </div>
+                  <Field label="Кем выдан"><Input value={form.passportIssuedBy} onChange={(e) => setForm(p => ({...p, passportIssuedBy: e.target.value}))} /></Field>
+                  <div className="grid grid-cols-2 gap-[10px]">
+                    <Field label="Дата выдачи"><Input value={form.passportIssueDate} onChange={(e) => setForm(p => ({...p, passportIssueDate: e.target.value}))} placeholder="10.05.2015" /></Field>
+                    <Field label="Код подразделения"><Input value={form.passportDeptCode} onChange={(e) => setForm(p => ({...p, passportDeptCode: e.target.value.replace(/[^\d-]/g,'').slice(0,7)}))} error={deptError ?? undefined} placeholder="770-053" style={{fontFamily:'var(--font-mono)'}} /></Field>
+                  </div>
+                  <Field label="Фактический адрес (если отличается)"><Input value={form.actualAddress} onChange={(e) => setForm(p => ({...p, actualAddress: e.target.value}))} /></Field>
+                  {form.type === 'SELF_EMPLOYED' && (
+                    <Field label="Дата постановки на учёт по НПД (необязательно)"><Input value={form.npdRegisteredDate} onChange={(e) => setForm(p => ({...p, npdRegisteredDate: e.target.value}))} placeholder="01.01.2024" /></Field>
+                  )}
+                </>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-[8px] text-[13px]">
               <p className="font-medium">{cp.name}</p>
               <div className="grid grid-cols-2 gap-[8px] text-[var(--ink-3)]">
                 {cp.inn && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em]">ИНН</p><p style={{fontFamily:'var(--font-mono)'}}>{cp.inn}</p></div>}
-                {cp.kpp && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em]">КПП</p><p style={{fontFamily:'var(--font-mono)'}}>{cp.kpp}</p></div>}
-                {cp.ogrn && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em]">ОГРН</p><p style={{fontFamily:'var(--font-mono)'}}>{cp.ogrn}</p></div>}
+                {!isPerson && cp.kpp && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em]">КПП</p><p style={{fontFamily:'var(--font-mono)'}}>{cp.kpp}</p></div>}
+                {!isPerson && cp.ogrn && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em]">ОГРН</p><p style={{fontFamily:'var(--font-mono)'}}>{cp.ogrn}</p></div>}
+                {isPerson && cp.passportSeries && <div><p className="text-[11px] text-[var(--ink-4)] uppercase tracking-[0.08em]">Паспорт</p><p style={{fontFamily:'var(--font-mono)'}}>{[cp.passportSeries, cp.passportNumber].filter(Boolean).join(' № ')}</p></div>}
               </div>
               {cp.legalAddress && <p className="text-[var(--ink-3)]">{cp.legalAddress}</p>}
             </div>
@@ -367,7 +412,8 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
           )}
         </Card>
 
-        {/* Подписанты */}
+        {/* Подписанты — только для организаций/ИП; физлицо/самозанятый подписывает лично */}
+        {!isPerson && (
         <Card>
           <div className="flex items-center justify-between mb-[14px]">
             <div className="flex items-center gap-[8px]">
@@ -399,6 +445,7 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
             </div>
           )}
         </Card>
+        )}
 
         {/* Кнопки редактирования */}
         {editing && (
@@ -432,13 +479,21 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-4)] mb-[12px]">Вид в договоре</p>
           <RequisitesPreview
             data={{
-              type: (editing ? form.kpp : cp.kpp) ? 'COMPANY' : 'SOLE_PROPRIETOR',
+              type: editing ? form.type : cp.type,
               name: editing ? form.name : cp.name,
               inn: editing ? form.inn : cp.inn,
               kpp: editing ? form.kpp : cp.kpp,
               ogrn: editing ? form.ogrn : cp.ogrn,
               legalAddress: editing ? form.legalAddress : cp.legalAddress,
-              signatorName: cp.signatories[0]?.fullName ?? null,
+              actualAddress: editing ? form.actualAddress : cp.actualAddress,
+              passportSeries: editing ? form.passportSeries : cp.passportSeries,
+              passportNumber: editing ? form.passportNumber : cp.passportNumber,
+              passportIssuedBy: editing ? form.passportIssuedBy : cp.passportIssuedBy,
+              passportIssueDate: editing ? form.passportIssueDate : cp.passportIssueDate,
+              passportDeptCode: editing ? form.passportDeptCode : cp.passportDeptCode,
+              npdRegisteredDate: editing ? form.npdRegisteredDate : cp.npdRegisteredDate,
+              email: editing ? form.email : cp.email,
+              signatorName: isPerson ? (editing ? form.name : cp.name) : (cp.signatories[0]?.fullName ?? null),
               signatorPosition: cp.signatories[0]?.position ?? null,
               bankName: editing ? form.bankName : cp.bankDetails[0]?.bankName,
               bik: editing ? form.bik : cp.bankDetails[0]?.bik,

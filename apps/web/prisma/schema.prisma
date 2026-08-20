@@ -88,6 +88,18 @@ model Profile {
   // Форма реквизитов собирала её всегда; колонка появилась позже формы.
   ogrnDate       String?
   legalAddress   String?
+  // Фактический адрес физлица/самозанятого, если отличается от адреса регистрации
+  actualAddress  String?
+  // Телефон для связи (в блок реквизитов физлица)
+  phone          String?
+  // Паспорт физлица/самозанятого (все поля необязательны, ПДн — маскируются перед ИИ)
+  passportSeries    String?
+  passportNumber    String?
+  passportIssuedBy  String?
+  passportIssueDate String?
+  passportDeptCode  String?
+  // Дата постановки на учёт по НПД (самозанятый)
+  npdRegisteredDate String?
   // Email профиля — попадает в блок реквизитов документа
   email          String?
   // Подписант от имени этого профиля
@@ -112,6 +124,7 @@ model Profile {
 
 enum ProfileType {
   INDIVIDUAL        // Физлицо
+  SELF_EMPLOYED     // Самозанятый (плательщик НПД)
   SOLE_PROPRIETOR   // ИП
   COMPANY           // ООО / АО
   ANO               // АНО (Автономная Некоммерческая Организация)
@@ -122,13 +135,25 @@ enum ProfileType {
 // ─── Контрагенты ─────────────────────────────────────────────────────────────
 
 model Counterparty {
-  id           String   @id @default(cuid())
+  id           String      @id @default(cuid())
   userId       String
+  // Тип стороны: физлицо/самозанятый/ИП/ООО/… Существующим строкам проставляется
+  // миграцией по эвристике «есть КПП → COMPANY, иначе SOLE_PROPRIETOR».
+  type         ProfileType @default(COMPANY)
   name         String
   inn          String?
   kpp          String?
   ogrn         String?
   legalAddress String?
+  actualAddress String?
+  // Паспорт физлица/самозанятого (все поля необязательны, ПДн — маскируются перед ИИ)
+  passportSeries    String?
+  passportNumber    String?
+  passportIssuedBy  String?
+  passportIssueDate String?
+  passportDeptCode  String?
+  // Дата постановки на учёт по НПД (самозанятый)
+  npdRegisteredDate String?
   email        String?
   phone        String?
   // Контактные лица (до 3): [{ role, name?, email, phone }] — форма в карточке

@@ -92,6 +92,48 @@ describe('buildChildDocPreambleHtml — заголовок приложения/
   })
 })
 
+describe('buildContractPreambleHtml — физлицо и самозанятый как стороны', () => {
+  const INDIVIDUAL_CP: CounterpartyData = {
+    type: 'INDIVIDUAL',
+    name: 'Сидоров Сидор Сидорович',
+    passportSeries: '1234',
+    passportNumber: '567890',
+    passportIssuedBy: 'ОВД г. Москвы',
+    passportIssueDate: '10.05.2015',
+    legalAddress: 'г. Москва, ул. Мира, д. 3',
+  } as CounterpartyData
+
+  it('контрагент-физлицо: ФИО + паспорт, без «в лице»/«на основании»', () => {
+    const html = buildContractPreambleHtml(PROFILE, INDIVIDUAL_CP, 'Заказчик', 'Исполнитель')
+    expect(html).toContain('Сидоров Сидор Сидорович')
+    expect(html).toContain('паспорт 1234 № 567890')
+    expect(html).toContain('именуемый в дальнейшем «Исполнитель»')
+    // Берём только предложение контрагента (со «Сидоров»), сторона профиля — юрлицо.
+    const partySentence = html.slice(html.indexOf('Сидоров'))
+    expect(partySentence).not.toContain('в лице')
+    expect(partySentence).not.toContain('действующего на основании')
+  })
+
+  it('контрагент-самозанятый: добавляется оговорка про НПД', () => {
+    const smz = { ...INDIVIDUAL_CP, type: 'SELF_EMPLOYED' } as CounterpartyData
+    const html = buildContractPreambleHtml(PROFILE, smz, 'Заказчик', 'Исполнитель')
+    expect(html).toContain('Налог на профессиональный доход')
+  })
+
+  it('профиль-физлицо больше не рендерится как юрлицо', () => {
+    const indProfile = {
+      type: 'INDIVIDUAL',
+      name: 'Петров Пётр Петрович',
+      passportSeries: '4321',
+      passportNumber: '098765',
+    } as UserProfileData
+    const html = buildContractPreambleHtml(indProfile, COUNTERPARTY, 'Заказчик', 'Исполнитель')
+    const p1 = html.slice(html.indexOf('Петров'), html.indexOf('ООО «АЙЛАБМЕД»'))
+    expect(p1).not.toContain('действующего на основании Устава')
+    expect(p1).toContain('именуемый в дальнейшем «Заказчик»')
+  })
+})
+
 describe('splitDocumentPreamble — шапку не отдаём ИИ', () => {
   const PREAMBLE = [
     '<p class="doc-preamble-title ta-center"><strong>ДОГОВОР № 7</strong></p>',

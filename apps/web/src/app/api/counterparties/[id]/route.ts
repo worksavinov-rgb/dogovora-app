@@ -13,10 +13,18 @@ const contactSchema = z.object({
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
+  type: z.enum(['INDIVIDUAL', 'SELF_EMPLOYED', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']).optional(),
   inn: z.string().optional().nullable(),
   kpp: z.string().optional().nullable(),
   ogrn: z.string().optional().nullable(),
   legalAddress: z.string().optional().nullable(),
+  actualAddress: z.string().optional().nullable(),
+  passportSeries: z.string().optional().nullable(),
+  passportNumber: z.string().optional().nullable(),
+  passportIssuedBy: z.string().optional().nullable(),
+  passportIssueDate: z.string().optional().nullable(),
+  passportDeptCode: z.string().optional().nullable(),
+  npdRegisteredDate: z.string().optional().nullable(),
   email: z.string().optional().nullable(),
   phone: z.string().optional().nullable(),
   contacts: z.array(contactSchema).max(3).optional(),
