@@ -1085,13 +1085,30 @@ function buildPartyLines(party: UserProfileData | CounterpartyData, role: string
   lines.push(`<strong>${role}:</strong>`)
   lines.push(esc(party.name ?? ''))
 
-  if (party.legalAddress) lines.push(`Адрес: ${esc(party.legalAddress)}`)
+  // Тип стороны: из party.type, а если его нет (старые данные) — эвристика по КПП.
+  const type = 'type' in party && party.type ? party.type : (party.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR')
+  const individual = type === 'INDIVIDUAL' || type === 'SELF_EMPLOYED'
+  const isSoleProprietor = type === 'SOLE_PROPRIETOR'
+
+  if (party.legalAddress) lines.push(`${individual ? 'Адрес регистрации' : 'Адрес'}: ${esc(party.legalAddress)}`)
   if (party.inn) lines.push(`ИНН: ${esc(party.inn)}`)
-  if (party.kpp) lines.push(`КПП: ${esc(party.kpp)}`)
-  // У контрагента нет явного типа (CounterpartyData.type не объявлен) — определяем
-  // ИП по наличию КПП так же, как в buildContractPreambleHtml: КПП есть только у юрлиц.
-  const isSoleProprietor = 'type' in party ? party.type === 'SOLE_PROPRIETOR' : !party.kpp
-  if (party.ogrn) lines.push(`${isSoleProprietor ? 'ОГРНИП' : 'ОГРН'}: ${esc(party.ogrn)}`)
+  if (!individual && party.kpp) lines.push(`КПП: ${esc(party.kpp)}`)
+  if (!individual && party.ogrn) lines.push(`${isSoleProprietor ? 'ОГРНИП' : 'ОГРН'}: ${esc(party.ogrn)}`)
+
+  // Паспорт (только физлицо/самозанятый)
+  if (individual) {
+    const sn = [party.passportSeries, party.passportNumber].filter(Boolean).join(' № ')
+    if (sn) lines.push(`Паспорт: ${esc(sn)}`)
+    const issued = [
+      party.passportIssuedBy,
+      party.passportIssueDate,
+      party.passportDeptCode ? `код подразделения ${party.passportDeptCode}` : '',
+    ].filter(Boolean).join(', ')
+    if (issued) lines.push(`Выдан: ${esc(issued)}`)
+  }
+  if (type === 'SELF_EMPLOYED') {
+    lines.push('Применяет налог на профессиональный доход (НПД)')
+  }
 
   // Банковские реквизиты
   if (party.bankName)             lines.push(`Банк: ${esc(party.bankName)}`)
