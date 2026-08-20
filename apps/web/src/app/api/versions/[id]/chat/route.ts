@@ -8,6 +8,7 @@ import { TOKEN_PRICES, EDITS_PER_PACKAGE } from '@/lib/token-pricing'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { splitRequisitesBlock, splitDocumentPreamble } from '@/lib/html-document'
+import { diffDocumentBlocks, buildEditReportPrompt, summarizeChanges } from '@/lib/edit-report'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 import { rateLimit } from '@/lib/rate-limit'
@@ -252,9 +253,45 @@ export async function POST(req: NextRequest, { params }: Params) {
             return
           }
 
-          // Простое подтверждение без лишнего AI-запроса
-          const explanation = 'Готово — изменения внесены в документ.'
-          send({ type: 'chat', chunk: explanation })
+          // Отчёт о правке. Раньше здесь была одна и та же строка «Готово —
+          // изменения внесены в документ»: пользователь не знал ни что сделано,
+          // ни что из просьбы осталось невыполненным, и вычитывал договор глазами.
+          // Список изменений считает КОД (сравнение блоков до/после), модель лишь
+          // формулирует смысл — придумать несуществующую правку она не может.
+          const changes = diffDocumentBlocks(documentText, updatedDoc)
+          let explanation = ''
+          try {
+            await withLoggedAIContext('chat', { userId, versionId: id }, async ({ provider }) => {
+              const prompt = buildEditReportPrompt(data.content, changes)
+              for await (const chunk of provider.chat(
+                [{ role: 'user', content: prompt }],
+                { ...settings, customInstruction: '' },
+                '', // документ повторно не передаём: в задании уже есть нужные фрагменты
+              )) {
+                explanation += chunk
+                send({ type: 'chat', chunk })
+              }
+            })
+          } catch (err) {
+            // Отчёт — вспомогательный шаг: правка уже применена, и падение
+            // объяснения не должно выглядеть как неудачная правка.
+            logger.error({
+              event: 'versions.chat_edit_report_failed',
+              error: err,
+              request_id: getRequestId(req),
+              user_id: userId,
+              version_id: id,
+            })
+          }
+
+          if (!explanation.trim()) {
+            // Запасной вариант — фактическая сводка по подсчитанным изменениям
+            const summary = summarizeChanges(changes)
+            explanation = summary
+              ? `Готово — правки внесены (${summary}).`
+              : 'Готово — изменения внесены в документ.'
+            send({ type: 'chat', chunk: explanation })
+          }
 
           await prisma.chatMessage.create({
             data: { versionId: id, role: 'AI', content: explanation.trim() || 'Документ обновлён.' },
