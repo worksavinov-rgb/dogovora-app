@@ -1,4 +1,6 @@
 import { prisma } from './db'
+import { verifyToken } from '@/lib/tbank/signature'
+import type { PaymentStatus } from '@prisma/client'
 
 /**
  * Идемпотентно начисляет токены за подтверждённый платёж.
@@ -46,4 +48,44 @@ export async function creditForPayment(
     })
     return 'credited'
   })
+}
+
+export interface NotificationBody {
+  OrderId?: string
+  Status?: string
+  Amount?: number
+  Token?: string
+  [k: string]: unknown
+}
+
+export type NotificationOutcome =
+  | { action: 'reject'; reason: string }
+  | { action: 'ignore'; reason: string }
+  | { action: 'credit'; paymentId: string }
+  | { action: 'status'; paymentId: string; status: PaymentStatus }
+
+/**
+ * Чистая классификация вебхука: подпись → заказ → сумма → статус.
+ * Токены/сумму берём из нашей записи (deps.loadPayment), не из тела.
+ */
+export async function classifyNotification(
+  body: NotificationBody,
+  deps: { password: string; loadPayment: (orderId: string) => Promise<{ id: string; amount: number } | null> },
+): Promise<NotificationOutcome> {
+  if (!verifyToken(body, deps.password)) return { action: 'reject', reason: 'bad_signature' }
+
+  const orderId = String(body.OrderId ?? '')
+  if (!orderId) return { action: 'ignore', reason: 'no_order' }
+
+  const payment = await deps.loadPayment(orderId)
+  if (!payment) return { action: 'ignore', reason: 'unknown_order' }
+
+  if (Number(body.Amount) !== payment.amount) return { action: 'ignore', reason: 'amount_mismatch' }
+
+  const status = String(body.Status ?? '')
+  if (status === 'CONFIRMED') return { action: 'credit', paymentId: payment.id }
+  if (status === 'REJECTED') return { action: 'status', paymentId: payment.id, status: 'REJECTED' }
+  if (status === 'CANCELED') return { action: 'status', paymentId: payment.id, status: 'CANCELED' }
+  if (status === 'AUTHORIZED') return { action: 'status', paymentId: payment.id, status: 'AUTHORIZED' }
+  return { action: 'ignore', reason: 'unhandled_status' }
 }
