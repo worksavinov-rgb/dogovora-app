@@ -23,7 +23,7 @@ interface TokenBalancePopoverProps {
 
 function DocIcon({ filled }: { filled: boolean }) {
   return (
-    <svg width="11" height="14" viewBox="0 0 24 30" aria-hidden>
+    <svg width="9" height="12" viewBox="0 0 24 30" aria-hidden className="shrink-0">
       <path
         d="M4 1h11l6 6v22a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1z"
         fill={filled ? 'var(--accent)' : 'transparent'}
@@ -73,7 +73,7 @@ export function TokenBalancePopover({ balance, prices }: TokenBalancePopoverProp
 
       {open && (
         <div
-          className="absolute right-0 top-[38px] z-50 w-[280px] rounded-[var(--radius-lg)] p-[16px]"
+          className="absolute right-0 top-[38px] z-50 w-[300px] rounded-[var(--radius-lg)] p-[16px]"
           style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
         >
           <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[6px]">
@@ -85,7 +85,7 @@ export function TokenBalancePopover({ balance, prices }: TokenBalancePopoverProp
 
           {/* Шкала: один значок — один договор. Показывает «на что хватит»,
               без процентов — так понятнее, чем доля израсходованного. */}
-          <div className="flex gap-[3px] flex-wrap mb-[8px]">
+          <div className="flex gap-[2px] flex-nowrap mb-[8px]">
             {Array.from({ length: SCALE_SLOTS }, (_, i) => (
               <DocIcon key={i} filled={i < filledSlots} />
             ))}
