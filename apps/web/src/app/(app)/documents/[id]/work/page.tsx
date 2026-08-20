@@ -311,13 +311,27 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     scrollFractionRef.current = max > 0 ? box.scrollTop / max : 0
   }, [])
 
+  // Возврат делаем с дотягиванием: содержимое появляется не мгновенно
+  // (docx-preview рисует страницы, редактор верстает текст, подгружаются шрифты),
+  // и одна попытка попадает в момент, когда высота ещё мала — прокрутка тогда
+  // упирается в низ короткого документа. Повторяем, пока высота растёт.
   const restoreScroll = useCallback(() => {
-    const box = scrollBoxRef.current
     const fraction = scrollFractionRef.current
-    if (!box || fraction === null) return
-    const max = box.scrollHeight - box.clientHeight
-    if (max <= 0) return
-    box.scrollTop = fraction * max
+    if (fraction === null) return
+    let attempts = 0
+    let lastHeight = -1
+    const tick = () => {
+      const box = scrollBoxRef.current
+      if (!box) return
+      const max = box.scrollHeight - box.clientHeight
+      if (max > 0) box.scrollTop = fraction * max
+      attempts += 1
+      const grew = box.scrollHeight !== lastHeight
+      lastHeight = box.scrollHeight
+      // ~1.6 с максимум: этого хватает даже большому договору
+      if (attempts < 20 && grew) setTimeout(tick, 80)
+    }
+    tick()
   }, [])
   const [externalKey, setExternalKey] = useState(0)
 
@@ -507,7 +521,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   // после того, как содержимое встало (двойной кадр — ждём вёрстку).
   useEffect(() => {
     if (viewMode !== 'edit') return
-    const raf = requestAnimationFrame(() => requestAnimationFrame(restoreScroll))
+    const raf = requestAnimationFrame(restoreScroll)
     return () => cancelAnimationFrame(raf)
   }, [viewMode, restoreScroll])
 
@@ -814,7 +828,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         }
         setDocContent(updatedDoc)
         setExternalKey((k) => k + 1) // внешнее изменение — заменить содержимое редактора
-        requestAnimationFrame(() => requestAnimationFrame(restoreScroll))
+        requestAnimationFrame(restoreScroll)
         setHasUnsavedEdits(true)
         scheduleAutosave(updatedDoc) // автосохранение рабочей копии
       }
