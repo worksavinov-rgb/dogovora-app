@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
-import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, selectBlocksForPrompt, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
+import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, selectBlocksForPrompt, EDIT_PROMPT_CHAR_LIMIT, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
 import type { AITask } from './tasks'
 import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config/runtime'
 import { completeCompletion, streamCompletion } from './transport'
@@ -758,7 +758,7 @@ export const gigachatProvider: AIProvider = {
     // дописывала новый раздел в середину договора.
     // Отбор остаётся аварийным вариантом для документов, которые действительно
     // не влезают; предел настраивается через ENV.
-    const MAX_PROMPT_CHARS = Number(process.env['AI_EDIT_MAX_PROMPT_CHARS'] ?? 120_000)
+    const MAX_PROMPT_CHARS = EDIT_PROMPT_CHAR_LIMIT
     const selection = selectBlocksForPrompt(allBlocks, instruction, MAX_PROMPT_CHARS)
     const blocks = selection.blocks
     const blockIndexMap = selection.indexMap

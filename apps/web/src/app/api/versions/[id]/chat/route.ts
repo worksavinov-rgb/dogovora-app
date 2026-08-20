@@ -9,6 +9,7 @@ import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { splitRequisitesBlock, splitDocumentPreamble } from '@/lib/html-document'
 import { diffDocumentBlocks, buildEditReportPrompt, summarizeChanges } from '@/lib/edit-report'
+import { EDIT_PROMPT_CHAR_LIMIT } from '@/lib/doc-blocks'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 import { rateLimit } from '@/lib/rate-limit'
@@ -192,6 +193,21 @@ export async function POST(req: NextRequest, { params }: Params) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
 
         try {
+          // Документ длиннее лимита в один запрос не помещается: Догодок увидит
+          // только фрагменты, относящиеся к запросу. Раньше это происходило
+          // молча, и пользователь не понимал, почему правка легла не туда.
+          if (documentText.length > EDIT_PROMPT_CHAR_LIMIT) {
+            const notice = [
+              `Документ большой (${Math.round(documentText.length / 1000)} тыс. знаков) — целиком в один запрос он не помещается.`,
+              'Догодок разберёт только фрагменты, относящиеся к вашей просьбе, поэтому назовите номер пункта или процитируйте нужный текст.',
+              'Если правка касается всего договора — вносите её по разделам.',
+            ].join(' ')
+            send({ type: 'warning', chunk: notice })
+            await prisma.chatMessage.create({
+              data: { versionId: id, role: 'WARNING', content: notice },
+            })
+          }
+
           let updatedDoc = '' // только тело от ИИ, без шапки
           let failed = false
           let failReason = ''
