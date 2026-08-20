@@ -18,15 +18,31 @@ export interface UserProfileData {
   bik?: string | null
   correspondentAccount?: string | null
   email?: string | null
+  phone?: string | null
+  actualAddress?: string | null
+  passportSeries?: string | null
+  passportNumber?: string | null
+  passportIssuedBy?: string | null
+  passportIssueDate?: string | null
+  passportDeptCode?: string | null
+  npdRegisteredDate?: string | null
 }
 
 /** Данные контрагента для подстановки в шапку и реквизиты договора */
 export interface CounterpartyData {
+  type?: string         // INDIVIDUAL | SELF_EMPLOYED | SOLE_PROPRIETOR | COMPANY | ANO | PAO | ZAO
   name: string
   inn?: string | null
   kpp?: string | null
   ogrn?: string | null
   legalAddress?: string | null
+  actualAddress?: string | null
+  passportSeries?: string | null
+  passportNumber?: string | null
+  passportIssuedBy?: string | null
+  passportIssueDate?: string | null
+  passportDeptCode?: string | null
+  npdRegisteredDate?: string | null
   email?: string | null
   phone?: string | null
   bankName?: string | null
