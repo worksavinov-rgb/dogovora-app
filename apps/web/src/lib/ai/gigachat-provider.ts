@@ -749,7 +749,16 @@ export const gigachatProvider: AIProvider = {
     // целиком в модель не влезает. Отбор и соответствие номеров — в
     // selectBlocksForPrompt (doc-blocks.ts), там же объяснено, почему карту
     // индексов нельзя восстанавливать поиском по содержимому блока.
-    const MAX_PROMPT_CHARS = 30000
+    // Договор отдаём модели ЦЕЛИКОМ. Прежний лимит в 30 000 символов был
+    // рассчитан на GigaChat с окном ~32k токенов; сейчас правки идут через
+    // модель со 128k контекста, куда договор на 50-60 тысяч знаков помещается
+    // с большим запасом. Из-за старого лимита включался отбор блоков по
+    // ключевым словам, и модель просто НЕ ВИДЕЛА нужные пункты: на просьбу
+    // «переделай пункты 1.1–1.3» она решала, что таких пунктов нет, и
+    // дописывала новый раздел в середину договора.
+    // Отбор остаётся аварийным вариантом для документов, которые действительно
+    // не влезают; предел настраивается через ENV.
+    const MAX_PROMPT_CHARS = Number(process.env['AI_EDIT_MAX_PROMPT_CHARS'] ?? 120_000)
     const selection = selectBlocksForPrompt(allBlocks, instruction, MAX_PROMPT_CHARS)
     const blocks = selection.blocks
     const blockIndexMap = selection.indexMap
@@ -776,7 +785,10 @@ export const gigachatProvider: AIProvider = {
       settings.customInstruction ? `Особые требования: ${settings.customInstruction}` : '',
     ].filter(Boolean).join('\n')
 
-    const userMessage = `Задание: ${instruction}\n\nДокумент (пронумерованные блоки):\n${blocksToPromptText(blocks) || '(документ пуст)'}`
+    const partialNote = blockIndexMap
+      ? '\n\nВНИМАНИЕ: документ очень большой и показан НЕ ПОЛНОСТЬЮ — часть блоков пропущена. Если нужного пункта нет среди показанных, не выдумывай его и не создавай новый раздел, а верни <<<NOT_FOUND>>> с пояснением.'
+      : '\n\nДокумент показан ЦЕЛИКОМ — все блоки перед тобой.'
+    const userMessage = `Задание: ${instruction}${partialNote}\n\nДокумент (пронумерованные блоки):\n${blocksToPromptText(blocks) || '(документ пуст)'}`
 
     const payload = {
       model: getActiveModelId('edit', GIGACHAT_MODEL),
@@ -795,6 +807,16 @@ export const gigachatProvider: AIProvider = {
     }
 
     console.log('[editDocument] raw AI response length:', aiResponse.length)
+
+    // Модель честно сообщила, что не нашла, куда вносить правку. Это штатный
+    // ответ, а не сбой: раньше в такой ситуации она дописывала новый раздел в
+    // середину договора, и получались два противоречащих друг другу места.
+    const notFound = aiResponse.match(/<<<NOT_FOUND>>>\s*([\s\S]{0,400})/i)
+    if (notFound) {
+      const reason = notFound[1]!.replace(/<<<[^>]*>>>/g, '').trim()
+      yield `__EDIT_FAILED__::${reason || 'не нашёл в договоре место для этой правки'}`
+      return
+    }
 
     // Предохранитель от разрушительных правок: если результат внезапно стал
     // кардинально короче оригинала — это почти наверняка ошибка модели

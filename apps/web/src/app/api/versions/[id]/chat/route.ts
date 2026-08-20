@@ -194,6 +194,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         try {
           let updatedDoc = '' // только тело от ИИ, без шапки
           let failed = false
+          let failReason = ''
           let preambleSent = false
           // В логи — только размеры. Текст договора и инструкции пользователя
           // не логируются никогда: логи доступны админам и разработчикам.
@@ -201,8 +202,13 @@ export async function POST(req: NextRequest, { params }: Params) {
           await withLoggedAIContext('edit', { userId, versionId: id }, async ({ provider }) => {
             const docGen = provider.editDocument(documentText, data.content, settings)
             for await (const chunk of docGen) {
-              if (chunk === '__EDIT_FAILED__') {
+              if (chunk === '__EDIT_FAILED__' || chunk.startsWith('__EDIT_FAILED__::')) {
                 failed = true
+                // Модель может объяснить, почему не смогла — покажем это вместо
+                // общей фразы «не нашёл точный фрагмент».
+                failReason = chunk.startsWith('__EDIT_FAILED__::')
+                  ? chunk.slice('__EDIT_FAILED__::'.length).trim()
+                  : ''
               } else {
                 // Клиент собирает документ из чанков по порядку, поэтому шапку
                 // отдаём первым куском потока — иначе документ на экране
@@ -220,7 +226,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
           if (failed || !updatedDoc.trim()) {
             await releaseEdit() // правка не применена — возвращаем её в пакет
-            const msg = 'Не удалось применить изменение — не нашёл точный фрагмент в документе. Попробуйте уточнить запрос: укажите номер пункта или процитируйте часть текста который нужно изменить.'
+            const msg = failReason
+              ? `${failReason}\n\nУточните запрос: назовите номер пункта или процитируйте фрагмент, который нужно изменить.`
+              : 'Не удалось применить изменение — не нашёл точный фрагмент в документе. Попробуйте уточнить запрос: укажите номер пункта или процитируйте часть текста который нужно изменить.'
             send({ type: 'chat', chunk: msg })
             await prisma.chatMessage.create({
               data: { versionId: id, role: 'AI', content: msg },
