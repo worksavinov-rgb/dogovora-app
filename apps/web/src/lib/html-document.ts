@@ -781,10 +781,17 @@ export function buildContractPreambleHtml(
   role2: string,
   city?: string,
   signingDate?: string,
+  contractNumber?: string | null,
 ): string {
   const parts = buildPartyPreambleParts(userProfile, counterparty, role1, role2)
   parts.push('совместно именуемые «Стороны», заключили настоящий договор (далее — «Договор») о нижеследующем:')
+  const num = contractNumber?.trim() ? ` № ${esc(contractNumber.trim())}` : ''
   return [
+    // Заголовок документа. Раньше его в шапке основного договора не было вовсе
+    // (был только у приложений/ДС), и договор начинался прямо со строки «город — дата».
+    // Класс ta-center понимают оба рендера — CSS предпросмотра и конвертер DOCX
+    // (alignFromClass), поэтому отдельной ветки под этот абзац нигде не нужно.
+    `<p class="doc-preamble-title ta-center"><strong>ДОГОВОР${num}</strong></p>`,
     preambleMetaLine(city, signingDate),
     `<p class="doc-preamble">${parts.join(' ')}</p>`,
   ].join('\n')
@@ -814,7 +821,9 @@ export function buildChildDocPreambleHtml(
   const parts = buildPartyPreambleParts(userProfile, counterparty, role1, role2)
   parts.push(`совместно именуемые «Стороны», заключили настоящее ${label} о нижеследующем:`)
   return [
-    `<p class="doc-preamble-title"><strong>${esc(titleLine)}</strong></p>`,
+    // ta-center: в DOCX заголовок и так центрируется (ветка isAttachmentStart),
+    // а в предпросмотре без класса он прижимался влево — рендеры расходились.
+    `<p class="doc-preamble-title ta-center"><strong>${esc(titleLine)}</strong></p>`,
     preambleMetaLine(city, signingDate),
     `<p class="doc-preamble">${parts.join(' ')}</p>`,
   ].join('\n')
@@ -826,13 +835,27 @@ export function buildChildDocPreambleHtml(
  * Преамбула — это всё что идёт до первого заголовка <h1-4>. Если ИИ выполнил инструкцию
  * и начал документ прямо с «1. ПРЕДМЕТ ДОГОВОРА» — функция ничего не меняет.
  */
-export function stripAiPreamble(html: string): string {
+/**
+ * Делит документ на шапку (всё до первого заголовка раздела) и тело.
+ * Нужно там, где шапку нельзя отдавать ИИ: она собрана детерминированно из ЛК,
+ * а модель, получив её вместе с телом, переписывает стороны и основания. Тело
+ * правим, шапку возвращаем на место нетронутой — так же, как подвал реквизитов
+ * (см. splitRequisitesBlock).
+ * Если документ начинается прямо с заголовка раздела — шапки нет, тело целиком.
+ */
+export function splitDocumentPreamble(html: string): { preamble: string; body: string } {
   const firstHeadingMatch = html.match(/<h[1-4][^>]*>/i)
-  if (!firstHeadingMatch || firstHeadingMatch.index === undefined || firstHeadingMatch.index === 0) return html
+  if (!firstHeadingMatch || firstHeadingMatch.index === undefined || firstHeadingMatch.index === 0) {
+    return { preamble: '', body: html }
+  }
   const before = html.slice(0, firstHeadingMatch.index)
   const text = before.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()
-  if (!text) return html
-  return html.slice(firstHeadingMatch.index)
+  if (!text) return { preamble: '', body: html }
+  return { preamble: before.trimEnd(), body: html.slice(firstHeadingMatch.index) }
+}
+
+export function stripAiPreamble(html: string): string {
+  return splitDocumentPreamble(html).body
 }
 
 /**

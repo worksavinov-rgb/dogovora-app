@@ -7,7 +7,7 @@ import { chargeTokens, getEditQuota, InsufficientTokensError, insufficientTokens
 import { TOKEN_PRICES, EDITS_PER_PACKAGE } from '@/lib/token-pricing'
 import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
-import { splitRequisitesBlock } from '@/lib/html-document'
+import { splitRequisitesBlock, splitDocumentPreamble } from '@/lib/html-document'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 import { rateLimit } from '@/lib/rate-limit'
@@ -18,6 +18,21 @@ type Params = { params: Promise<{ id: string }> }
 // Платность правок регулируется пакетами (см. token-charges.getEditQuota):
 // правки тратят пакет документа, вопросы и анализ бесплатны.
 const CHAT_RATE_PER_MIN = Number(process.env.CHAT_RATE_PER_MIN ?? 15)
+
+/**
+ * Изменился ли документ по существу.
+ * Сравниваем видимый текст без разметки и пробелов: модель может вернуть тот же
+ * документ с иначе расставленными переносами или атрибутами — это не правка, и
+ * действие из пакета за такое списывать нельзя.
+ */
+function documentChanged(before: string, after: string): boolean {
+  const normalize = (s: string) =>
+    s.replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  return normalize(before) !== normalize(after)
+}
 
 const msgSchema = z.object({
   content: z.string().min(1).max(4000),
@@ -81,12 +96,18 @@ export async function POST(req: NextRequest, { params }: Params) {
       { status: 429 },
     )
   }
-  // ─── Пакеты ИИ-правок (только режим edit; вопросы/анализ бесплатны) ─────────
+  // ─── Пакет действий Догодка ─────────────────────────────────────────────────
+  // Пакет тратят ВСЕ обращения к ИИ: и правка, и вопрос, и быстрый анализ.
+  // Раньше платной была только правка, а вопросы работали даром и без лимита —
+  // по загруженному документу можно было бесплатно получить полный разбор
+  // договора, ни разу ничего не оплатив. Оплата — предоплатная: первое обращение
+  // к ИИ по документу открывает пакет, дальше действия расходуют его.
+  // Ручное редактирование остаётся бесплатным всегда — оно ИИ не задействует.
   const documentId = version.documentId
   let quota = { limit: 0, used: 0 } // снапшот для расчёта остатка в done-событии
-  if (data.mode === 'edit') {
+  {
     let q = await getEditQuota(documentId)
-    // Загруженный документ: первая правка платная — открывает пакет
+    // Загруженный документ: первое обращение к ИИ платное — открывает пакет
     if (q.isUploaded && q.packages === 0) {
       try {
         await chargeTokens({
@@ -96,7 +117,7 @@ export async function POST(req: NextRequest, { params }: Params) {
           documentId,
           versionId: id,
           idempotentPerDocument: true,
-          description: `Правки загруженного документа: ${version.document.title}`,
+          description: `Работа Догодка с загруженным документом: ${version.document.title}`,
         })
       } catch (err) {
         if (err instanceof InsufficientTokensError) return insufficientTokensResponse(err)
@@ -105,10 +126,10 @@ export async function POST(req: NextRequest, { params }: Params) {
       q = await getEditQuota(documentId)
     }
     quota = { limit: q.limit, used: q.used }
-    // Атомарное резервирование правки: инкремент под условием aiEditsUsed < limit.
-    // Одна UPDATE-строка сериализует параллельные edit-запросы — сверхлимитная
-    // правка не проскочит (проверка-в-начале + инкремент-в-конце допускали гонку).
-    // Неудачную правку (__EDIT_FAILED__ / ошибка ИИ) откатываем декрементом.
+    // Атомарное резервирование действия: инкремент под условием aiEditsUsed < limit.
+    // Одна UPDATE-строка сериализует параллельные запросы — сверхлимитное
+    // действие не проскочит (проверка-в-начале + инкремент-в-конце допускали гонку).
+    // Неудачное действие (__EDIT_FAILED__ / ошибка ИИ) откатываем декрементом.
     const reserved = await prisma.document.updateMany({
       where: { id: documentId, aiEditsUsed: { lt: q.limit } },
       data: { aiEditsUsed: { increment: 1 } },
@@ -116,7 +137,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (reserved.count === 0) {
       return NextResponse.json(
         {
-          error: `Пакет из ${EDITS_PER_PACKAGE} ИИ-правок исчерпан. Купите новый пакет, чтобы продолжить.`,
+          error: `Пакет из ${EDITS_PER_PACKAGE} действий Догодка исчерпан. Купите новый пакет, чтобы продолжить.`,
           code: 'EDIT_PACKAGE_NEEDED',
           price: TOKEN_PRICES.editPackage,
           limit: q.limit,
@@ -127,9 +148,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
   }
 
-  // Откат зарезервированной правки (правка не удалась — пакет не тратим)
+  // Откат зарезервированного действия (ИИ не отработал — пакет не тратим)
   const releaseEdit = async () => {
-    if (data.mode !== 'edit') return
     await prisma.document.updateMany({
       where: { id: documentId, aiEditsUsed: { gt: 0 } },
       data: { aiEditsUsed: { decrement: 1 } },
@@ -148,9 +168,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     customInstruction: aiSettings?.customInstruction ?? '',
   }
   const rawDoc = data.currentDocument?.trim() || version.content || ''
-  // Для edit-режима передаём HTML как есть — editDocument умеет работать с HTML.
+  // Для edit-режима передаём HTML как есть — editDocument умеет работать с HTML,
+  // но БЕЗ шапки: она собрана детерминированно из данных ЛК, и модель, получив её
+  // вместе с телом, переписывала стороны и основания (жалоба владельца). Роль
+  // пользователя ИИ берёт не из шапки, а из settings.customInstruction, поэтому
+  // защита интересов от этого не страдает. Шапку возвращаем на место после ответа —
+  // ровно так же, как editDocument поступает с подвалом реквизитов.
   // Для chat-режима: plain text + маскирование ПДн (документ не перезаписывается).
-  const documentText = rawDoc
+  const { preamble: docPreamble, body: documentText } = splitDocumentPreamble(rawDoc)
   // Чат: без подвала реквизитов + маскирование остаточного ПДн.
   const bodyForChat = splitRequisitesBlock(rawDoc).body
   const documentTextForChat = anonymizeForAnalysis(
@@ -166,8 +191,9 @@ export async function POST(req: NextRequest, { params }: Params) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
 
         try {
-          let updatedDoc = ''
+          let updatedDoc = '' // только тело от ИИ, без шапки
           let failed = false
+          let preambleSent = false
           // В логи — только размеры. Текст договора и инструкции пользователя
           // не логируются никогда: логи доступны админам и разработчикам.
           console.log('[chat/edit] starting editDocument, docLength=', documentText.length, 'instructionLength=', data.content.length)
@@ -177,6 +203,13 @@ export async function POST(req: NextRequest, { params }: Params) {
               if (chunk === '__EDIT_FAILED__') {
                 failed = true
               } else {
+                // Клиент собирает документ из чанков по порядку, поэтому шапку
+                // отдаём первым куском потока — иначе документ на экране
+                // остался бы без неё.
+                if (docPreamble && !preambleSent) {
+                  preambleSent = true
+                  send({ type: 'doc', chunk: `${docPreamble}\n` })
+                }
                 updatedDoc += chunk
                 send({ type: 'doc', chunk })
               }
@@ -196,6 +229,29 @@ export async function POST(req: NextRequest, { params }: Params) {
             return
           }
 
+          // Документ мог вернуться неизменным: модель «согласилась» с заданием,
+          // но ничего не поправила (типично для просьб вида «проверь на ошибки» —
+          // это по смыслу анализ, а не правка). Раньше пользователь в любом случае
+          // получал «Готово — изменения внесены» и терял действие из пакета,
+          // хотя документ оставался прежним. Сравниваем и отвечаем честно.
+          if (!documentChanged(documentText, updatedDoc)) {
+            await releaseEdit() // ничего не изменилось — действие не тратим
+            const msg = [
+              'Документ не изменился — я не нашёл, что именно нужно поправить по этому запросу.',
+              '',
+              'Если нужно проверить договор и получить разбор — переключитесь в режим «Вопрос» или нажмите «Анализ».',
+              'Если нужна правка — укажите, что именно поменять: номер пункта и новое условие.',
+            ].join('\n')
+            send({ type: 'chat', chunk: msg })
+            await prisma.chatMessage.create({
+              data: { versionId: id, role: 'AI', content: msg },
+            })
+            send({ type: 'done', updatedDocLength: 0, editsRemaining: Math.max(0, quota.limit - quota.used), editsLimit: quota.limit })
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+            controller.close()
+            return
+          }
+
           // Простое подтверждение без лишнего AI-запроса
           const explanation = 'Готово — изменения внесены в документ.'
           send({ type: 'chat', chunk: explanation })
@@ -208,7 +264,8 @@ export async function POST(req: NextRequest, { params }: Params) {
           // считаем из снапшота квоты, не перечитывая БД: limit не изменился,
           // used вырос на 1.
           const usedAfter = quota.used + 1
-          send({ type: 'done', updatedDocLength: updatedDoc.length, editsRemaining: Math.max(0, quota.limit - usedAfter), editsLimit: quota.limit })
+          const fullDoc = docPreamble ? `${docPreamble}\n${updatedDoc}` : updatedDoc
+          send({ type: 'done', updatedDocLength: fullDoc.length, editsRemaining: Math.max(0, quota.limit - usedAfter), editsLimit: quota.limit })
           controller.enqueue(encoder.encode('data: [DONE]\n\n'))
           controller.close()
         } catch (err) {

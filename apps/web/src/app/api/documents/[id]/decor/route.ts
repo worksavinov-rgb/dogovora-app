@@ -94,7 +94,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   const signingDate = data.signingDate ?? (doc.signingDate ? doc.signingDate.toISOString() : undefined)
 
   const preambleHtml = doc.type === 'CONTRACT'
-    ? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, chosenCity, signingDate)
+    // doc.number — номер договора для заголовка «ДОГОВОР № X» в шапке
+    ? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, chosenCity, signingDate, doc.number)
     : buildChildDocPreambleHtml(
         userProfile, counterpartyData, role1, role2, doc.type,
         doc.documentNumber ?? undefined, doc.parentDocument?.number ?? undefined,

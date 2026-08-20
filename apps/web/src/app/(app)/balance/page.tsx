@@ -19,7 +19,6 @@ interface Transaction {
 interface Prices {
   generate: number
   uploadEditStart: number
-  rewrite: number
   editPackage: number
   review: number
   analyzeUpload: number
@@ -178,12 +177,12 @@ export default function BalancePage() {
             <div className="flex flex-col gap-[8px]">
               {[
                 { label: 'Генерация документа', value: formatTokens(prices?.generate ?? 100) },
-                { label: `Пакет ${prices?.editsPerPackage ?? 10} правок Догодка`, value: 'включён' },
-                { label: 'Правки загруженного', value: formatTokens(prices?.uploadEditStart ?? 50) },
-                { label: 'Переписать заново', value: formatTokens(prices?.rewrite ?? 100) },
+                { label: `Пакет ${prices?.editsPerPackage ?? 10} действий Догодка`, value: 'включён' },
+                { label: 'Работа с загруженным', value: formatTokens(prices?.uploadEditStart ?? 50) },
+                { label: 'Правки и вопросы в чате', value: 'из пакета' },
                 { label: 'Проверка рисков', value: formatTokens(prices?.review ?? 25) },
                 { label: 'Анализ при загрузке', value: formatTokens(prices?.analyzeUpload ?? 25) },
-                { label: 'Вопросы в чате', value: 'Бесплатно' },
+                { label: 'Ручное редактирование', value: 'Бесплатно' },
                 { label: 'Скачивание и печать', value: 'Бесплатно' },
               ].map((row) => (
                 <div key={row.label} className="flex justify-between items-center text-[13px]">

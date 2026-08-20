@@ -15,8 +15,6 @@ export const TOKEN_PRICES = {
   generate: envInt('TOKEN_PRICE_GENERATE', 100),
   /** Старт правок загруженного документа (первая правка через чат) */
   uploadEditStart: envInt('TOKEN_PRICE_UPLOAD_EDIT_START', 50),
-  /** «Переписать заново» загруженный документ */
-  rewrite: envInt('TOKEN_PRICE_REWRITE', 100),
   /** Докупка пакета правок после исчерпания */
   editPackage: envInt('TOKEN_PRICE_EDIT_PACKAGE', 100),
   /** Проверка на риски — за каждый запуск */
@@ -34,7 +32,8 @@ export const WELCOME_BONUS_TOKENS = envInt('WELCOME_BONUS_TOKENS', 500)
 /**
  * Лимит ИИ-правок документа.
  * packages — число НЕотменённых списаний, дающих пакет
- * (GENERATE | UPLOAD_EDIT_START | REWRITE | EDIT_PACKAGE).
+ * (GENERATE | UPLOAD_EDIT_START | REWRITE | EDIT_PACKAGE — REWRITE только
+ * исторический: функция «Переписать заново» убрана, новые списания не создаются).
  * hasAnyPackageCharge — было ли ХОТЬ ОДНО такое списание за всю историю
  * документа (включая возвращённые). Неявный бесплатный пакет даётся только
  * до-токеновым документам — тем, у кого списаний не было вовсе. Так возврат

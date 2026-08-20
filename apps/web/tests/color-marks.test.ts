@@ -48,6 +48,32 @@ describe('convertToDocx: цветные пометки в Word', () => {
     expect(xml).toContain('FFF176')       // w:shd жёлтой заливки
   })
 
+  // Браузер нормализует style.color в rgb(), и TipTap возвращает цвет именно так.
+  // Пока этот формат не разбирался, цветные пометки терялись при выгрузке.
+  it('понимает цвет в формате rgb() — как его отдаёт браузер', async () => {
+    const html = '<p><span style="color: rgb(200, 30, 30)">красный</span></p>'
+    const xml = await readDocumentXml(await convertToDocx(html, { title: 'Тест' }))
+    expect(xml).toContain('C81E1E')
+  })
+
+  it('понимает rgba() и проценты', async () => {
+    const rgba = await readDocumentXml(
+      await convertToDocx('<p><span style="color: rgba(0, 128, 0, 0.9)">зелёный</span></p>', { title: 'Тест' }),
+    )
+    expect(rgba).toContain('008000')
+
+    const pct = await readDocumentXml(
+      await convertToDocx('<p><span style="color: rgb(100%, 0%, 0%)">красный</span></p>', { title: 'Тест' }),
+    )
+    expect(pct).toContain('FF0000')
+  })
+
+  it('переносит жёлтую заливку, заданную через rgb()', async () => {
+    const html = '<p><mark style="background-color: rgb(255, 241, 118)">выделено</mark></p>'
+    const xml = await readDocumentXml(await convertToDocx(html, { title: 'Тест' }))
+    expect(xml).toContain('FFF176')
+  })
+
   it('заголовки разделов остаются чёрными (не синими из темы Word)', async () => {
     const buffer = await convertToDocx('<h2>ПРЕДМЕТ ДОГОВОРА</h2><p>Текст</p>', { title: 'Тест' })
     const xml = await readDocumentXml(buffer)

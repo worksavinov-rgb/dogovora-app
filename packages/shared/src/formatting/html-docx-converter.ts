@@ -131,15 +131,44 @@ function parseHtml(html: string): Node[] {
 
 interface RunStyle { bold?: boolean; italics?: boolean; color?: string; highlight?: string }
 
-/** #RRGGBB / #RGB / имя цвета → 'RRGGBB' (формат docx). Иначе undefined. */
+/**
+ * #RRGGBB / #RGB / rgb() / rgba() / имя цвета → 'RRGGBB' (формат docx).
+ *
+ * rgb() обязателен: цвет ставится как #C81E1E, но редактор читает его обратно из
+ * DOM (element.style.color), а браузер нормализует значение в «rgb(200, 30, 30)».
+ * Пока этот формат не разбирался, цветные пометки пользователя молча пропадали
+ * при выгрузке в Word и в точном предпросмотре.
+ */
 function docxColor(value: string | undefined): string | undefined {
   if (!value) return undefined
   const v = value.trim().toLowerCase()
+
   const hex = v.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/)
   if (hex) {
     const h = hex[1]!
     return (h.length === 3 ? h.split('').map((c) => c + c).join('') : h).toUpperCase()
   }
+
+  // rgb(200, 30, 30) / rgba(200 30 30 / 0.5) — разделители: запятые, пробелы, слэш
+  const rgb = v.match(/^rgba?\(([^)]+)\)$/)
+  if (rgb) {
+    const parts = rgb[1]!.split(/[\s,/]+/).filter(Boolean)
+    if (parts.length >= 3) {
+      const channels = parts.slice(0, 3).map((p) => {
+        // допускаем проценты: rgb(100%, 0%, 0%)
+        const pct = p.endsWith('%')
+        const n = Number.parseFloat(p)
+        if (!Number.isFinite(n)) return null
+        const byte = pct ? Math.round((n / 100) * 255) : Math.round(n)
+        return Math.min(255, Math.max(0, byte))
+      })
+      if (channels.every((c): c is number => c !== null)) {
+        return channels.map((c) => c.toString(16).padStart(2, '0')).join('').toUpperCase()
+      }
+    }
+    return undefined
+  }
+
   const named: Record<string, string> = {
     red: 'FF0000', green: '008000', blue: '0000FF', black: '000000',
     yellow: 'FFFF00', orange: 'FFA500', gray: '808080', grey: '808080',

@@ -9,6 +9,10 @@ export class InsufficientTokensError extends Error {
   }
 }
 
+// REWRITE остаётся в списке намеренно: функция «Переписать заново» убрана и
+// новых таких списаний не создаётся, но у документов, где переписка была
+// оплачена раньше, пакет правок должен продолжать засчитываться
+// (token_charges append-only — историю не переписываем).
 const PACKAGE_KINDS: ChargeKind[] = ['GENERATE', 'UPLOAD_EDIT_START', 'REWRITE', 'EDIT_PACKAGE']
 
 /**

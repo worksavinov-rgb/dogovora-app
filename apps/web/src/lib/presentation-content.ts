@@ -1,20 +1,23 @@
 // Готовит контент версии к показу и выгрузке:
 //  1) структурирование загруженного документа (заголовки) — тяжёлое, с ИИ, кэшируется;
-//  2) подстановка эталонных шапки и реквизитов из ЛК — дешёвая, выполняется всегда,
-//     поэтому изменения реквизитов в ЛК подхватываются сразу, без инвалидации кэша.
+//  2) подстановка блока реквизитов из ЛК — дешёвая, выполняется всегда, поэтому
+//     изменения реквизитов в ЛК подхватываются сразу, без инвалидации кэша.
 //
 // Принцип: ИИ/эвристики только НАХОДЯТ границы блоков, а сами реквизиты подставляет
 // код из структурированных данных ЛК — в цифрах ИНН и счетов ошибок быть не должно.
+//
+// Шапка загруженного документа — исключение: её мы не подменяем. Пользователь принёс
+// готовый договор со своей шапкой, и она остаётся его. Заменить шапку можно только
+// явно — согласовав её на шаге «Оформление» (тогда она лежит в Document.preambleHtml).
 
 import { prisma } from './db'
 import {
-  buildContractPreambleHtml,
-  buildChildDocPreambleHtml,
   buildRequisitesHtml,
   replaceDocumentPreamble,
   replaceRequisitesSection,
 } from './html-document'
 import { hasInlineRequisites } from './html-document'
+import { resolveCounterpartySignatory } from './party-data'
 import { getStructuredContentCached, looksLikeUpload } from './structure-uploaded'
 import { logger } from './logger'
 
@@ -43,9 +46,8 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
   const doc = await prisma.document.findUnique({
     where: { id: documentId },
     include: {
-      counterparty: { include: { bankDetails: { take: 1 }, signatories: { where: { isDefault: true }, take: 1 } } },
+      counterparty: { include: { bankDetails: { take: 1 } } },
       profile: { include: { bankDetails: { take: 1 } } },
-      parentDocument: { select: { title: true, number: true } },
     },
   })
   if (!doc) return null
@@ -53,7 +55,12 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
   const { role1, role2 } = rolesFor(userRole)
   const profile = doc.profile
   const cp = doc.counterparty
-  const cpSig = cp?.signatories?.[0]
+  // Подписант контрагента — через общий резолвер (party-data): дефолтный, а если
+  // «по умолчанию» никто не отмечен — первый созданный. Здесь стояло жёсткое
+  // isDefault:true, и шапка получала прочерки «в лице ____, действующего на
+  // основании ____», хотя подписант в карточке заполнен, — при этом DOCX брал
+  // его же через резолвер. Один резолвер = одинаковый подписант везде.
+  const cpSig = cp ? await resolveCounterpartySignatory(cp.id) : null
 
   const userProfile = profile ? {
     type: profile.type,
@@ -90,23 +97,16 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
     signatorBasis: basisFrom(cpSig?.basisType ?? null, cpSig?.poaNumber ?? null),
   } : null
 
-  // Сохранённые в мастере блоки имеют приоритет (пользователь мог их поправить).
-  let preambleHtml = doc.preambleHtml ?? null
+  // Шапка — ТОЛЬКО та, которую пользователь сам согласовал на шаге «Оформление»
+  // (Document.preambleHtml). Своей шапки мы больше не собираем: если человек
+  // принёс готовый договор со своей шапкой, подменять её нельзя — там могут быть
+  // формулировки и стороны, которых в ЛК нет.
+  const preambleHtml = doc.preambleHtml ?? null
+  // Реквизиты — наоборот, подставляем всегда: ИНН, счета и БИК должны браться из
+  // структурированных данных ЛК, а не из распознанного текста файла.
   let requisitesHtml = doc.requisitesHtml ?? null
-
-  if (userProfile && counterpartyData) {
-    if (!preambleHtml) {
-      preambleHtml = doc.type === 'CONTRACT'
-        ? buildContractPreambleHtml(userProfile, counterpartyData, role1, role2, undefined,
-            doc.signingDate ? doc.signingDate.toISOString() : undefined)
-        : buildChildDocPreambleHtml(userProfile, counterpartyData, role1, role2, doc.type,
-            doc.documentNumber ?? undefined, doc.parentDocument?.number ?? undefined,
-            doc.parentDocument?.title ?? undefined, undefined,
-            doc.signingDate ? doc.signingDate.toISOString() : undefined)
-    }
-    if (!requisitesHtml) {
-      requisitesHtml = buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
-    }
+  if (!requisitesHtml && userProfile && counterpartyData) {
+    requisitesHtml = buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
   }
 
   return { preambleHtml, requisitesHtml, counterpartyName: cp?.name ?? null, counterpartyInn: cp?.inn ?? null }
@@ -184,6 +184,8 @@ export async function getPresentationContent(
     }
 
     let out = structured
+    // Шапку подменяем, только если она пришла из шага «Оформление»: это явное
+    // решение пользователя. Без него шапка загруженного файла остаётся как есть.
     if (ref.preambleHtml) out = replaceDocumentPreamble(out, ref.preambleHtml).html
     if (ref.requisitesHtml) out = replaceRequisitesSection(out, ref.requisitesHtml).html
 

@@ -22,7 +22,6 @@ export async function GET(req: NextRequest, { params }: Params) {
       editPackage: TOKEN_PRICES.editPackage,
       uploadEditStart: TOKEN_PRICES.uploadEditStart,
       generate: TOKEN_PRICES.generate,
-      rewrite: TOKEN_PRICES.rewrite,
       review: TOKEN_PRICES.review,
     },
   })

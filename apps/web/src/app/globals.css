@@ -470,12 +470,29 @@ button { font-family: inherit; }
 .document-viewer .ProseMirror em { font-style: italic; }
 
 /* ── Списки ────────────────────────────────────────────────────────────────── */
+/* list-style задаём явно: Tailwind preflight глобально сбрасывает маркеры
+   (ol, ul, menu { list-style: none }), из-за чего у пунктов оставался только
+   отступ, а самой точки не было видно. */
 .document-viewer ul,
+.document-viewer .ProseMirror ul {
+  padding-left: 22px;
+  margin: 4px 0 8px;
+  list-style: disc outside;
+}
 .document-viewer ol,
-.document-viewer .ProseMirror ul,
 .document-viewer .ProseMirror ol {
   padding-left: 22px;
   margin: 4px 0 8px;
+  /* Нумерованные списки с нашим классом (ol-legal/alpha/roman) рисуют номер
+     через ::before и сами гасят list-style ниже. Здесь — запасной вариант для
+     <ol> без класса: иначе он остался бы вовсе без номеров. */
+  list-style: decimal outside;
+}
+.document-viewer ul li::marker,
+.document-viewer .ProseMirror ul li::marker,
+.document-viewer ol li::marker,
+.document-viewer .ProseMirror ol li::marker {
+  color: inherit;
 }
 .document-viewer li,
 .document-viewer .ProseMirror li {

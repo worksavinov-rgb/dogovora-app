@@ -27,6 +27,38 @@ const RENDER_OPTIONS = {
   useBase64URL: true,
 } as const
 
+// Маркеры списков Word задаются символьными шрифтами (Wingdings/Symbol), которых
+// в браузере нет — docx-preview рисует их «тофу»-квадратами. Шрифты проприетарные,
+// подложить их нельзя, поэтому переводим сами коды в юникод-эквиваленты.
+const SYMBOL_FONT = /wingdings|symbol|webdings/i
+const BULLET_MAP: Record<string, string> = {
+  '': '▪', '§': '▪', // § — квадратный маркер
+  '': '•', '·': '•', // · — круглый маркер
+  '': '✓', 'ü': '✓', // ü — галочка
+  '': '➢', 'Ø': '➢', // Ø — стрелка
+  '': '●', l: '●',
+  '': '■', n: '■',
+  '': '❑', u: '❑',
+  '': '❖', v: '❖',
+  '': '▫', '¨': '▫',
+}
+
+/** Заменяет символы из Wingdings/Symbol на видимые юникод-маркеры. */
+function fixSymbolBullets(root: HTMLElement): void {
+  const nodes = root.querySelectorAll<HTMLElement>('[style*="font-family"]')
+  nodes.forEach((el) => {
+    if (!SYMBOL_FONT.test(el.style.fontFamily)) return
+    const text = el.textContent ?? ''
+    // Маркер — это одиночный символ; длинный текст таким шрифтом не трогаем,
+    // чтобы не испортить содержательные фрагменты документа.
+    if (text.trim().length > 2) return
+    const replaced = [...text].map((ch) => BULLET_MAP[ch] ?? ch).join('')
+    if (replaced !== text) el.textContent = replaced
+    // Символьный шрифт снимаем в любом случае — иначе останется «тофу».
+    el.style.fontFamily = 'inherit'
+  })
+}
+
 export function DocxPreview({
   docx,
   loading = false,
@@ -56,7 +88,9 @@ export function DocxPreview({
         // renderAsync мутирует буфер (переносит владение), поэтому копию не
         // переиспользуем — экран всегда передаёт свежие байты.
         await renderAsync(docx, container, undefined, RENDER_OPTIONS as Record<string, unknown>)
-        if (!cancelled) setRendering(false)
+        if (cancelled) return
+        fixSymbolBullets(container)
+        setRendering(false)
       } catch (e) {
         if (cancelled) return
         setRendering(false)

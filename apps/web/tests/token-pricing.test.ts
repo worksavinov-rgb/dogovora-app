@@ -5,7 +5,6 @@ describe('token-pricing', () => {
   it('цены по умолчанию', () => {
     expect(TOKEN_PRICES.generate).toBe(100)
     expect(TOKEN_PRICES.uploadEditStart).toBe(50)
-    expect(TOKEN_PRICES.rewrite).toBe(100)
     expect(TOKEN_PRICES.editPackage).toBe(100)
     expect(TOKEN_PRICES.review).toBe(25)
     expect(TOKEN_PRICES.analyzeUpload).toBe(25)

@@ -9,6 +9,7 @@ import { DocumentViewer } from '@/components/document-viewer'
 import { EditorToolbar } from '@/components/editor-toolbar'
 import { DecorModal } from '@/components/decor-modal'
 import { DocxPreview } from '@/components/docx-preview'
+import { formatTokens } from '@/lib/token-pricing'
 import type { Editor } from '@tiptap/react'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
@@ -53,7 +54,7 @@ interface EditQuota {
   remaining: number
   packages: number
   isUploaded: boolean
-  prices: { editPackage: number; rewrite: number; generate: number; uploadEditStart: number; review: number }
+  prices: { editPackage: number; generate: number; uploadEditStart: number; review: number }
 }
 
 // ─── Константы ────────────────────────────────────────────────────────────────
@@ -97,10 +98,15 @@ function ChatBubble({ msg }: { msg: { role: string; content: string; id: string 
           <span className="text-[10px] text-white font-medium">✦</span>
         </div>
       )}
-      <div className={[
-        'max-w-[85%] px-[12px] py-[9px] rounded-[var(--radius-lg)] text-[13px] leading-[1.55]',
-        isUser ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-[var(--surface-inset)] text-[var(--ink)]',
-      ].join(' ')}>
+      <div
+        className={[
+          'max-w-[85%] px-[12px] py-[9px] rounded-[var(--radius-lg)] text-[13px] leading-[1.55]',
+          isUser ? 'bg-[var(--ink)] text-[var(--bg)]' : 'bg-[var(--surface-inset)] text-[var(--ink)]',
+        ].join(' ')}
+        // pre-wrap: ИИ присылает текст с переносами строк, но HTML схлопывает их
+        // в пробел — без этого ответ выглядел сплошной стеной текста.
+        style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+      >
         {isUser ? msg.content : stripMarkdown(msg.content)}
       </div>
     </div>
@@ -108,13 +114,17 @@ function ChatBubble({ msg }: { msg: { role: string; content: string; id: string 
 }
 
 // ─── Экран генерации (пока документ создаётся) ───────────────────────────────
-// Убирает markdown-разметку, оставляя чистый текст (используется в чате)
+// Убирает markdown-разметку, оставляя читаемый текст (используется в чате).
+// Структуру ответа СОХРАНЯЕМ: раньше маркеры списков вырезались совсем, и вместе
+// с проглоченными переносами строк ответ превращался в сплошное полотно.
 function stripMarkdown(s: string): string {
   return s
+    .replace(/```[\w]*\n?/g, '')      // ограждения блоков кода
     .replace(/^#{1,6}\s+/gm, '')      // ## заголовки
     .replace(/\*\*(.+?)\*\*/g, '$1')  // **жирный**
-    .replace(/\*(.+?)\*/g, '$1')      // *курсив*
-    .replace(/^[-*]\s+/gm, '')        // маркеры списка
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '$1') // *курсив*
+    .replace(/^\s*[-*]\s+/gm, '• ')   // маркеры списка → видимая точка
+    .replace(/\n{3,}/g, '\n\n')       // не больше одной пустой строки подряд
     .trim()
 }
 
@@ -277,8 +287,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [editQuota, setEditQuota] = useState<EditQuota | null>(null) // пакет ИИ-правок документа
   const [packageNeeded, setPackageNeeded] = useState(false) // пакет исчерпан — предложить докупку
   const [buyingPackage, setBuyingPackage] = useState(false)
-  const [rewriteConfirmOpen, setRewriteConfirmOpen] = useState(false) // «Переписать заново» (загруженные)
-  const [rewriting, setRewriting] = useState(false)
   const [statusChanging, setStatusChanging] = useState(false)
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const statusDropdownRef = useRef<HTMLDivElement>(null)
@@ -290,6 +298,8 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   // Режим левой колонки: 'view' — точный рендер .docx как в Word; 'edit' — ручная
   // правка в TipTap-редакторе (тот же HTML-движок, автосейв/версии без изменений).
   const [viewMode, setViewMode] = useState<'view' | 'edit'>('view')
+  // Быстрые команды свёрнуты по умолчанию — экономим место в узкой колонке чата
+  const [chipsOpen, setChipsOpen] = useState(false)
   // Тост «версия сохранена» — подтверждение вместо ухода с экрана
   const [savedNoticeVersion, setSavedNoticeVersion] = useState<number | null>(null)
   // Памятка о переформатировании: показывается один раз за сессию при первой
@@ -569,7 +579,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         await refreshQuota()
         setMessages((prev) => [...prev, {
           id: `pkg-${Date.now()}`, role: 'WARNING' as const,
-          content: 'Пакет правок куплен — можно продолжать.', createdAt: new Date().toISOString(),
+          content: 'Пакет действий куплен — можно продолжать.', createdAt: new Date().toISOString(),
         }])
       } else if (data.error) {
         setMessages((prev) => [...prev, {
@@ -579,41 +589,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       }
     } finally {
       setBuyingPackage(false)
-    }
-  }
-
-  // «Переписать заново» — полная перегенерация загруженного документа (REWRITE)
-  async function rewriteDocument() {
-    if (rewriting) return
-    setRewriteConfirmOpen(false)
-    setRewriting(true)
-    try {
-      const res = await fetch(`/api/documents/${id}/rewrite`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const data = await res.json().catch(() => ({})) as { versionId?: string; error?: string }
-      if (!res.ok || !data.versionId) {
-        setMessages((prev) => [...prev, {
-          id: `rw-err-${Date.now()}`, role: 'WARNING' as const,
-          content: data.error ?? 'Не удалось запустить переписку.', createdAt: new Date().toISOString(),
-        }])
-        return
-      }
-      const genRes = await fetch(`/api/versions/${data.versionId}/generate`, { method: 'POST' })
-      if (genRes.status === 402) {
-        const err = await genRes.json().catch(() => ({})) as { error?: string }
-        setMessages((prev) => [...prev, {
-          id: `rw-402-${Date.now()}`, role: 'WARNING' as const,
-          content: err.error ?? 'Не хватает токенов для переписки.', createdAt: new Date().toISOString(),
-        }])
-        return
-      }
-      // Переходим на новую версию — экран сам запустит поллинг генерации
-      window.location.href = `/documents/${id}/work?version=${data.versionId}`
-    } finally {
-      setRewriting(false)
     }
   }
 
@@ -770,8 +745,18 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             const parsed = JSON.parse(data) as { type?: string; chunk?: string; editsRemaining?: number; editsLimit?: number }
 
             if (parsed.type === 'done' && typeof parsed.editsRemaining === 'number') {
-              // Сервер сообщает остаток пакета после успешной правки
-              setEditQuota((prev) => prev ? { ...prev, remaining: parsed.editsRemaining!, limit: parsed.editsLimit ?? prev.limit, used: (parsed.editsLimit ?? prev.limit) - parsed.editsRemaining! } : prev)
+              // Сервер сообщает остаток пакета после успешной правки.
+              // Обновляем и packages: по нему показывается плашка «Первая правка»,
+              // и без обновления она продолжала висеть после первой же правки.
+              setEditQuota((prev) => prev ? {
+                ...prev,
+                remaining: parsed.editsRemaining!,
+                limit: parsed.editsLimit ?? prev.limit,
+                used: (parsed.editsLimit ?? prev.limit) - parsed.editsRemaining!,
+                packages: prev.packages === 0 ? 1 : prev.packages,
+              } : prev)
+              // Сверяемся с сервером — снапшот выше оптимистичный
+              void refreshQuota()
             }
 
             if (parsed.type === 'doc' && parsed.chunk) {
@@ -983,7 +968,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   if (!version) return null
 
-  const protectionLevel = version.aiSettings?.protectionLevel ?? 70
   const docTitle = version.document?.title ?? 'Документ'
   const charCount = docContent?.length ?? 0
   const wordCount = docContent ? docContent.trim().split(/\s+/).filter(Boolean).length : 0
@@ -1166,46 +1150,6 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
-            {/* Переписать заново — только для загруженных документов */}
-            {editQuota?.isUploaded && !generating && docContent && (
-              <div className="relative hidden md:block">
-                <button
-                  onClick={() => setRewriteConfirmOpen(v => !v)}
-                  disabled={rewriting || streaming}
-                  className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium text-[var(--ink)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer disabled:opacity-40"
-                >
-                  {rewriting ? 'Запускаю…' : 'Переписать заново'}
-                </button>
-                {rewriteConfirmOpen && (
-                  <div
-                    className="absolute right-0 top-[38px] z-50 rounded-[var(--radius-lg)] w-[280px]"
-                    style={{ background: 'white', border: '1px solid var(--line-2)', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '16px' }}
-                  >
-                    <p className="text-[12px] font-medium text-[var(--ink)] mb-[4px]">
-                      Переписать документ заново?
-                    </p>
-                    <p className="text-[11px] text-[var(--ink-4)] mb-[14px] leading-[1.5]">
-                      Догодок полностью перепишет договор по мотивам текущего текста — создастся новая версия.
-                      Спишется {editQuota.prices.rewrite} токенов, в цену входит пакет из 10 правок.
-                    </p>
-                    <div className="flex gap-[6px]">
-                      <button
-                        onClick={() => setRewriteConfirmOpen(false)}
-                        className="flex-1 h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--surface-inset)] text-[var(--ink-3)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
-                      >
-                        Отмена
-                      </button>
-                      <button
-                        onClick={rewriteDocument}
-                        className="flex-1 h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
-                      >
-                        Переписать
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Оформление — переоткрыть шаг (сменить подписанта/город, скачать без шапки).
                 Для legacy-версий (шапка в теле) слой не применяется — кнопку не показываем. */}
@@ -1284,6 +1228,45 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           <GeneratingScreen done={genProgress === 100} docTitle={docTitle} />
         ) : (
           <div className="flex-1 overflow-y-auto relative" style={{ background: '#DEDAD3', padding: '0' }}>
+            {/* Памятка о переформатировании — полосой над документом, в зоне
+                внимания (в углу экрана её попросту не замечали). Закрывается
+                ТОЛЬКО крестиком: пользователь должен успеть прочитать и сверить
+                с документом. */}
+            {reformatNoticeOpen && (
+              <div
+                className="sticky top-0 z-20 flex items-start gap-[10px] px-[16px] py-[10px]"
+                style={{
+                  background: 'oklch(0.97 0.015 60)',
+                  borderBottom: '1px solid oklch(0.88 0.04 60)',
+                }}
+                role="status"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="oklch(0.5 0.1 60)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-[2px] shrink-0">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] font-semibold" style={{ color: 'oklch(0.42 0.1 60)' }}>
+                    Документ переводится в рабочий формат
+                  </p>
+                  <p className="text-[11.5px] leading-[1.55]" style={{ color: 'oklch(0.5 0.08 60)' }}>
+                    Вы начали править договор — Догодок переформатирует его и вычитывает,
+                    чтобы дальше можно было вносить правки. Поэтому оформление может немного
+                    отличаться от исходного файла. Чтобы увидеть, каким документ уйдёт в Word,
+                    переключитесь в режим <strong>«Готово · просмотр»</strong> — там показан
+                    ровно тот файл, который скачается.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setReformatNoticeOpen(false)}
+                  aria-label="Закрыть"
+                  className="shrink-0 w-[22px] h-[22px] rounded-[var(--radius-sm)] flex items-center justify-center transition-colors cursor-pointer hover:bg-[oklch(0.92_0.04_60)]"
+                  style={{ color: 'oklch(0.5 0.1 60)' }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            )}
+
             {/* Индикатор обновления документа ИИ — всё время генерации */}
             {streaming && (
               <div
@@ -1565,61 +1548,80 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             ))}
           </div>
 
-          {/* Остаток пакета ИИ-правок (правки платные, вопросы бесплатны) */}
-          {chatMode === 'edit' && editQuota && editQuota.limit > 0 && (
-            <span
-              className="text-[11px] font-medium whitespace-nowrap"
-              style={{ color: editQuota.remaining === 0 ? 'var(--danger)' : 'var(--ink-4)' }}
-              title="В оплаченную генерацию входит пакет правок Догодка; вопросы не тратят пакет"
-            >
-              Правок осталось: {editQuota.remaining} из {editQuota.limit}
-            </span>
-          )}
-          {chatMode === 'edit' && editQuota && editQuota.isUploaded && editQuota.packages === 0 && (
-            <span className="text-[11px] font-medium whitespace-nowrap text-[var(--ink-4)]"
-              title="Для загруженного документа первая правка открывает пакет из 10 правок">
-              Первая правка · {editQuota.prices.uploadEditStart ?? 50} токенов
-            </span>
+          {/* Состояние пакета — ОДНА строка. Раньше здесь стояли два независимых
+              индикатора, и они показывались одновременно («Правок осталось: 9 из 10»
+              рядом с «Первая правка · 50 токенов»), противореча друг другу и не
+              помещаясь по ширине. Ветки взаимоисключающие: пакета ещё нет → цена
+              входа; пакет есть → остаток.
+              Показываем в обоих режимах: вопросы тратят тот же пакет, что и правки. */}
+          {editQuota && (
+            editQuota.limit === 0 ? (
+              <span className="text-[11px] font-medium whitespace-nowrap text-[var(--ink-4)]"
+                title="Первое обращение к Догодку открывает пакет действий: правок и вопросов">
+                Первое обращение · {formatTokens(editQuota.prices.uploadEditStart ?? 50)}
+              </span>
+            ) : (
+              <span
+                className="text-[11px] font-medium whitespace-nowrap"
+                style={{ color: editQuota.remaining === 0 ? 'var(--danger)' : 'var(--ink-4)' }}
+                title="Пакет расходуют и правки, и вопросы к Догодку. Ручное редактирование бесплатно"
+              >
+                Действий осталось: {editQuota.remaining} из {editQuota.limit}
+              </span>
+            )
           )}
         </div>
 
         {/* Пакет исчерпан — предложение докупки */}
-        {packageNeeded && chatMode === 'edit' && (
+        {packageNeeded && (
           <div className="shrink-0 mx-[12px] mb-[8px] rounded-[var(--radius-md)] px-[12px] py-[10px] flex items-center justify-between gap-[10px]"
             style={{ background: 'oklch(0.97 0.015 60)', border: '1px solid oklch(0.88 0.04 60)' }}>
             <p className="text-[12px]" style={{ color: 'oklch(0.45 0.08 60)' }}>
-              Пакет правок исчерпан
+              Пакет действий исчерпан
             </p>
             <button
               onClick={buyEditPackage}
               disabled={buyingPackage}
               className="shrink-0 h-[28px] px-[10px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
             >
-              {buyingPackage ? 'Покупаю…' : `Купить 10 правок · ${editQuota?.prices.editPackage ?? 100} токенов`}
+              {buyingPackage ? 'Покупаю…' : `Купить 10 действий · ${editQuota?.prices.editPackage ?? 100} токенов`}
             </button>
           </div>
         )}
 
-        {/* Быстрые чипы */}
-        <div className="shrink-0 px-[12px] pb-[8px] flex gap-[6px] flex-wrap">
-          {(chatMode === 'edit' ? QUICK_CHIPS_EDIT : QUICK_CHIPS_CHAT).map((chip) => (
-            <button key={chip} onClick={() => { setInput(chip); textareaRef.current?.focus() }}
-              className="px-[10px] h-[26px] rounded-full text-[11px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap">
-              {chip}
-            </button>
-          ))}
+        {/* Быстрые команды — свёрнуты: в узкой колонке пять чипов занимали три
+            строки и отъедали место у переписки. Раскрываются по клику. */}
+        <div className="shrink-0 px-[12px] pb-[8px] flex flex-col gap-[6px]">
+          <button
+            onClick={() => setChipsOpen((v) => !v)}
+            className="self-start flex items-center gap-[5px] text-[11px] font-medium text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+            aria-expanded={chipsOpen}
+          >
+            <svg
+              width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              style={{ transform: chipsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+            Быстрые команды
+          </button>
+          {chipsOpen && (
+            <div className="flex gap-[6px] flex-wrap">
+              {(chatMode === 'edit' ? QUICK_CHIPS_EDIT : QUICK_CHIPS_CHAT).map((chip) => (
+                <button key={chip} onClick={() => { setInput(chip); textareaRef.current?.focus() }}
+                  className="px-[10px] h-[26px] rounded-full text-[11px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer whitespace-nowrap">
+                  {chip}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Поле ввода */}
         <div className="shrink-0 px-[12px] pb-[12px]">
           <div className="flex items-end gap-[8px] rounded-[var(--radius-lg)] bg-[var(--surface-inset)]"
             style={{ padding: '10px 10px 10px 12px' }}>
-            <button className="shrink-0 mb-[1px] flex items-center gap-[4px] hover:opacity-70 transition-opacity cursor-pointer"
-              style={{ color: 'var(--accent)' }} title={`Уровень защиты: ${protectionLevel}%`}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              <span className="text-[11px] font-medium" style={{ fontFamily: 'var(--font-mono)' }}>{protectionLevel}</span>
-            </button>
-
             <textarea ref={textareaRef} value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
@@ -1649,54 +1651,17 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           <p className="mt-[6px] text-[11px] text-[var(--ink-4)] px-[2px]">
             {chatMode === 'edit'
               ? 'Режим правки — Догодок изменит текст документа'
-              : 'Режим вопроса — только ответ в чате, документ не меняется'}
+              : 'Режим вопроса — только ответ в чате, документ не меняется. Расходует пакет, как и правка'}
           </p>
         </div>
       </div>
     </div>
 
-    {/* Памятка о переформатировании — в углу, поверх документа, но не мешает:
-        закрывается ТОЛЬКО крестиком, чтобы пользователь успел прочитать и
-        сравнить с документом. */}
-    {reformatNoticeOpen && (
-      <div
-        className="fixed z-[90] w-[300px] rounded-[var(--radius-lg)] p-[14px] pr-[30px]"
-        style={{
-          right: 436, bottom: 20,
-          background: 'var(--bg)',
-          border: '1px solid var(--line-2)',
-          boxShadow: '0 8px 28px rgba(0,0,0,0.16)',
-        }}
-        role="status"
-      >
-        <button
-          onClick={() => setReformatNoticeOpen(false)}
-          aria-label="Закрыть"
-          className="absolute top-[8px] right-[8px] w-[20px] h-[20px] rounded-[var(--radius-sm)] flex items-center justify-center text-[var(--ink-4)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer"
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <p className="text-[12.5px] font-semibold text-[var(--ink)] mb-[5px]">
-          Документ переводится в рабочий формат
-        </p>
-        <p className="text-[11.5px] text-[var(--ink-3)] leading-[1.55]">
-          Вы начали править договор — Догодок переформатирует его и вычитывает,
-          чтобы дальше вносить правки было можно. Поэтому оформление может
-          немного отличаться от исходного файла.
-        </p>
-        <p className="text-[11.5px] text-[var(--ink-3)] leading-[1.55] mt-[6px]">
-          Чтобы увидеть, как документ будет выглядеть в Word, переключитесь в
-          режим <strong>«Готово · просмотр»</strong> — там показан ровно тот файл,
-          который скачается.
-        </p>
-      </div>
-    )}
-
     {/* Подтверждение сохранения версии — экран при этом не закрывается */}
     {savedNoticeVersion !== null && (
       <div
         className="fixed z-[90] flex items-center gap-[8px] rounded-full px-[14px] py-[8px]"
-        style={{ right: 436, bottom: reformatNoticeOpen ? 190 : 20, background: 'var(--ink)', color: 'var(--bg)', boxShadow: '0 6px 20px rgba(0,0,0,0.18)' }}
+        style={{ right: 436, bottom: 20, background: 'var(--ink)', color: 'var(--bg)', boxShadow: '0 6px 20px rgba(0,0,0,0.18)' }}
         role="status"
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>

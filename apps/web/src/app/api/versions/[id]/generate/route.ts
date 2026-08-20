@@ -50,34 +50,22 @@ export async function POST(req: NextRequest, { params }: Params) {
   // ─── Предоплата токенами ────────────────────────────────────────────────────
   // GENERATE — идемпотентно на документ (ретрай после падения деньги не спишет
   // повторно: возврат снимает идемпотентность через refundedAt).
-  // REWRITE (см. /rewrite) — новое списание на каждую переписку, идемпотентно
-  // по версии через существующий charge с этим versionId.
-  const isRewrite = Boolean((aiSettings as { rewrite?: boolean })?.rewrite)
+  // Списание REWRITE больше не создаётся: функция «Переписать заново» убрана,
+  // все изменения документа идут через чат. Существующие списания этого вида
+  // остаются в истории (token_charges append-only) и по-прежнему дают пакет
+  // правок — см. PACKAGE_KINDS в lib/token-charges.ts.
   let chargeId: string | undefined
   try {
-    if (isRewrite) {
-      const res = await chargeTokens({
-        userId,
-        kind: 'REWRITE',
-        tokens: TOKEN_PRICES.rewrite,
-        documentId: doc.id,
-        versionId: id,
-        idempotentPerVersion: true,
-        description: `Переписка документа: ${doc.title}`,
-      })
-      chargeId = res.chargeId
-    } else {
-      const res = await chargeTokens({
-        userId,
-        kind: 'GENERATE',
-        tokens: TOKEN_PRICES.generate,
-        documentId: doc.id,
-        versionId: id,
-        idempotentPerDocument: true,
-        description: `Генерация документа: ${doc.title}`,
-      })
-      chargeId = res.chargeId
-    }
+    const res = await chargeTokens({
+      userId,
+      kind: 'GENERATE',
+      tokens: TOKEN_PRICES.generate,
+      documentId: doc.id,
+      versionId: id,
+      idempotentPerDocument: true,
+      description: `Генерация документа: ${doc.title}`,
+    })
+    chargeId = res.chargeId
   } catch (err) {
     if (err instanceof InsufficientTokensError) return insufficientTokensResponse(err)
     throw err
