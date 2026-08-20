@@ -98,3 +98,23 @@ export function validateKpp(kpp: string): string | null {
   if (!/^\d{9}$/.test(kpp)) return 'КПП должен содержать 9 цифр'
   return null
 }
+
+// ─── Паспорт РФ (все поля необязательны — пустое значение валидно) ─────────────
+
+export function validatePassportSeries(v: string): string | null {
+  if (!v) return null
+  if (!/^\d{4}$/.test(v)) return 'Серия паспорта — 4 цифры'
+  return null
+}
+
+export function validatePassportNumber(v: string): string | null {
+  if (!v) return null
+  if (!/^\d{6}$/.test(v)) return 'Номер паспорта — 6 цифр'
+  return null
+}
+
+export function validatePassportDeptCode(v: string): string | null {
+  if (!v) return null
+  if (!/^\d{3}-\d{3}$/.test(v)) return 'Код подразделения — в формате 000-000'
+  return null
+}
