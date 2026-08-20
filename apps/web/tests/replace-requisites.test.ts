@@ -50,6 +50,35 @@ describe('replaceRequisitesSection — вложенный Word-блок doc-layo
     expect(out).toContain('1. ПРЕДМЕТ ДОГОВОРА')
   })
 
+  it('убирает осиротевший заголовок-<li> и хвост подписей после блока реквизитов', () => {
+    // Реальный кейс: заголовок «ЮРИДИЧЕСКИЕ АДРЕСА…» попал в <li> списка разделов,
+    // за реквизитами идёт ОТДЕЛЬНЫЙ блок подписей. Должны остаться только тело + один
+    // системный блок: без заголовка-сироты и без хвоста подписей.
+    const html = [
+      '<ol><li><p>ПРЕДМЕТ ДОГОВОРА</p></li>',
+      '<li><p>РАЗРЕШЕНИЕ СПОРОВ</p></li>',
+      '<li><strong>ЮРИДИЧЕСКИЕ АДРЕСА И РЕКВИЗИТЫ СТОРОН</strong></li></ol>',
+      '<div class="doc-layout-table"><div class="doc-layout-cell"><p>Исполнитель:</p><p>ИНН: 730901700292</p></div><div class="doc-layout-cell"><p>Заказчик:</p><p>ИНН: 7714415571</p></div></div>',
+      '<table><tbody><tr><td><p>Заказчик:</p><p>/Темкин М.М./</p></td><td><p>Исполнитель:</p><p>/Савинов П.А./</p></td></tr></tbody></table>',
+    ].join('\n')
+    const { html: out, replaced } = replaceRequisitesSection(html, SYSTEM_REQS)
+
+    expect(replaced).toBe(true)
+    expect(out).toContain('Системные реквизиты сторон')
+    // Осиротевший заголовок убран
+    expect(out).not.toContain('ЮРИДИЧЕСКИЕ АДРЕСА')
+    // Хвост подписей (Темкин/Савинов) убран
+    expect(out).not.toContain('Темкин')
+    expect(out).not.toContain('Савинов')
+    // Данные Word убраны, тело цело
+    expect(out).not.toContain('730901700292')
+    expect(out).toContain('ПРЕДМЕТ ДОГОВОРА')
+    // Список разделов не сломан (закрывающий </ol> на месте)
+    expect(out).toContain('</ol>')
+    // Ровно один системный блок
+    expect(out.match(/class="doc-requisites"/g)?.length).toBe(1)
+  })
+
   it('заменяет ВЕСЬ двухколоночный Word-блок системным (без дубля и обрезков)', () => {
     const html = [BODY, WORD_LAYOUT].join('\n')
     const { html: out, replaced } = replaceRequisitesSection(html, SYSTEM_REQS)

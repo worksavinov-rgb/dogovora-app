@@ -408,25 +408,39 @@ export function replaceRequisitesSection(html: string, requisitesHtml: string): 
   const firstAppendix = blocks.find((b) => /^h[1-6]$/.test(b.tag) && APPENDIX_START_RE.test(b.text))
   const limit = firstAppendix ? firstAppendix.start : html.length
 
-  // Вариант 1: раздел с заголовком «Реквизиты…/Место нахождения…»
+  // Вариант 1: раздел с заголовком «Реквизиты…/Юридические адреса…/Место нахождения…».
+  // Заголовок раздела сохраняем (нумерация), а ВЕСЬ хвост реквизитов и подписей до
+  // приложения/конца (в т.ч. отдельные блоки подписей) заменяем одним системным блоком.
   const headingIdx = blocks.findIndex((b) => /^h[1-6]$/.test(b.tag) && b.start < limit && REQS_HEADER_RE.test(b.text))
   if (headingIdx >= 0) {
     const heading = blocks[headingIdx]
-    const next = blocks.slice(headingIdx + 1).find((b) => /^h[1-6]$/.test(b.tag))
-    const regionEnd = Math.min(next ? next.start : html.length, limit)
-    const region = html.slice(heading.end, regionEnd)
+    const region = html.slice(heading.end, limit)
     if (!REQ_DATA_RE.test(region)) return { html, replaced: false } // не реквизиты — не трогаем
-    return { html: html.slice(0, heading.end) + '\n' + requisitesHtml + '\n' + html.slice(regionEnd), replaced: true }
+    return { html: html.slice(0, heading.end) + '\n' + requisitesHtml + '\n' + html.slice(limit), replaced: true }
   }
 
-  // Вариант 2: блок реквизитов таблицей/div до первого приложения
+  // Вариант 2: блок реквизитов таблицей/div. Заголовок реквизитов мог попасть в
+  // нумерованный список (тогда Вариант 1 его не видит) — отрезаем и его, и весь
+  // хвост подписей до приложения/конца, заменяя одним системным блоком.
   const blockWithReqs = blocks.find(
     (b) => (b.tag === 'table' || b.tag === 'div') && b.start < limit && REQ_DATA_RE.test(b.text) && /Заказчик|Исполнитель/i.test(b.text),
   )
   if (blockWithReqs) {
-    return { html: html.slice(0, blockWithReqs.start) + requisitesHtml + html.slice(blockWithReqs.end), replaced: true }
+    const merged = html.slice(0, blockWithReqs.start) + requisitesHtml + html.slice(limit)
+    return { html: dropOrphanReqHeading(merged), replaced: true }
   }
   return { html, replaced: false }
+}
+
+// Убирает осиротевший заголовок реквизитов («ЮРИДИЧЕСКИЕ АДРЕСА…» и т.п.),
+// оставшийся прямо перед вставленным системным блоком. Часто он попадает в <li>
+// нумерованного списка разделов — тогда снимаем именно <li>, а закрывающий </ol>
+// (по lookahead) остаётся на месте, и разметка не ломается.
+function dropOrphanReqHeading(html: string): string {
+  return html.replace(
+    /(?:<(h[1-4]|p|li)\b[^>]*>)\s*(?:<strong>)?\s*(?:ЮРИДИЧЕСКИЕ\s+АДРЕСА|АДРЕСА\s+И\s+РЕКВИЗИТЫ|РЕКВИЗИТЫ\s+И\s+ПОДПИСИ|РЕКВИЗИТЫ\s+СТОРОН|Банковские\s+реквизиты|Место\s+нахождения)[^<]*(?:<\/strong>)?\s*<\/\1>\s*(?=(?:<\/(?:ol|ul)>\s*)*<div[^>]*class="[^"]*doc-requisites)/i,
+    '',
+  )
 }
 
 /** Находит конец блока <div…>, корректно считая вложенные div. Возвращает индекс ПОСЛЕ `</div>`. */
