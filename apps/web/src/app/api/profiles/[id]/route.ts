@@ -16,7 +16,7 @@ const contractNumberFormatSchema = z
   .transform((v) => (v === '' ? null : v))
 
 const profileUpdateSchema = z.object({
-  type: z.enum(['INDIVIDUAL', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']).optional(),
+  type: z.enum(['INDIVIDUAL', 'SELF_EMPLOYED', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO']).optional(),
   name: z.string().min(1).optional(),
   inn: z.string().optional().nullable(),
   kpp: z.string().optional().nullable(),
@@ -24,6 +24,14 @@ const profileUpdateSchema = z.object({
   ogrnDate: z.string().optional().nullable(),
   email: z.string().optional().nullable(),
   legalAddress: z.string().optional().nullable(),
+  actualAddress: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  passportSeries: z.string().optional().nullable(),
+  passportNumber: z.string().optional().nullable(),
+  passportIssuedBy: z.string().optional().nullable(),
+  passportIssueDate: z.string().optional().nullable(),
+  passportDeptCode: z.string().optional().nullable(),
+  npdRegisteredDate: z.string().optional().nullable(),
   signatorName: z.string().optional().nullable(),
   signatorPosition: z.string().optional().nullable(),
   signatorBasis: z.string().optional().nullable(),
