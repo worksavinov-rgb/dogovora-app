@@ -11,6 +11,7 @@ import { EditorToolbar } from '@/components/editor-toolbar'
 import { DecorModal } from '@/components/decor-modal'
 import { DocxPreview } from '@/components/docx-preview'
 import { DecorEditor } from '@/components/decor-editor'
+import { TokenBalancePopover } from '@/components/token-balance-popover'
 import { formatTokens } from '@/lib/token-pricing'
 import type { Editor } from '@tiptap/react'
 
@@ -1227,16 +1228,9 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
             </button>
 
-            {/* Баланс токенов — верхняя полоса приложения на этом экране скрыта,
-                поэтому показываем его здесь, чтобы не пропал из виду. */}
-            <button
-              onClick={() => router.push('/balance')}
-              className="shrink-0 h-[30px] px-[10px] rounded-[var(--radius-md)] text-[11px] font-medium text-[var(--ink-2)] border border-[var(--line-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer hidden md:flex items-center gap-[5px]"
-              title="Баланс токенов"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
-              <span style={{ fontFamily: 'var(--font-mono)' }}>{balance.toLocaleString('ru')}</span>
-            </button>
+            {/* Остаток токенов. Клик открывает окно с остатком, а не уводит на
+                страницу баланса: пользователь в середине работы над документом. */}
+            <TokenBalancePopover balance={balance} prices={editQuota?.prices} />
           </div>
         </div>
 
