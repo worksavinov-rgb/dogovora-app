@@ -22,6 +22,7 @@ model User {
   profiles           Profile[]
   oauthAccounts      OAuthAccount[]
   wallet             Wallet?
+  payments           Payment[]
   storageQuota       StorageQuota?
   counterparties     Counterparty[]
   documents          Document[]
@@ -390,6 +391,40 @@ model Wallet {
   transactions Transaction[]
 
   @@map("wallets")
+}
+
+// Платёж-пополнение через кассу Т-Банка. Статус изменяемый (жизненный цикл
+// платежа), но начисление токенов идёт в append-only леджер Transaction.
+// Двойная идемпотентность: orderId (наш) и bankPaymentId (банка) уникальны,
+// creditedAt гарантирует ровно одно начисление даже при повторном вебхуке.
+model Payment {
+  id                  String        @id @default(cuid())
+  userId              String
+  orderId             String        @unique
+  bankPaymentId       String?       @unique
+  packageId           String
+  tokens              Int
+  amount              Int           // копейки
+  status              PaymentStatus @default(NEW)
+  errorCode           String?
+  creditedAt          DateTime?
+  creditTransactionId String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  NEW
+  AUTHORIZED
+  CONFIRMED
+  REJECTED
+  REFUNDED
+  CANCELED
 }
 
 model Transaction {
