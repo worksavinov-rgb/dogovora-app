@@ -6,7 +6,6 @@ import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config
 import { completeCompletion, streamCompletion } from './transport'
 import { splitRequisitesBlock } from '../html-document'
 import { checkDocumentTables, formatTableMathReport } from '../table-math'
-import { renumberDocumentHtml } from '../renumber-clauses'
 
 // TLS: у Сбера самоподписанный сертификат — обрабатывается локальным агентом
 // в gigachat-fetch.ts (только для запросов к GigaChat). Глобальное отключение
@@ -852,11 +851,13 @@ export const gigachatProvider: AIProvider = {
           yield '__EDIT_FAILED__'
           return
         }
-        // Блочный движок намеренно не трогает соседние блоки, поэтому после
-        // вставки/удаления пункта номера разъезжаются (у владельца новый пункт и
-        // следующий за ним оба оказались «1.3»). Пересчитываем сами — код считает
-        // детерминированно, в отличие от просьбы к модели «поправь нумерацию».
-        yield reattach(renumberDocumentHtml(blockResult.html))
+        // Нумерацию держит модель: она видит договор целиком и понимает, где
+        // раздел, а где пункт. Код этим больше не занимается — чтобы пересчитать
+        // номера, ему пришлось бы угадывать структуру по внешним признакам
+        // (цифра, точка, пробел), и на договоре с заголовком «4.Стоимость» он
+        // молча перенумеровывал раздел 4 в 3.4–3.6. Разметка договоров слишком
+        // разная, чтобы такие догадки были безопасны.
+        yield reattach(blockResult.html)
         return
       }
       yield '__EDIT_FAILED__'
