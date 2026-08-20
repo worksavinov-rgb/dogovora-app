@@ -17,6 +17,23 @@ export default function DocxPreviewTestPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [rendered, setRendered] = useState(false)
+
+  // Переключение ручного редактирования прямо на точном рендере docx-preview.
+  const toggleEditing = useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    const next = !editing
+    setEditing(next)
+    // contentEditable на всём отрендеренном документе — печатаешь прямо по нему.
+    container.contentEditable = next ? 'true' : 'false'
+    container.spellcheck = next
+    if (next) {
+      container.style.outline = 'none'
+      container.focus()
+    }
+  }, [editing])
 
   const render = useCallback(async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
@@ -46,8 +63,13 @@ export default function DocxPreviewTestPage() {
         renderFootnotes: true,
         useBase64URL: true,
       } as Record<string, unknown>)
+      // Новый документ — сбрасываем режим правки
+      container.contentEditable = 'false'
+      setEditing(false)
+      setRendered(true)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+      setRendered(false)
     } finally {
       setLoading(false)
     }
@@ -103,18 +125,49 @@ export default function DocxPreviewTestPage() {
       {loading && <p style={{ fontSize: 13, color: 'var(--ink-3)' }}>Рендерим…</p>}
       {error && <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>}
 
+      {/* Панель режима: просмотр ↔ ручное редактирование прямо на точном рендере */}
+      {rendered && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+          <button
+            onClick={toggleEditing}
+            style={{
+              height: 34, padding: '0 16px', borderRadius: 8, cursor: 'pointer',
+              fontSize: 13, fontWeight: 600,
+              background: editing ? 'var(--ink)' : 'var(--surface)',
+              color: editing ? '#fff' : 'var(--ink)',
+              border: `1px solid ${editing ? 'var(--ink)' : 'var(--line-2)'}`,
+            }}
+          >
+            {editing ? '✓ Готово (просмотр)' : '✏️ Редактировать вручную'}
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--ink-4)' }}>
+            {editing
+              ? 'Режим правки: кликните в текст и печатайте прямо по документу, как в Word.'
+              : 'Точный просмотр, как в Word. Нажмите «Редактировать», чтобы править вручную.'}
+          </span>
+        </div>
+      )}
+
       <div
         style={{
-          border: '1px solid var(--line-2)',
+          border: editing ? '2px solid var(--accent)' : '1px solid var(--line-2)',
           borderRadius: 12,
           background: '#eee',
           padding: 16,
           overflow: 'auto',
           minHeight: 200,
+          transition: 'border-color 0.15s',
         }}
       >
         <div ref={containerRef} className="docx-preview-host" />
       </div>
+
+      {rendered && (
+        <p style={{ fontSize: 12, color: 'var(--ink-4)', marginTop: 10 }}>
+          Дальше сюда добавим правки через ИИ: он вычитает весь договор и внесёт правку по запросу
+          (весь документ / пункт / слово), плюс подсветит ошибки и нумерацию.
+        </p>
+      )}
     </div>
   )
 }
