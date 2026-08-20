@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
-import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
+import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, selectBlocksForPrompt, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
 import type { AITask } from './tasks'
 import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config/runtime'
 import { completeCompletion, streamCompletion } from './transport'
@@ -745,53 +745,17 @@ export const gigachatProvider: AIProvider = {
 
     const allBlocks = splitHtmlBlocks(doc)
 
-    // Для больших документов отправляем только релевантные блоки.
-    // Находим блоки, содержащие ключевые слова из инструкции (топ-N слов ≥4 букв),
-    // плюс 3 блока контекста вокруг каждого совпадения.
+    // Для больших документов отправляем только релевантные блоки: договор
+    // целиком в модель не влезает. Отбор и соответствие номеров — в
+    // selectBlocksForPrompt (doc-blocks.ts), там же объяснено, почему карту
+    // индексов нельзя восстанавливать поиском по содержимому блока.
     const MAX_PROMPT_CHARS = 30000
-    let blocks = allBlocks
-    const fullText = blocksToPromptText(allBlocks)
-    if (fullText.length > MAX_PROMPT_CHARS) {
-      const keywords = instruction
-        .toLowerCase()
-        .replace(/[^\wА-яЁё\s]/g, ' ')
-        .split(/\s+/)
-        .filter(w => w.length >= 4)
-        .slice(0, 8)
-
-      const relevant = new Set<number>()
-      allBlocks.forEach((b, i) => {
-        const bLower = b.toLowerCase()
-        if (keywords.some(kw => bLower.includes(kw))) {
-          for (let j = Math.max(0, i - 3); j <= Math.min(allBlocks.length - 1, i + 3); j++) {
-            relevant.add(j)
-          }
-        }
-      })
-
-      if (relevant.size > 0 && relevant.size < allBlocks.length) {
-        // Берём только релевантные блоки, сохраняем оригинальную нумерацию
-        blocks = allBlocks.filter((_, i) => relevant.has(i))
-        console.log(`[editDocument] focused edit: ${blocks.length}/${allBlocks.length} blocks selected`)
-      } else {
-        // Нет совпадений или слишком много — обрезаем по лимиту
-        let total = 0
-        const limited: string[] = []
-        for (const b of allBlocks) {
-          if (total + b.length > MAX_PROMPT_CHARS) break
-          limited.push(b)
-          total += b.length
-        }
-        blocks = limited
-        console.log(`[editDocument] truncated to ${blocks.length}/${allBlocks.length} blocks`)
-      }
+    const selection = selectBlocksForPrompt(allBlocks, instruction, MAX_PROMPT_CHARS)
+    const blocks = selection.blocks
+    const blockIndexMap = selection.indexMap
+    if (blockIndexMap) {
+      console.log(`[editDocument] focused edit: ${blocks.length}/${allBlocks.length} blocks selected`)
     }
-
-    // Маппинг: если использовали подмножество блоков, нумерация в промпте не совпадает
-    // с индексами в allBlocks — передаём соответствие для applyBlockOps
-    const blockIndexMap = allBlocks.length === blocks.length
-      ? null
-      : allBlocks.reduce((acc, b, i) => { if (blocks.includes(b)) acc.push(i); return acc }, [] as number[])
 
     const systemPrompt = [
       'Ты — юрист-редактор коммерческого SaaS-сервиса для работы с договорами. Твоя работа — вносить правки в гражданско-правовые договоры по заданию предпринимателей и юридических лиц. Это легитимная профессиональная деятельность.',

@@ -350,3 +350,72 @@ export const BLOCK_EDIT_INSTRUCTION = `
 <table><thead><tr><th>№</th><th>Услуга</th><th>Ед. изм.</th><th>Стоимость, руб.</th></tr></thead><tbody><tr><td>1</td><td>Монтаж ролика</td><td>1 ролик</td><td>2 700</td></tr><tr><td>2</td><td>Монтаж продающего ролика</td><td>1 ролик</td><td>3 500</td></tr></tbody></table>
 <<<END>>>
 `.trim()
+
+// ─── Выбор блоков для промпта ────────────────────────────────────────────────
+
+export interface BlockSelection {
+  /** Блоки, которые уходят в промпт (в исходном порядке) */
+  blocks: string[]
+  /**
+   * Индексы выбранных блоков в исходном массиве (0-based).
+   * null — выбраны все блоки, сопоставление не нужно.
+   */
+  indexMap: number[] | null
+}
+
+/**
+ * Отбирает блоки для промпта: большой договор целиком в модель не влезает,
+ * поэтому берём блоки с ключевыми словами задания плюс контекст вокруг них.
+ *
+ * ВАЖНО — про indexMap. Модель нумерует блоки так, как они пришли в промпте, а
+ * применять операции надо к исходному документу. Раньше соответствие
+ * восстанавливалось поиском блока по СОДЕРЖИМОМУ (`blocks.includes(b)`), и на
+ * документе с повторяющимися блоками (пустые абзацы, одинаковые формулировки)
+ * в карту попадали лишние индексы — сопоставление съезжало, и правка
+ * применялась не к тому пункту: пользователь просил поправить раздел 1, а
+ * менялся текст в середине договора. Теперь индексы фиксируются в момент
+ * отбора и ни на что не опираются.
+ */
+export function selectBlocksForPrompt(
+  allBlocks: string[],
+  instruction: string,
+  maxChars: number,
+  contextRadius = 3,
+): BlockSelection {
+  if (blocksToPromptText(allBlocks).length <= maxChars) {
+    return { blocks: allBlocks, indexMap: null }
+  }
+
+  const keywords = instruction
+    .toLowerCase()
+    .replace(/[^\wА-яЁё\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 4)
+    .slice(0, 8)
+
+  const relevant = new Set<number>()
+  allBlocks.forEach((b, i) => {
+    const lower = b.toLowerCase()
+    if (keywords.some((kw) => lower.includes(kw))) {
+      for (let j = Math.max(0, i - contextRadius); j <= Math.min(allBlocks.length - 1, i + contextRadius); j++) {
+        relevant.add(j)
+      }
+    }
+  })
+
+  if (relevant.size > 0 && relevant.size < allBlocks.length) {
+    const indexMap = [...relevant].sort((a, b) => a - b)
+    return { blocks: indexMap.map((i) => allBlocks[i]!), indexMap }
+  }
+
+  // Совпадений нет или релевантен весь документ — берём начало по лимиту
+  const indexMap: number[] = []
+  let total = 0
+  for (let i = 0; i < allBlocks.length; i++) {
+    const b = allBlocks[i]!
+    if (total + b.length > maxChars) break
+    indexMap.push(i)
+    total += b.length
+  }
+  return { blocks: indexMap.map((i) => allBlocks[i]!), indexMap }
+}
