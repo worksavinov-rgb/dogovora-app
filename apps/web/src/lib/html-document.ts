@@ -19,6 +19,7 @@ const ALLOWED_TAGS = new Set([
   'ul', 'ol', 'li',
   'table', 'thead', 'tbody', 'tr', 'th', 'td',
   'div', 'span',
+  'mark', // жёлтое выделение из редактора (TipTap Highlight)
   'blockquote',
   'hr',
 ])
@@ -46,6 +47,30 @@ export function isMarkdownContent(text: string): boolean {
  * inline-стили и event-атрибуты (onXxx).
  * Работает в Node.js без DOM через regex.
  */
+/** Разрешённый цвет: #rgb/#rrggbb, rgb()/rgba() или имя из букв (red, yellow). */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)$/i
+
+/**
+ * Оставляет в инлайновом style только безопасные цветовые свойства
+ * (color, background-color) с литеральным значением цвета. Всё остальное —
+ * включая url(), expression(), позиционирование и любые скрипты — отбрасывается.
+ * Возвращает '' если ничего безопасного не осталось.
+ */
+export function sanitizeStyleAttr(style: string): string {
+  if (!style || /[<>]/.test(style)) return ''
+  const kept: string[] = []
+  for (const decl of style.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx === -1) continue
+    const prop = decl.slice(0, idx).trim().toLowerCase()
+    const value = decl.slice(idx + 1).trim()
+    if (prop !== 'color' && prop !== 'background-color') continue
+    if (!SAFE_COLOR.test(value)) continue
+    kept.push(`${prop}: ${value}`)
+  }
+  return kept.join('; ')
+}
+
 export function sanitizeHtml(html: string): string {
   if (!html) return ''
 
@@ -74,9 +99,18 @@ export function sanitizeHtml(html: string): string {
     }
     if (!attrs) return `<${tag}>`
 
-    // Удаляем style и event handlers, оставляем разрешённые атрибуты
+    // Удаляем event handlers, оставляем разрешённые атрибуты. Инлайновый style
+    // не выбрасываем целиком, а фильтруем: пользователь помечает пункты цветом
+    // шрифта и жёлтой заливкой прямо в редакторе, и эти пометки должны пережить
+    // сохранение и выгрузку в DOCX. Пропускаем только color/background-color с
+    // литеральным цветом — ни url(), ни expression(), ни position/display.
     const cleanAttrs = attrs
-      .replace(/\s+style\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)')/gi, (_m: string, dq?: string, sq?: string) => {
+        const safe = sanitizeStyleAttr(dq ?? sq ?? '')
+        return safe ? ` style="${safe}"` : ''
+      })
+      // style без кавычек не разбираем — просто выбрасываем
+      .replace(/\s+style\s*=\s*[^\s>"']+/gi, '')
       .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
       .replace(/\s+href\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
       .trim()

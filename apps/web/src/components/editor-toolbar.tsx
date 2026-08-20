@@ -48,6 +48,16 @@ function cycleOrderedStyle(editor: Editor) {
   editor.chain().focus().updateAttributes('orderedList', { listStyle: next }).run()
 }
 
+// Цвета шрифта для пометок в договоре. Чёрный — «снять цвет» (базовый текст).
+const TEXT_COLORS: Array<{ value: string | null; title: string; swatch: string }> = [
+  { value: null,      title: 'Обычный (чёрный)', swatch: '#18181B' },
+  { value: '#C81E1E', title: 'Красный',          swatch: '#C81E1E' },
+  { value: '#1A7F37', title: 'Зелёный',          swatch: '#1A7F37' },
+  { value: '#1D4ED8', title: 'Синий',            swatch: '#1D4ED8' },
+]
+
+const HIGHLIGHT_COLOR = '#FFF176' // жёлтая заливка выделенных строк
+
 const BTN =
   'h-[26px] min-w-[26px] px-[7px] rounded-[var(--radius-sm)] text-[12px] font-medium text-[var(--ink-3)] ' +
   'hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer ' +
@@ -90,6 +100,33 @@ export function EditorToolbar({ editor }: { editor: Editor | null }) {
   const items: Array<{ label: React.ReactNode; title: string; active: boolean; run: () => void } | 'sep'> = [
     { label: <b>Ж</b>, title: 'Жирный', active: editor.isActive('bold'), run: () => editor.chain().focus().toggleBold().run() },
     { label: <i>К</i>, title: 'Курсив', active: editor.isActive('italic'), run: () => editor.chain().focus().toggleItalic().run() },
+    'sep',
+    // Цвет шрифта: кружок-образец. Чёрный снимает цвет, остальные — красят.
+    ...TEXT_COLORS.map((c) => ({
+      label: (
+        <span
+          className="block w-[13px] h-[13px] rounded-full"
+          style={{ background: c.swatch, border: '1px solid rgba(0,0,0,0.25)' }}
+        />
+      ),
+      title: `Цвет текста: ${c.title}`,
+      active: c.value ? editor.isActive('textStyle', { color: c.value }) : false,
+      run: () => (c.value
+        ? editor.chain().focus().setColor(c.value).run()
+        : editor.chain().focus().unsetColor().run()),
+    })),
+    // Жёлтая заливка выделенного текста (повторное нажатие снимает)
+    {
+      label: (
+        <span
+          className="block w-[13px] h-[13px] rounded-[3px]"
+          style={{ background: HIGHLIGHT_COLOR, border: '1px solid rgba(0,0,0,0.25)' }}
+        />
+      ),
+      title: 'Выделить жёлтым (нажмите ещё раз, чтобы снять)',
+      active: editor.isActive('highlight'),
+      run: () => editor.chain().focus().toggleHighlight({ color: HIGHLIGHT_COLOR }).run(),
+    },
     'sep',
     { label: 'H2', title: 'Заголовок раздела', active: editor.isActive('heading', { level: 2 }), run: () => editor.chain().focus().toggleHeading({ level: 2 }).run() },
     { label: 'H3', title: 'Подзаголовок', active: editor.isActive('heading', { level: 3 }), run: () => editor.chain().focus().toggleHeading({ level: 3 }).run() },

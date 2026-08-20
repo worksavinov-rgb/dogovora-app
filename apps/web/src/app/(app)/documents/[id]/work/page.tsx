@@ -290,6 +290,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   // Режим левой колонки: 'view' — точный рендер .docx как в Word; 'edit' — ручная
   // правка в TipTap-редакторе (тот же HTML-движок, автосейв/версии без изменений).
   const [viewMode, setViewMode] = useState<'view' | 'edit'>('view')
+  // Тост «версия сохранена» — подтверждение вместо ухода с экрана
+  const [savedNoticeVersion, setSavedNoticeVersion] = useState<number | null>(null)
+  // Памятка о переформатировании: показывается один раз за сессию при первой
+  // правке документа и закрывается ТОЛЬКО крестиком (сама не исчезает).
+  const [reformatNoticeOpen, setReformatNoticeOpen] = useState(false)
+  const reformatNoticeShownRef = useRef(false)
   const [previewDocx, setPreviewDocx] = useState<ArrayBuffer | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   // Загруженный документ без правок рисуем из ОРИГИНАЛА (точно как в Word). После
@@ -509,38 +515,39 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
   useEffect(() => { void refreshQuota() }, [refreshQuota])
 
-  // Собирает байты .docx для точного предпросмотра из текущего состояния:
+  // Единый источник байтов .docx для ТЕКУЩЕГО состояния документа — им пользуются
+  // и предпросмотр, и скачивание, поэтому «предпросмотр = то, что скачается»
+  // выполняется по построению (в т.ч. для несохранённых ручных правок — они
+  // берутся из docContent, а не из БД-версии):
   //  - неизменённый загруженный документ → исходный .docx (точно как в Word);
   //  - созданный / после ИИ- или ручной правки → .docx из текущего HTML тела
-  //    (тот же convertToDocx, что при скачивании) → предпросмотр = скачивание.
+  //    (тот же convertToDocx, что и раньше при скачивании).
+  // bare=true (скачать без шапки) всегда идёт через сборку из HTML.
+  const fetchCurrentDocx = useCallback(async (bare: boolean): Promise<ArrayBuffer | null> => {
+    if (!version || !docContent) return null
+
+    if (!bare && !hasUnsavedEdits && !noOriginalRef.current) {
+      const r = await fetch(`/api/versions/${version.id}/original`)
+      if (r.ok) return await r.arrayBuffer()
+      if (r.status === 404) noOriginalRef.current = true
+    }
+
+    const r = await fetch(`/api/versions/${version.id}/preview-docx`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: docContent, bare }),
+    })
+    return r.ok ? await r.arrayBuffer() : null
+  }, [version, docContent, hasUnsavedEdits])
+
   const buildPreview = useCallback(async () => {
-    if (!version || !docContent) return
     setPreviewLoading(true)
     try {
-      let buf: ArrayBuffer | null = null
-
-      // Точный оригинал — только пока документ не правили в этой сессии.
-      if (!hasUnsavedEdits && !noOriginalRef.current) {
-        const r = await fetch(`/api/versions/${version.id}/original`)
-        if (r.ok) buf = await r.arrayBuffer()
-        else if (r.status === 404) noOriginalRef.current = true
-      }
-
-      // Иначе (созданный / правленный) — собираем .docx из текущего HTML.
-      if (!buf) {
-        const r = await fetch(`/api/versions/${version.id}/preview-docx`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: docContent }),
-        })
-        if (r.ok) buf = await r.arrayBuffer()
-      }
-
-      setPreviewDocx(buf)
+      setPreviewDocx(await fetchCurrentDocx(false))
     } finally {
       setPreviewLoading(false)
     }
-  }, [version, docContent, hasUnsavedEdits])
+  }, [fetchCurrentDocx])
 
   // Пересобираем точный вид при входе в просмотр и при смене контента (после
   // ИИ-правки/отмены). Во время генерации и стриминга .docx не строим — ждём.
@@ -645,6 +652,15 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     } catch {
       setSaveStatus('error')
     }
+  }
+
+  // Первая правка документа за сессию: объясняем, что дальше документ живёт как
+  // наш текст (переформатируется и вычитывается), а точный «как в Word» вид
+  // всегда можно посмотреть в режиме просмотра. Показываем один раз.
+  function noteDocumentEdited() {
+    if (reformatNoticeShownRef.current) return
+    reformatNoticeShownRef.current = true
+    setReformatNoticeOpen(true)
   }
 
   function scheduleAutosave(content: string) {
@@ -781,6 +797,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
 
       // Применяем обновлённый документ
       if (aiDocText.trim()) {
+        noteDocumentEdited()
         const updatedDoc = aiDocText.trim()
         // Сохраняем снапшот для отмены
         const snapshot = streamingDoc ?? docContent ?? ''
@@ -858,13 +875,28 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     return newVersion.id
   }
 
-  async function saveAsNewVersion() {
-    if (!version || saving) return
+  // Сохранение версии НЕ уводит с рабочего экрана: пользователь продолжает править
+  // тот же документ, а версии копятся «фоном» (v2, v3 …). Посмотреть их можно
+  // кнопкой «Назад». Раньше здесь был router.push — предпросмотр закрывался, и
+  // после каждого сохранения приходилось заходить в документ заново.
+  async function saveAsNewVersion(): Promise<boolean> {
+    if (!version || saving) return false
     setSaveConfirmOpen(false)
     setSaving(true)
     try {
       const newVersionId = await persistEditsAsNewVersion()
-      if (newVersionId) router.push(`/documents/${id}`)
+      if (!newVersionId) return false
+
+      // Переключаемся на только что созданную версию, оставаясь на экране:
+      // дальнейшие правки и автосейв идут уже от неё.
+      const newNumber = maxVersionNumber + 1
+      setMaxVersionNumber(newNumber)
+      setVersion((prev) => (prev ? { ...prev, id: newVersionId, number: newNumber } : prev))
+      baseVersionIdRef.current = newVersionId
+      isLatestRef.current = true
+      lastSavedContentRef.current = docContent
+      setSavedNoticeVersion(newNumber)
+      return true
     } finally {
       setSaving(false)
     }
@@ -910,14 +942,19 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
     if (!version || downloading) return
     setDownloading(true)
     try {
-      const res = await fetch(`/api/versions/${version.id}/download${bare ? '?bare=1' : ''}`)
-      if (!res.ok) return
-      const blob = await res.blob()
+      // Скачиваем ровно то, что показано на экране, — тот же источник байтов, что
+      // у предпросмотра. Раньше здесь дёргался /download, который читает версию из
+      // БД, поэтому ручные правки (они живут в черновике, а не в версии) в файл
+      // не попадали: пользователь видел правку на экране, а скачивал документ без неё.
+      const buf = await fetchCurrentDocx(bare)
+      if (!buf) return
+      const blob = new Blob([buf], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      const disposition = res.headers.get('Content-Disposition') ?? ''
-      const filenameMatch = disposition.match(/filename\*=UTF-8''(.+)/)
-      a.download = filenameMatch ? decodeURIComponent(filenameMatch[1]) : `договор_v${version.number}.docx`
+      const docName = version.document?.title?.trim() || 'договор'
+      a.download = `${docName} v${version.number}.docx`
       a.href = url
       a.click()
       URL.revokeObjectURL(url)
@@ -1364,6 +1401,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                       editable={!streaming && !generating}
                       onUpdate={(html) => {
                         // Ручная правка в предпросмотре — тот же путь, что ИИ-правка
+                        noteDocumentEdited()
                         setDocContent(html)
                         setHasUnsavedEdits(true)
                         scheduleAutosave(html)
@@ -1617,6 +1655,62 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       </div>
     </div>
 
+    {/* Памятка о переформатировании — в углу, поверх документа, но не мешает:
+        закрывается ТОЛЬКО крестиком, чтобы пользователь успел прочитать и
+        сравнить с документом. */}
+    {reformatNoticeOpen && (
+      <div
+        className="fixed z-[90] w-[300px] rounded-[var(--radius-lg)] p-[14px] pr-[30px]"
+        style={{
+          right: 436, bottom: 20,
+          background: 'var(--bg)',
+          border: '1px solid var(--line-2)',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.16)',
+        }}
+        role="status"
+      >
+        <button
+          onClick={() => setReformatNoticeOpen(false)}
+          aria-label="Закрыть"
+          className="absolute top-[8px] right-[8px] w-[20px] h-[20px] rounded-[var(--radius-sm)] flex items-center justify-center text-[var(--ink-4)] hover:bg-[var(--surface-2)] hover:text-[var(--ink)] transition-colors cursor-pointer"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <p className="text-[12.5px] font-semibold text-[var(--ink)] mb-[5px]">
+          Документ переводится в рабочий формат
+        </p>
+        <p className="text-[11.5px] text-[var(--ink-3)] leading-[1.55]">
+          Вы начали править договор — Догодок переформатирует его и вычитывает,
+          чтобы дальше вносить правки было можно. Поэтому оформление может
+          немного отличаться от исходного файла.
+        </p>
+        <p className="text-[11.5px] text-[var(--ink-3)] leading-[1.55] mt-[6px]">
+          Чтобы увидеть, как документ будет выглядеть в Word, переключитесь в
+          режим <strong>«Готово · просмотр»</strong> — там показан ровно тот файл,
+          который скачается.
+        </p>
+      </div>
+    )}
+
+    {/* Подтверждение сохранения версии — экран при этом не закрывается */}
+    {savedNoticeVersion !== null && (
+      <div
+        className="fixed z-[90] flex items-center gap-[8px] rounded-full px-[14px] py-[8px]"
+        style={{ right: 436, bottom: reformatNoticeOpen ? 190 : 20, background: 'var(--ink)', color: 'var(--bg)', boxShadow: '0 6px 20px rgba(0,0,0,0.18)' }}
+        role="status"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <span className="text-[12px] font-medium">Сохранено как версия v.{savedNoticeVersion}</span>
+        <button
+          onClick={() => setSavedNoticeVersion(null)}
+          aria-label="Закрыть"
+          className="ml-[2px] opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    )}
+
     {/* Шаг «Оформление» перед скачиванием */}
     <DecorModal
       documentId={id}
@@ -1646,7 +1740,12 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
           </div>
           <div className="flex flex-col gap-[8px]">
             <button
-              onClick={() => { setBackConfirmOpen(false); saveAsNewVersion() }}
+              onClick={async () => {
+                setBackConfirmOpen(false)
+                // Здесь выход из экрана — осознанное действие пользователя,
+                // поэтому после сохранения уходим в карточку документа.
+                if (await saveAsNewVersion()) router.push(`/documents/${id}`)
+              }}
               disabled={saving}
               className="h-[36px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
             >

@@ -25,6 +25,9 @@ import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { TableHeader } from '@tiptap/extension-table-header'
+import { TextStyle } from '@tiptap/extension-text-style'
+import { Color } from '@tiptap/extension-color'
+import { Highlight } from '@tiptap/extension-highlight'
 import { TextAlignClass } from '@/lib/tiptap/text-align-class'
 import { OrderedListStyle } from '@/lib/tiptap/ordered-list-style'
 import { isHtmlContent, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
@@ -56,6 +59,11 @@ const TIPTAP_EXTENSIONS = [
   TableHeader,
   TextAlignClass,
   OrderedListStyle,
+  // Цвет шрифта и жёлтая заливка — правки в документе видно глазом; конвертер
+  // переносит их в DOCX (см. html-docx-converter: color / highlight).
+  TextStyle,
+  Color,
+  Highlight.configure({ multicolor: true }),
 ]
 
 export function DocumentViewer({ content, editable = false, onUpdate, externalContentKey, onEditorReady, onReady }: DocumentViewerProps) {

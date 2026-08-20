@@ -129,21 +129,69 @@ function parseHtml(html: string): Node[] {
 
 // ─── Инлайн-руны ────────────────────────────────────────────────────────────
 
-interface RunStyle { bold?: boolean; italics?: boolean }
+interface RunStyle { bold?: boolean; italics?: boolean; color?: string; highlight?: string }
+
+/** #RRGGBB / #RGB / имя цвета → 'RRGGBB' (формат docx). Иначе undefined. */
+function docxColor(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const v = value.trim().toLowerCase()
+  const hex = v.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/)
+  if (hex) {
+    const h = hex[1]!
+    return (h.length === 3 ? h.split('').map((c) => c + c).join('') : h).toUpperCase()
+  }
+  const named: Record<string, string> = {
+    red: 'FF0000', green: '008000', blue: '0000FF', black: '000000',
+    yellow: 'FFFF00', orange: 'FFA500', gray: '808080', grey: '808080',
+  }
+  return named[v]
+}
+
+/** Достаёт color / background-color из инлайнового style элемента. */
+function styleColors(attribs: Record<string, string>): { color?: string; background?: string } {
+  const style = attribs['style']
+  if (!style) return {}
+  const out: { color?: string; background?: string } = {}
+  for (const decl of style.split(';')) {
+    const idx = decl.indexOf(':')
+    if (idx === -1) continue
+    const prop = decl.slice(0, idx).trim().toLowerCase()
+    const value = decl.slice(idx + 1).trim()
+    if (prop === 'color' && value !== 'inherit') out.color = value
+    else if (prop === 'background-color' && value !== 'transparent') out.background = value
+  }
+  return out
+}
 
 function collectRuns(nodes: Node[], style: RunStyle = {}): TextRun[] {
   const runs: TextRun[] = []
   for (const n of nodes) {
     if (n.type === 'text') {
       const text = n.text.replace(/\s+/g, ' ')
-      if (text) runs.push(new TextRun({ text, bold: style.bold, italics: style.italics }))
+      if (text) {
+        runs.push(new TextRun({
+          text,
+          bold: style.bold,
+          italics: style.italics,
+          // Цветные пометки пользователя переносим в Word как есть
+          ...(style.color ? { color: style.color } : {}),
+          ...(style.highlight ? { shading: { fill: style.highlight } } : {}),
+        }))
+      }
       continue
     }
     if (n.tag === 'br') { runs.push(new TextRun({ break: 1 })); continue }
     if (n.tag === 'strong' || n.tag === 'b') { runs.push(...collectRuns(n.children, { ...style, bold: true })); continue }
     if (n.tag === 'em' || n.tag === 'i') { runs.push(...collectRuns(n.children, { ...style, italics: true })); continue }
-    // прочие инлайн-обёртки (span и т.п.)
-    runs.push(...collectRuns(n.children, style))
+    // span / mark и прочие инлайн-обёртки: наследуем стиль, добавляя цвета
+    const { color, background } = styleColors(n.attribs)
+    const nextStyle: RunStyle = { ...style }
+    const fg = docxColor(color)
+    if (fg) nextStyle.color = fg
+    // <mark> без явного фона — жёлтая заливка по умолчанию (как в редакторе)
+    const bg = docxColor(background) ?? (n.tag === 'mark' ? 'FFF176' : undefined)
+    if (bg) nextStyle.highlight = bg
+    runs.push(...collectRuns(n.children, nextStyle))
   }
   return runs
 }
@@ -844,14 +892,17 @@ export async function convertToDocx(content: string, opts: DocxOptions = {}): Pr
     styles: {
       default: { document: { run: { font: 'Times New Roman', size: 24 } } },
       paragraphStyles: [
+        // color обязателен: без него Word и просмотрщики (docx-preview) берут цвет
+        // встроенной темы для Heading — заголовки разделов выходили синими.
+        // В договоре весь текст чёрный, поэтому фиксируем явно.
         { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
-          run: { size: 28, bold: true, font: 'Times New Roman', allCaps: true },
+          run: { size: 28, bold: true, font: 'Times New Roman', allCaps: true, color: '000000' },
           paragraph: { spacing: { before: 160, after: 80 }, outlineLevel: 0 } },
         { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
-          run: { size: 26, bold: true, font: 'Times New Roman', allCaps: true },
+          run: { size: 26, bold: true, font: 'Times New Roman', allCaps: true, color: '000000' },
           paragraph: { spacing: { before: 120, after: 60 }, outlineLevel: 1 } },
         { id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
-          run: { size: 24, bold: true, font: 'Times New Roman' },
+          run: { size: 24, bold: true, font: 'Times New Roman', color: '000000' },
           paragraph: { spacing: { before: 100, after: 60 }, outlineLevel: 2 } },
       ],
     },
