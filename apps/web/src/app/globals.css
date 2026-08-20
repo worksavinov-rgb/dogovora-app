@@ -393,10 +393,14 @@ button { font-family: inherit; }
   color: #18181B;
 }
 
-/* TipTap сбрасывает outline */
+/* TipTap сбрасывает outline. В режиме ЧТЕНИЯ каретку прячем (документ не
+   редактируется). В режиме РЕДАКТИРОВАНИЯ — видимый мигающий курсор, как в Word. */
 .document-viewer .ProseMirror {
   outline: none;
   caret-color: transparent;
+}
+.document-viewer[data-editable] .ProseMirror {
+  caret-color: var(--ink);
 }
 
 /* ── Заголовки разделов ────────────────────────────────────────────────────── */
