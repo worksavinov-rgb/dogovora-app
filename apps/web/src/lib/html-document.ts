@@ -703,6 +703,7 @@ const TYPE_RU: Record<string, string> = {
   SOLE_PROPRIETOR: 'Индивидуальный предприниматель',
   COMPANY: 'Общество с ограниченной ответственностью',
   INDIVIDUAL: '',
+  SELF_EMPLOYED: '',
 }
 
 function partyFullName(name: string, type: string): string {
@@ -751,6 +752,39 @@ function buildBasisPhrase(
  * Собирается детерминированно из данных профиля/контрагента — НЕ зависит от того,
  * напишет ли её ИИ сам (промпт просит его не писать преамбулу, но это ненадёжно).
  */
+function isIndividualType(type: string | null | undefined): boolean {
+  return type === 'INDIVIDUAL' || type === 'SELF_EMPLOYED'
+}
+
+// Предложение-представление физлица/самозанятого: ФИО, паспорт, адрес регистрации,
+// (для самозанятого) оговорка про НПД. Без «в лице …, действующего на основании …» —
+// физлицо по ГК ст. 160 подписывает лично.
+function individualPreambleSentence(
+  party: {
+    name?: string | null
+    passportSeries?: string | null
+    passportNumber?: string | null
+    passportIssuedBy?: string | null
+    passportIssueDate?: string | null
+    legalAddress?: string | null
+  },
+  type: string,
+  role: string,
+  tail: string,
+): string {
+  const bits: string[] = [esc(party.name ?? '')]
+  const sn = [party.passportSeries, party.passportNumber].filter(Boolean).join(' № ')
+  if (sn) {
+    let pass = `паспорт ${sn}`
+    const issued = [party.passportIssuedBy, party.passportIssueDate].filter(Boolean).join(' ')
+    if (issued) pass += `, выдан ${issued}`
+    bits.push(esc(pass))
+  }
+  if (party.legalAddress) bits.push(`зарегистрирован по адресу ${esc(party.legalAddress)}`)
+  if (type === 'SELF_EMPLOYED') bits.push('применяющий специальный налоговый режим «Налог на профессиональный доход»')
+  return `${bits.join(', ')}, именуемый в дальнейшем «${esc(role)}», ${tail}`
+}
+
 // Собирает предложения-«представления» сторон (без финального «заключили…»).
 // Общее для основного договора и для приложений/допсоглашений.
 function buildPartyPreambleParts(
@@ -760,7 +794,7 @@ function buildPartyPreambleParts(
   role2: string,
 ): string[] {
   const p1Type = userProfile.type
-  const p2Type = counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR'
+  const p2Type = counterparty.type ?? (counterparty.kpp ? 'COMPANY' : 'SOLE_PROPRIETOR')
   const p1FullName = partyFullName(userProfile.name, p1Type)
   const p2FullName = partyFullName(counterparty.name, p2Type)
   const p1Basis = buildBasisPhrase(p1Type, userProfile.ogrn, userProfile.signatorBasis, userProfile.ogrnDate)
@@ -768,7 +802,10 @@ function buildPartyPreambleParts(
 
   const parts: string[] = []
 
-  if (p1Type === 'SOLE_PROPRIETOR') {
+  // ── Сторона 1 (профиль пользователя) ──
+  if (isIndividualType(p1Type)) {
+    parts.push(individualPreambleSentence(userProfile, p1Type, role1, 'с одной стороны, и'))
+  } else if (p1Type === 'SOLE_PROPRIETOR') {
     parts.push(`${esc(p1FullName)}, именуемый в дальнейшем «${esc(role1)}», действующий на основании ${esc(p1Basis)}, с одной стороны, и`)
   } else {
     const signatorPhrase = userProfile.signatorName
@@ -777,7 +814,10 @@ function buildPartyPreambleParts(
     parts.push(`${esc(p1FullName)} ${signatorPhrase} именуемое в дальнейшем «${esc(role1)}», с одной стороны, и`)
   }
 
-  if (p2Type === 'SOLE_PROPRIETOR') {
+  // ── Сторона 2 (контрагент) ──
+  if (isIndividualType(p2Type)) {
+    parts.push(individualPreambleSentence(counterparty, p2Type, role2, 'с другой стороны,'))
+  } else if (p2Type === 'SOLE_PROPRIETOR') {
     const signLine = counterparty.signatorName ? esc(counterparty.signatorName) : '____________'
     const basisLine = counterparty.signatorName ? esc(p2Basis) : '_____________'
     parts.push(`Индивидуальный предприниматель ${signLine}, именуемый в дальнейшем «${esc(role2)}», действующий на основании ${basisLine}, с другой стороны,`)
