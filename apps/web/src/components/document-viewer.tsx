@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import { TIPTAP_EXTENSIONS } from '@/lib/tiptap/extensions'
-import { isHtmlContent, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
+import { isHtmlContent, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables, preambleMetaToTable } from '@/lib/html-document'
 
 interface DocumentViewerProps {
   /** HTML или Markdown контент документа */
@@ -55,7 +55,7 @@ export function DocumentViewer({ content, editable = false, onUpdate, externalCo
     if (isHtmlContent(raw)) {
       // maybePromoteHeadings достраивает заголовки для ранее загруженных документов;
       // layoutDivsToTables переводит блок реквизитов в таблицу 1×2 (TipTap не знает <div>).
-      return layoutDivsToTables(normalizeLegalHtml(maybePromoteHeadings(sanitizeHtml(raw))))
+      return preambleMetaToTable(layoutDivsToTables(normalizeLegalHtml(maybePromoteHeadings(sanitizeHtml(raw)))))
     }
     return convertMarkdownSync(raw)
   }, [])

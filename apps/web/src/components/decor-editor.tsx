@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import { TIPTAP_EXTENSIONS } from '@/lib/tiptap/extensions'
-import { sanitizeHtml, normalizeLegalHtml, layoutDivsToTables } from '@/lib/html-document'
+import { sanitizeHtml, normalizeLegalHtml, layoutDivsToTables, preambleMetaToTable } from '@/lib/html-document'
 
 interface DecorEditorProps {
   /** HTML блока оформления */
@@ -42,7 +42,7 @@ export function DecorEditor({ html, hint, editable, onActivate, onSave }: DecorE
 
   // Санитайз только на входе: содержимое приходит из БД и от пользователя.
   // Ленивая инициализация — считаем один раз, а не на каждый рендер.
-  const [initialContent] = useState(() => layoutDivsToTables(normalizeLegalHtml(sanitizeHtml(html))))
+  const [initialContent] = useState(() => preambleMetaToTable(layoutDivsToTables(normalizeLegalHtml(sanitizeHtml(html)))))
 
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
@@ -61,7 +61,7 @@ export function DecorEditor({ html, hint, editable, onActivate, onSave }: DecorE
   // Пока пользователь печатает — не трогаем, иначе прыгает курсор.
   useEffect(() => {
     if (!editor || editor.isDestroyed || editor.isFocused) return
-    const next = layoutDivsToTables(normalizeLegalHtml(sanitizeHtml(html)))
+    const next = preambleMetaToTable(layoutDivsToTables(normalizeLegalHtml(sanitizeHtml(html))))
     if (editor.getHTML() !== next) editor.commands.setContent(next, { emitUpdate: false })
   }, [editor, html])
 

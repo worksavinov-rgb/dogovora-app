@@ -15,8 +15,11 @@ import {
   buildChildDocPreambleHtml,
   splitDocumentPreamble,
   stripAiPreamble,
+  preambleMetaToTable,
 } from '@/lib/html-document'
 import type { CounterpartyData, UserProfileData } from '@/lib/ai/types'
+import { convertToDocx } from '@shared/formatting/html-docx-converter'
+import { readDocumentXml, docxPlainText } from './docx-utils'
 
 const PROFILE: UserProfileData = {
   type: 'COMPANY',
@@ -128,5 +131,32 @@ describe('splitDocumentPreamble — шапку не отдаём ИИ', () => {
   it('stripAiPreamble сохраняет прежнее поведение (тело без шапки)', () => {
     expect(stripAiPreamble(`${PREAMBLE}\n${BODY}`)).toBe(BODY)
     expect(stripAiPreamble(BODY)).toBe(BODY)
+  })
+})
+
+// ─── Строка «город … дата» переживает ручную правку ──────────────────────────
+// Редактор не сохраняет произвольные <span>, поэтому город и дата слипались
+// («г. Москва12 февраля 2026 г.») — и на экране, и в скачанном Word.
+describe('preambleMetaToTable', () => {
+  const meta = '<p class="doc-preamble-meta"><span class="doc-preamble-city">г. Москва</span><span class="doc-preamble-date">12 февраля 2026 г.</span></p>'
+
+  it('переводит строку в таблицу с двумя ячейками', () => {
+    const out = preambleMetaToTable(meta)
+    expect(out).toContain('doc-preamble-meta-table')
+    expect(out).toContain('<td>г. Москва</td>')
+    expect(out).toContain('12 февраля 2026 г.')
+  })
+
+  it('не трогает документы без этой строки', () => {
+    const html = '<p>Обычный абзац договора.</p>'
+    expect(preambleMetaToTable(html)).toBe(html)
+  })
+
+  it('в Word город и дата остаются разделёнными', async () => {
+    const xml = await readDocumentXml(await convertToDocx(preambleMetaToTable(meta), { title: 'Тест' }))
+    const text = docxPlainText(xml)
+    // Между городом и датой — табуляция (правый таб-стоп), а не пустота
+    expect(text).toMatch(/г\. Москва\s+12 февраля 2026 г\./)
+    expect(text).not.toContain('Москва12')
   })
 })

@@ -724,6 +724,24 @@ button { font-family: inherit; }
   font-style: italic;
 }
 
+/* Та же строка, но таблицей — так её видит редактор (span он не сохраняет). */
+.document-viewer .doc-preamble-meta-table,
+.document-viewer .ProseMirror .doc-preamble-meta-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin: 0 0 8px;
+}
+.document-viewer .doc-preamble-meta-table td,
+.document-viewer .ProseMirror .doc-preamble-meta-table td {
+  border: none;
+  padding: 0;
+}
+.document-viewer .doc-preamble-meta-table td:last-child,
+.document-viewer .ProseMirror .doc-preamble-meta-table td:last-child {
+  text-align: right;
+}
+
 /* Строка «город … дата»: город слева, дата справа (как в бумажном договоре). */
 .document-viewer .doc-preamble-meta,
 .document-viewer .ProseMirror .doc-preamble-meta {

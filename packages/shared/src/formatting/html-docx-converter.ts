@@ -426,7 +426,26 @@ function buildBlocks(nodes: Node[], compact = false): (Paragraph | Table)[] {
       }
       case 'table': {
         const tableCls = n.attribs['class'] ?? ''
-        if (tableCls.includes('doc-requisites-table')) {
+        if (tableCls.includes('doc-preamble-meta-table')) {
+          // Строка «город … дата», пришедшая из редактора таблицей: выводим тем
+          // же абзацем с правым таб-стопом, что и исходный вариант со span.
+          const cells: ElNode[] = []
+          const collect = (nodes: Node[]) => {
+            for (const c of nodes) {
+              if (c.type !== 'el') continue
+              if (c.tag === 'td' || c.tag === 'th') cells.push(c)
+              else collect(c.children)
+            }
+          }
+          collect(n.children)
+          const cityTxt = (cells[0] ? nodeText(cells[0]) : '').trim()
+          const dateTxt = (cells[1] ? nodeText(cells[1]) : '').trim()
+          out.push(new Paragraph({
+            spacing: { after: 120, line: BODY_LINE_SPACING },
+            tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
+            children: [new TextRun({ text: dateTxt ? `${cityTxt}\t${dateTxt}` : cityTxt })],
+          }))
+        } else if (tableCls.includes('doc-requisites-table')) {
           out.push(buildRequisitesTableFromCells(n))
         } else {
           out.push(buildTable(n))

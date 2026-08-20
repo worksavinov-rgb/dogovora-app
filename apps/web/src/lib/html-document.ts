@@ -510,6 +510,33 @@ function topLevelDivContents(inner: string): string[] {
   return out
 }
 
+/**
+ * Строка «город … дата» преамбулы держится на двух <span> внутри <p>. Редактор
+ * (TipTap) произвольные span не понимает и выбрасывает их — после первой же
+ * ручной правки шапки город и дата слипались («г. Москва12 февраля 2026 г.»),
+ * причём навсегда: слипшийся вариант сохранялся в документ и уезжал в Word.
+ *
+ * Поэтому для редактора переводим строку в таблицу 1×2 — её структуру редактор
+ * сохраняет. Конвертер DOCX понимает такую таблицу и рисует прежним способом
+ * (город слева, дата по правому краю), см. html-docx-converter.
+ */
+export function preambleMetaToTable(html: string): string {
+  if (!html || !/doc-preamble-meta/i.test(html)) return html
+  return html.replace(
+    /<p[^>]*class="[^"]*doc-preamble-meta[^"]*"[^>]*>([\s\S]*?)<\/p>/gi,
+    (full, inner: string) => {
+      const spans = [...inner.matchAll(/<span[^>]*>([\s\S]*?)<\/span>/gi)].map((m) => m[1]!.trim())
+      if (spans.length < 2) return full
+      const [city, date] = spans
+      return (
+        '<table class="doc-preamble-meta-table"><tbody><tr>' +
+        `<td>${city}</td><td class="ta-right">${date}</td>` +
+        '</tr></tbody></table>'
+      )
+    },
+  )
+}
+
 export function layoutDivsToTables(html: string): string {
   // Оба варианта блока реквизитов/подписей: системный doc-requisites и
   // развёрнутый из Word doc-layout-table. NB: doc-requisites не должен матчить
