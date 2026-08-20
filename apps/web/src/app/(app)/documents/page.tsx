@@ -1052,7 +1052,15 @@ export default function DocumentsPage() {
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
                   <div className="min-w-0">
-                    <p className={['truncate font-medium', isChild ? 'text-[12px] text-[var(--ink-2)]' : 'text-[13px] text-[var(--ink)]'].join(' ')}>
+                    {/* Название переносится по строкам, а не обрезается многоточием:
+                        имена загруженных файлов длинные и состоят из одного «слова»
+                        с подчёркиваниями («Договора_ИП_Топчий_и_Фонд…»), и в
+                        обрезанном виде документы не отличить друг от друга.
+                        overflow-wrap: anywhere разрывает и такое сплошное слово. */}
+                    <p
+                      className={['font-medium', isChild ? 'text-[12px] text-[var(--ink-2)]' : 'text-[13px] text-[var(--ink)]'].join(' ')}
+                      style={{ overflowWrap: 'anywhere' }}
+                    >
                       {doc.title}
                     </p>
                     {!isChild && hasChildren && (
