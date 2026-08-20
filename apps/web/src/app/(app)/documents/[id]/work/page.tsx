@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/auth'
 import { DocumentViewer } from '@/components/document-viewer'
 import { EditorToolbar } from '@/components/editor-toolbar'
 import { DecorModal } from '@/components/decor-modal'
+import { DocxPreview } from '@/components/docx-preview'
 import type { Editor } from '@tiptap/react'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
@@ -285,6 +286,16 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const [canUndo, setCanUndo] = useState(false)
   const undoStackRef = useRef<string[]>([])
 
+  // ── Точный предпросмотр (docx-preview) ──────────────────────────────────────
+  // Режим левой колонки: 'view' — точный рендер .docx как в Word; 'edit' — ручная
+  // правка в TipTap-редакторе (тот же HTML-движок, автосейв/версии без изменений).
+  const [viewMode, setViewMode] = useState<'view' | 'edit'>('view')
+  const [previewDocx, setPreviewDocx] = useState<ArrayBuffer | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  // Загруженный документ без правок рисуем из ОРИГИНАЛА (точно как в Word). После
+  // любой правки (ИИ/ручной) и для созданных — собираем .docx из текущего HTML.
+  const noOriginalRef = useRef(false) // у версии нет исходного .docx (созданная/старая загрузка)
+
   // Редактируемый предпросмотр: экземпляр TipTap (для тулбара) и ключ внешнего
   // контента — инкремент заменяет содержимое редактора (ИИ-правка, отмена).
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
@@ -497,6 +508,46 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   }, [id])
 
   useEffect(() => { void refreshQuota() }, [refreshQuota])
+
+  // Собирает байты .docx для точного предпросмотра из текущего состояния:
+  //  - неизменённый загруженный документ → исходный .docx (точно как в Word);
+  //  - созданный / после ИИ- или ручной правки → .docx из текущего HTML тела
+  //    (тот же convertToDocx, что при скачивании) → предпросмотр = скачивание.
+  const buildPreview = useCallback(async () => {
+    if (!version || !docContent) return
+    setPreviewLoading(true)
+    try {
+      let buf: ArrayBuffer | null = null
+
+      // Точный оригинал — только пока документ не правили в этой сессии.
+      if (!hasUnsavedEdits && !noOriginalRef.current) {
+        const r = await fetch(`/api/versions/${version.id}/original`)
+        if (r.ok) buf = await r.arrayBuffer()
+        else if (r.status === 404) noOriginalRef.current = true
+      }
+
+      // Иначе (созданный / правленный) — собираем .docx из текущего HTML.
+      if (!buf) {
+        const r = await fetch(`/api/versions/${version.id}/preview-docx`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: docContent }),
+        })
+        if (r.ok) buf = await r.arrayBuffer()
+      }
+
+      setPreviewDocx(buf)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }, [version, docContent, hasUnsavedEdits])
+
+  // Пересобираем точный вид при входе в просмотр и при смене контента (после
+  // ИИ-правки/отмены). Во время генерации и стриминга .docx не строим — ждём.
+  useEffect(() => {
+    if (viewMode !== 'view' || streaming || generating || !docContent) return
+    void buildPreview()
+  }, [viewMode, streaming, generating, docContent, buildPreview])
 
   // Докупка пакета ИИ-правок
   async function buyEditPackage() {
@@ -1207,17 +1258,59 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
-            {/* Тулбар ручного редактирования — плавает над листом */}
+            {/* Панель режима: Просмотр (точный вид как в Word) ↔ Правка (редактор).
+                Тулбар форматирования активен только в режиме правки (TipTap). */}
             {!streaming && docContent && (
               <div
-                className="sticky top-[12px] z-10 mx-auto w-fit rounded-[var(--radius-md)] px-[6px] py-[4px]"
+                className="sticky top-[12px] z-10 mx-auto w-fit flex items-center gap-[8px] rounded-[var(--radius-md)] px-[6px] py-[4px]"
                 style={{ background: 'var(--bg)', border: '1px solid var(--line-2)', boxShadow: '0 2px 10px rgba(0,0,0,0.10)' }}
               >
-                <EditorToolbar editor={editorInstance} />
+                {viewMode === 'edit' && (
+                  <>
+                    <EditorToolbar editor={editorInstance} />
+                    <div className="w-px h-[22px] bg-[var(--line)] mx-[2px] shrink-0" />
+                  </>
+                )}
+                <button
+                  onClick={() => setViewMode((m) => (m === 'view' ? 'edit' : 'view'))}
+                  className="shrink-0 h-[30px] px-[12px] rounded-[var(--radius-md)] text-[12px] font-medium transition-colors cursor-pointer flex items-center gap-[5px]"
+                  style={viewMode === 'edit'
+                    ? { background: 'var(--ink)', color: 'var(--bg)' }
+                    : { background: 'transparent', color: 'var(--ink)', border: '1px solid var(--line-2)' }}
+                  title={viewMode === 'view' ? 'Редактировать вручную' : 'Вернуться к точному виду'}
+                >
+                  {viewMode === 'view' ? (
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                      Редактировать
+                    </>
+                  ) : (
+                    <>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      Готово · просмотр
+                    </>
+                  )}
+                </button>
               </div>
             )}
 
-            {/* Единый лист — бумажный вид */}
+            {viewMode === 'view' ? (
+              /* ── Точный вид: docx-preview рисует .docx 1-в-1, как в Word ── */
+              <div className="print-doc" style={{ padding: '24px' }}>
+                {docContent ? (
+                  <DocxPreview docx={previewDocx} loading={previewLoading} className="mx-auto w-fit" />
+                ) : (
+                  <div
+                    className="mx-auto flex flex-col items-center justify-center gap-[12px]"
+                    style={{ maxWidth: 794, minHeight: 400, background: 'white', marginTop: 32, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 20px rgba(0,0,0,0.13)' }}
+                  >
+                    <p className="text-[14px] text-[var(--ink-4)]" style={{ fontFamily: 'var(--font-serif)' }}>Документ пуст</p>
+                    <p className="text-[12px] text-[var(--ink-4)]">Попросите Догодка создать или отредактировать договор</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+            /* ── Ручная правка: TipTap на бумажном листе (тот же HTML-движок) ── */
             <div
               className="mx-auto relative"
               style={{
@@ -1290,6 +1383,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                 )
               })()}
             </div>
+            )}
           </div>
         )}
 

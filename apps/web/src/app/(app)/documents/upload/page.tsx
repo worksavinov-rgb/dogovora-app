@@ -726,7 +726,23 @@ export default function UploadPage() {
       if (!contentType.includes('application/json')) {
         throw new Error('Сессия истекла — обновите страницу и войдите снова')
       }
-      const doc = await docRes.json() as { id: string }
+      const doc = await docRes.json() as { id: string; versions?: { id: string; number: number }[] }
+
+      // Досылаем оригинальный .docx, чтобы точный предпросмотр (docx-preview) рисовал
+      // именно исходный файл, а не его mammoth-упрощение. Только для .docx; сбой не
+      // блокирует переход — документ уже создан, предпросмотр деградирует на обычный.
+      const ext = file?.name.split('.').pop()?.toLowerCase()
+      const versionId = doc.versions?.slice().sort((a, b) => a.number - b.number)[0]?.id
+      if (file && ext === 'docx' && versionId) {
+        try {
+          await fetch(`/api/versions/${versionId}/original`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file,
+          })
+        } catch { /* оригинал необязателен — деградируем на обычный рендер */ }
+      }
+
       router.push(`/documents/${doc.id}/work`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось создать документ')
