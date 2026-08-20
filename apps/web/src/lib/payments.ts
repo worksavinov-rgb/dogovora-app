@@ -5,6 +5,8 @@ import { prisma } from './db'
  * Guard: updateMany where creditedAt IS NULL — ровно одна транзакция «выигрывает»
  * право начислить; повторные вебхуки видят count=0 и выходят. Инкремент баланса
  * атомарен на уровне SQL, отдельный FOR UPDATE не нужен.
+ * Дополнительно guard ограничен status IN (NEW, AUTHORIZED): платёж в терминальном
+ * статусе (REJECTED/CANCELED/REFUNDED) с пустым creditedAt никогда не будет начислен.
  */
 export async function creditForPayment(
   paymentId: string,
@@ -12,7 +14,7 @@ export async function creditForPayment(
 ): Promise<'credited' | 'already'> {
   return db.$transaction(async (tx) => {
     const marked = await tx.payment.updateMany({
-      where: { id: paymentId, creditedAt: null },
+      where: { id: paymentId, creditedAt: null, status: { in: ['NEW', 'AUTHORIZED'] } },
       data: { creditedAt: new Date(), status: 'CONFIRMED' },
     })
     if (marked.count === 0) return 'already'
