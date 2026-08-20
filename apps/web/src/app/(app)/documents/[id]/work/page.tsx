@@ -294,6 +294,31 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   // блок оформления (шапка / реквизиты). Раньше он всегда был привязан к телу,
   // поэтому к шапке не применялись ни выравнивание, ни жирный, ни цвет.
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
+
+  // ── Удержание места в документе при переключении режимов ──────────────────
+  // Просмотр и правка — это два разных рендера (docx-preview против редактора),
+  // поэтому область прокрутки пересоздаётся и уезжает в начало. На длинном
+  // договоре это мучительно: приходится каждый раз листать до нужного пункта.
+  // Запоминаем ДОЛЮ прокрутки (высота содержимого в двух режимах разная,
+  // абсолютный отступ не подошёл бы) и возвращаемся примерно на то же место.
+  const scrollBoxRef = useRef<HTMLDivElement>(null)
+  const scrollFractionRef = useRef<number | null>(null)
+
+  const rememberScroll = useCallback(() => {
+    const box = scrollBoxRef.current
+    if (!box) return
+    const max = box.scrollHeight - box.clientHeight
+    scrollFractionRef.current = max > 0 ? box.scrollTop / max : 0
+  }, [])
+
+  const restoreScroll = useCallback(() => {
+    const box = scrollBoxRef.current
+    const fraction = scrollFractionRef.current
+    if (!box || fraction === null) return
+    const max = box.scrollHeight - box.clientHeight
+    if (max <= 0) return
+    box.scrollTop = fraction * max
+  }, [])
   const [externalKey, setExternalKey] = useState(0)
 
   // Слой оформления: шапка/реквизиты документа + legacy-признак (блоки вклеены в тело)
@@ -477,6 +502,14 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   }, [id])
 
   useEffect(() => { void refreshDecor() }, [refreshDecor])
+
+  // Режим правки: редактор монтируется заново, поэтому возвращаем прокрутку
+  // после того, как содержимое встало (двойной кадр — ждём вёрстку).
+  useEffect(() => {
+    if (viewMode !== 'edit') return
+    const raf = requestAnimationFrame(() => requestAnimationFrame(restoreScroll))
+    return () => cancelAnimationFrame(raf)
+  }, [viewMode, restoreScroll])
 
   // Прячем верхнюю полосу приложения на время работы с документом: она здесь
   // почти пустая, а её высота нужна листу договора. Баланс показываем сами —
@@ -771,6 +804,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
       // Применяем обновлённый документ
       if (aiDocText.trim()) {
         noteDocumentEdited()
+        rememberScroll() // после подмены содержимого вернёмся на то же место
         const updatedDoc = aiDocText.trim()
         // Сохраняем снапшот для отмены
         const snapshot = streamingDoc ?? docContent ?? ''
@@ -780,6 +814,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         }
         setDocContent(updatedDoc)
         setExternalKey((k) => k + 1) // внешнее изменение — заменить содержимое редактора
+        requestAnimationFrame(() => requestAnimationFrame(restoreScroll))
         setHasUnsavedEdits(true)
         scheduleAutosave(updatedDoc) // автосохранение рабочей копии
       }
@@ -1201,7 +1236,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             style={{ height: 42, borderBottom: '1px solid var(--line)', background: 'var(--bg)', minWidth: 0, overflowX: 'auto' }}
           >
             <button
-              onClick={() => setViewMode((m) => (m === 'view' ? 'edit' : 'view'))}
+              onClick={() => { rememberScroll(); setViewMode((m) => (m === 'view' ? 'edit' : 'view')) }}
               className="shrink-0 h-[28px] px-[12px] rounded-[var(--radius-md)] text-[12px] font-medium transition-colors cursor-pointer flex items-center gap-[5px]"
               style={viewMode === 'edit'
                 ? { background: 'var(--ink)', color: 'var(--bg)' }
@@ -1267,7 +1302,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
         ) : generating ? (
           <GeneratingScreen done={genProgress === 100} docTitle={docTitle} />
         ) : (
-          <div className="flex-1 overflow-y-auto relative" style={{ background: '#DEDAD3', padding: '0' }}>
+          <div ref={scrollBoxRef} className="flex-1 overflow-y-auto relative" style={{ background: '#DEDAD3', padding: '0' }}>
             {/* Памятка о переформатировании — полосой над документом, в зоне
                 внимания (в углу экрана её попросту не замечали). Закрывается
                 ТОЛЬКО крестиком: пользователь должен успеть прочитать и сверить
@@ -1322,7 +1357,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               /* ── Точный вид: docx-preview рисует .docx 1-в-1, как в Word ── */
               <div className="print-doc" style={{ padding: '24px' }}>
                 {docContent ? (
-                  <DocxPreview docx={previewDocx} loading={previewLoading} className="mx-auto w-fit" />
+                  <DocxPreview docx={previewDocx} loading={previewLoading} className="mx-auto w-fit" onRendered={restoreScroll} />
                 ) : (
                   <div
                     className="mx-auto flex flex-col items-center justify-center gap-[12px]"

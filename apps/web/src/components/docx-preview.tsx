@@ -63,14 +63,19 @@ export function DocxPreview({
   docx,
   loading = false,
   className,
+  onRendered,
 }: {
   docx: ArrayBuffer | null
   loading?: boolean
   className?: string
+  /** Документ отрисован — родитель может вернуть прокрутку на прежнее место */
+  onRendered?: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [rendering, setRendering] = useState(false)
+  const onRenderedRef = useRef(onRendered)
+  useEffect(() => { onRenderedRef.current = onRendered }, [onRendered])
 
   useEffect(() => {
     if (!docx) return
@@ -91,6 +96,7 @@ export function DocxPreview({
         if (cancelled) return
         fixSymbolBullets(container)
         setRendering(false)
+        onRenderedRef.current?.()
       } catch (e) {
         if (cancelled) return
         setRendering(false)
