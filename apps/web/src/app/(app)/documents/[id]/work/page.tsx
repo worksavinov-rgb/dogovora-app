@@ -795,6 +795,15 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
               void refreshQuota()
             }
 
+            // Предупреждение системы (например, документ не влезает целиком) —
+            // показываем отдельным жёлтым сообщением, а не как ответ Догодка.
+            if (parsed.type === 'warning' && parsed.chunk) {
+              const text = parsed.chunk
+              setMessages((prev) => prev.some((m) => m.content === text)
+                ? prev
+                : [...prev, { id: `warn-${Date.now()}`, role: 'WARNING' as const, content: text, createdAt: new Date().toISOString() }])
+            }
+
             if (parsed.type === 'doc' && parsed.chunk) {
               if (!docPhase) {
                 docPhase = true

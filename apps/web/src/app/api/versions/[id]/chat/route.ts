@@ -9,6 +9,7 @@ import { htmlToPlainText, isHtmlString } from '@/lib/html-to-text'
 import { anonymizeForAnalysis } from '@/lib/anonymize'
 import { splitRequisitesBlock, splitDocumentPreamble } from '@/lib/html-document'
 import { diffDocumentBlocks, buildEditReportPrompt, summarizeChanges } from '@/lib/edit-report'
+import { EDIT_PROMPT_CHAR_LIMIT } from '@/lib/doc-blocks'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 import { rateLimit } from '@/lib/rate-limit'
@@ -192,8 +193,24 @@ export async function POST(req: NextRequest, { params }: Params) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
 
         try {
+          // Документ длиннее лимита в один запрос не помещается: Догодок увидит
+          // только фрагменты, относящиеся к запросу. Раньше это происходило
+          // молча, и пользователь не понимал, почему правка легла не туда.
+          if (documentText.length > EDIT_PROMPT_CHAR_LIMIT) {
+            const notice = [
+              `Документ большой (${Math.round(documentText.length / 1000)} тыс. знаков) — целиком в один запрос он не помещается.`,
+              'Догодок разберёт только фрагменты, относящиеся к вашей просьбе, поэтому назовите номер пункта или процитируйте нужный текст.',
+              'Если правка касается всего договора — вносите её по разделам.',
+            ].join(' ')
+            send({ type: 'warning', chunk: notice })
+            await prisma.chatMessage.create({
+              data: { versionId: id, role: 'WARNING', content: notice },
+            })
+          }
+
           let updatedDoc = '' // только тело от ИИ, без шапки
           let failed = false
+          let failReason = ''
           let preambleSent = false
           // В логи — только размеры. Текст договора и инструкции пользователя
           // не логируются никогда: логи доступны админам и разработчикам.
@@ -201,8 +218,13 @@ export async function POST(req: NextRequest, { params }: Params) {
           await withLoggedAIContext('edit', { userId, versionId: id }, async ({ provider }) => {
             const docGen = provider.editDocument(documentText, data.content, settings)
             for await (const chunk of docGen) {
-              if (chunk === '__EDIT_FAILED__') {
+              if (chunk === '__EDIT_FAILED__' || chunk.startsWith('__EDIT_FAILED__::')) {
                 failed = true
+                // Модель может объяснить, почему не смогла — покажем это вместо
+                // общей фразы «не нашёл точный фрагмент».
+                failReason = chunk.startsWith('__EDIT_FAILED__::')
+                  ? chunk.slice('__EDIT_FAILED__::'.length).trim()
+                  : ''
               } else {
                 // Клиент собирает документ из чанков по порядку, поэтому шапку
                 // отдаём первым куском потока — иначе документ на экране
@@ -220,7 +242,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
           if (failed || !updatedDoc.trim()) {
             await releaseEdit() // правка не применена — возвращаем её в пакет
-            const msg = 'Не удалось применить изменение — не нашёл точный фрагмент в документе. Попробуйте уточнить запрос: укажите номер пункта или процитируйте часть текста который нужно изменить.'
+            const msg = failReason
+              ? `${failReason}\n\nУточните запрос: назовите номер пункта или процитируйте фрагмент, который нужно изменить.`
+              : 'Не удалось применить изменение — не нашёл точный фрагмент в документе. Попробуйте уточнить запрос: укажите номер пункта или процитируйте часть текста который нужно изменить.'
             send({ type: 'chat', chunk: msg })
             await prisma.chatMessage.create({
               data: { versionId: id, role: 'AI', content: msg },

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AIMessage, AIProvider, AISettings, CounterpartyData, ReviewResult, UserProfileData } from './types'
-import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
+import { splitHtmlBlocks, blocksToPromptText, parseBlockOps, applyBlockOps, validateHtmlFragment, selectBlocksForPrompt, EDIT_PROMPT_CHAR_LIMIT, BLOCK_EDIT_INSTRUCTION } from '../doc-blocks'
 import type { AITask } from './tasks'
 import { getActiveModelId, getActiveTemperature, getPrimaryTask } from './config/runtime'
 import { completeCompletion, streamCompletion } from './transport'
@@ -745,53 +745,26 @@ export const gigachatProvider: AIProvider = {
 
     const allBlocks = splitHtmlBlocks(doc)
 
-    // Для больших документов отправляем только релевантные блоки.
-    // Находим блоки, содержащие ключевые слова из инструкции (топ-N слов ≥4 букв),
-    // плюс 3 блока контекста вокруг каждого совпадения.
-    const MAX_PROMPT_CHARS = 30000
-    let blocks = allBlocks
-    const fullText = blocksToPromptText(allBlocks)
-    if (fullText.length > MAX_PROMPT_CHARS) {
-      const keywords = instruction
-        .toLowerCase()
-        .replace(/[^\wА-яЁё\s]/g, ' ')
-        .split(/\s+/)
-        .filter(w => w.length >= 4)
-        .slice(0, 8)
-
-      const relevant = new Set<number>()
-      allBlocks.forEach((b, i) => {
-        const bLower = b.toLowerCase()
-        if (keywords.some(kw => bLower.includes(kw))) {
-          for (let j = Math.max(0, i - 3); j <= Math.min(allBlocks.length - 1, i + 3); j++) {
-            relevant.add(j)
-          }
-        }
-      })
-
-      if (relevant.size > 0 && relevant.size < allBlocks.length) {
-        // Берём только релевантные блоки, сохраняем оригинальную нумерацию
-        blocks = allBlocks.filter((_, i) => relevant.has(i))
-        console.log(`[editDocument] focused edit: ${blocks.length}/${allBlocks.length} blocks selected`)
-      } else {
-        // Нет совпадений или слишком много — обрезаем по лимиту
-        let total = 0
-        const limited: string[] = []
-        for (const b of allBlocks) {
-          if (total + b.length > MAX_PROMPT_CHARS) break
-          limited.push(b)
-          total += b.length
-        }
-        blocks = limited
-        console.log(`[editDocument] truncated to ${blocks.length}/${allBlocks.length} blocks`)
-      }
+    // Для больших документов отправляем только релевантные блоки: договор
+    // целиком в модель не влезает. Отбор и соответствие номеров — в
+    // selectBlocksForPrompt (doc-blocks.ts), там же объяснено, почему карту
+    // индексов нельзя восстанавливать поиском по содержимому блока.
+    // Договор отдаём модели ЦЕЛИКОМ. Прежний лимит в 30 000 символов был
+    // рассчитан на GigaChat с окном ~32k токенов; сейчас правки идут через
+    // модель со 128k контекста, куда договор на 50-60 тысяч знаков помещается
+    // с большим запасом. Из-за старого лимита включался отбор блоков по
+    // ключевым словам, и модель просто НЕ ВИДЕЛА нужные пункты: на просьбу
+    // «переделай пункты 1.1–1.3» она решала, что таких пунктов нет, и
+    // дописывала новый раздел в середину договора.
+    // Отбор остаётся аварийным вариантом для документов, которые действительно
+    // не влезают; предел настраивается через ENV.
+    const MAX_PROMPT_CHARS = EDIT_PROMPT_CHAR_LIMIT
+    const selection = selectBlocksForPrompt(allBlocks, instruction, MAX_PROMPT_CHARS)
+    const blocks = selection.blocks
+    const blockIndexMap = selection.indexMap
+    if (blockIndexMap) {
+      console.log(`[editDocument] focused edit: ${blocks.length}/${allBlocks.length} blocks selected`)
     }
-
-    // Маппинг: если использовали подмножество блоков, нумерация в промпте не совпадает
-    // с индексами в allBlocks — передаём соответствие для applyBlockOps
-    const blockIndexMap = allBlocks.length === blocks.length
-      ? null
-      : allBlocks.reduce((acc, b, i) => { if (blocks.includes(b)) acc.push(i); return acc }, [] as number[])
 
     const systemPrompt = [
       'Ты — юрист-редактор коммерческого SaaS-сервиса для работы с договорами. Твоя работа — вносить правки в гражданско-правовые договоры по заданию предпринимателей и юридических лиц. Это легитимная профессиональная деятельность.',
@@ -812,7 +785,10 @@ export const gigachatProvider: AIProvider = {
       settings.customInstruction ? `Особые требования: ${settings.customInstruction}` : '',
     ].filter(Boolean).join('\n')
 
-    const userMessage = `Задание: ${instruction}\n\nДокумент (пронумерованные блоки):\n${blocksToPromptText(blocks) || '(документ пуст)'}`
+    const partialNote = blockIndexMap
+      ? '\n\nВНИМАНИЕ: документ очень большой и показан НЕ ПОЛНОСТЬЮ — часть блоков пропущена. Если нужного пункта нет среди показанных, не выдумывай его и не создавай новый раздел, а верни <<<NOT_FOUND>>> с пояснением.'
+      : '\n\nДокумент показан ЦЕЛИКОМ — все блоки перед тобой.'
+    const userMessage = `Задание: ${instruction}${partialNote}\n\nДокумент (пронумерованные блоки):\n${blocksToPromptText(blocks) || '(документ пуст)'}`
 
     const payload = {
       model: getActiveModelId('edit', GIGACHAT_MODEL),
@@ -831,6 +807,16 @@ export const gigachatProvider: AIProvider = {
     }
 
     console.log('[editDocument] raw AI response length:', aiResponse.length)
+
+    // Модель честно сообщила, что не нашла, куда вносить правку. Это штатный
+    // ответ, а не сбой: раньше в такой ситуации она дописывала новый раздел в
+    // середину договора, и получались два противоречащих друг другу места.
+    const notFound = aiResponse.match(/<<<NOT_FOUND>>>\s*([\s\S]{0,400})/i)
+    if (notFound) {
+      const reason = notFound[1]!.replace(/<<<[^>]*>>>/g, '').trim()
+      yield `__EDIT_FAILED__::${reason || 'не нашёл в договоре место для этой правки'}`
+      return
+    }
 
     // Предохранитель от разрушительных правок: если результат внезапно стал
     // кардинально короче оригинала — это почти наверняка ошибка модели
