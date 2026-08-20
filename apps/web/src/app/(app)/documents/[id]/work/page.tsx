@@ -10,6 +10,7 @@ import { DocumentViewer } from '@/components/document-viewer'
 import { EditorToolbar } from '@/components/editor-toolbar'
 import { DecorModal } from '@/components/decor-modal'
 import { DocxPreview } from '@/components/docx-preview'
+import { DecorEditor } from '@/components/decor-editor'
 import { formatTokens } from '@/lib/token-pricing'
 import type { Editor } from '@tiptap/react'
 
@@ -127,34 +128,6 @@ function stripMarkdown(s: string): string {
     .replace(/^\s*[-*]\s+/gm, '• ')   // маркеры списка → видимая точка
     .replace(/\n{3,}/g, '\n\n')       // не больше одной пустой строки подряд
     .trim()
-}
-
-// ─── Блок слоя оформления (шапка / реквизиты) ────────────────────────────────
-// Часть «листа», но НЕ часть тела версии: хранится на документе, редактируется
-// по клику (contentEditable), сохраняется по blur через PATCH /decor.
-
-function DecorBlock({ html, hint, onSave }: { html: string; hint: string; onSave: (html: string) => void }) {
-  const [editing, setEditing] = useState(false)
-  return (
-    <div className="group relative my-[4px]">
-      <div
-        contentEditable={editing}
-        suppressContentEditableWarning
-        onClick={() => !editing && setEditing(true)}
-        onBlur={(e) => { setEditing(false); onSave(e.currentTarget.innerHTML) }}
-        className={[
-          'doc-content rounded-[4px] transition-shadow',
-          editing ? 'outline-none ring-1 ring-[var(--accent)] cursor-text' : 'cursor-pointer hover:ring-1 hover:ring-[var(--line-2)]',
-        ].join(' ')}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-      {!editing && (
-        <span className="absolute -top-[16px] right-0 hidden group-hover:block text-[10px] text-[var(--ink-4)] select-none pointer-events-none">
-          {hint}
-        </span>
-      )}
-    </div>
-  )
 }
 
 // ─── Экран генерации (пока документ создаётся) ───────────────────────────────
@@ -317,6 +290,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   // Редактируемый предпросмотр: экземпляр TipTap (для тулбара) и ключ внешнего
   // контента — инкремент заменяет содержимое редактора (ИИ-правка, отмена).
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null)
+  // Тулбар один на экран и правит ТО, где сейчас курсор: тело документа либо
+  // блок оформления (шапка / реквизиты). Раньше он всегда был привязан к телу,
+  // поэтому к шапке не применялись ни выравнивание, ни жирный, ни цвет.
+  const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
   const [externalKey, setExternalKey] = useState(0)
 
   // Слой оформления: шапка/реквизиты документа + legacy-признак (блоки вклеены в тело)
@@ -1247,7 +1224,7 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
             {viewMode === 'edit' && (
               <>
                 <div className="w-px h-[22px] bg-[var(--line)] shrink-0" />
-                <EditorToolbar editor={editorInstance} />
+                <EditorToolbar editor={activeEditor ?? editorInstance} />
               </>
             )}
           </div>
@@ -1388,9 +1365,11 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                   <div className="relative z-[2]" style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s' }}>
                     {/* Слой оформления: шапка над телом (редактируется по клику) */}
                     {!legacyInline && decor?.preambleHtml && (
-                      <DecorBlock
+                      <DecorEditor
                         html={decor.preambleHtml}
-                        hint="Шапка · оформление, кликните чтобы поправить"
+                        hint="Шапка · оформление, тулбар работает и здесь"
+                        editable={!streaming && !generating}
+                        onActivate={setActiveEditor}
                         onSave={(html) => void patchDecor({ preambleHtml: html })}
                       />
                     )}
@@ -1417,13 +1396,16 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                         scheduleAutosave(html)
                       }}
                       externalContentKey={externalKey}
-                      onEditorReady={setEditorInstance}
+                      onEditorReady={(ed) => { setEditorInstance(ed); setActiveEditor((cur) => cur ?? ed) }}
+                      onFocus={setActiveEditor}
                     />
                     {/* Слой оформления: реквизиты под телом */}
                     {!legacyInline && decor?.requisitesHtml && (
-                      <DecorBlock
+                      <DecorEditor
                         html={decor.requisitesHtml}
-                        hint="Реквизиты · оформление, кликните чтобы поправить"
+                        hint="Реквизиты · оформление, тулбар работает и здесь"
+                        editable={!streaming && !generating}
+                        onActivate={setActiveEditor}
                         onSave={(html) => void patchDecor({ requisitesHtml: html })}
                       />
                     )}

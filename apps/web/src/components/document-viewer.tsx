@@ -20,16 +20,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
-import { Table } from '@tiptap/extension-table'
-import { TableRow } from '@tiptap/extension-table-row'
-import { TableCell } from '@tiptap/extension-table-cell'
-import { TableHeader } from '@tiptap/extension-table-header'
-import { TextStyle } from '@tiptap/extension-text-style'
-import { Color } from '@tiptap/extension-color'
-import { Highlight } from '@tiptap/extension-highlight'
-import { TextAlignClass } from '@/lib/tiptap/text-align-class'
-import { OrderedListStyle } from '@/lib/tiptap/ordered-list-style'
+import { TIPTAP_EXTENSIONS } from '@/lib/tiptap/extensions'
 import { isHtmlContent, sanitizeHtml, normalizeLegalHtml, maybePromoteHeadings, layoutDivsToTables } from '@/lib/html-document'
 
 interface DocumentViewerProps {
@@ -47,26 +38,14 @@ interface DocumentViewerProps {
   externalContentKey?: number
   /** Отдаёт экземпляр редактора (для тулбара) */
   onEditorReady?: (editor: Editor) => void
+  /** Курсор вернулся в тело документа — тулбар должен править снова его */
+  onFocus?: (editor: Editor) => void
   /** Вызывается когда контент обработан и готов */
   onReady?: () => void
 }
 
-const TIPTAP_EXTENSIONS = [
-  StarterKit,
-  Table.configure({ resizable: false }),
-  TableRow,
-  TableCell,
-  TableHeader,
-  TextAlignClass,
-  OrderedListStyle,
-  // Цвет шрифта и жёлтая заливка — правки в документе видно глазом; конвертер
-  // переносит их в DOCX (см. html-docx-converter: color / highlight).
-  TextStyle,
-  Color,
-  Highlight.configure({ multicolor: true }),
-]
 
-export function DocumentViewer({ content, editable = false, onUpdate, externalContentKey, onEditorReady, onReady }: DocumentViewerProps) {
+export function DocumentViewer({ content, editable = false, onUpdate, externalContentKey, onEditorReady, onFocus, onReady }: DocumentViewerProps) {
   // Тяжёлый пайплайн (sanitize→normalize→promote→layout) вызываем ЛЕНИВО — только
   // когда контент реально применяется в редактор, а не на каждый ререндер.
   // Раньше это был useMemo по `content`: в editable-режиме `content` меняется на
@@ -83,6 +62,8 @@ export function DocumentViewer({ content, editable = false, onUpdate, externalCo
 
   const onUpdateRef = useRef(onUpdate)
   onUpdateRef.current = onUpdate
+  const onFocusRef = useRef(onFocus)
+  useEffect(() => { onFocusRef.current = onFocus }, [onFocus])
 
   // Начальный контент вычисляем один раз (не на каждый ререндер)
   const initialContentRef = useRef<string | null>(null)
@@ -93,6 +74,7 @@ export function DocumentViewer({ content, editable = false, onUpdate, externalCo
     content: initialContentRef.current,
     editable,
     immediatelyRender: false,
+    onFocus: ({ editor }) => onFocusRef.current?.(editor),
     onUpdate: ({ editor, transaction }) => {
       // Только ручной ввод (docChanged); программный setContent не эхоём наверх
       if (transaction.docChanged && editor.isEditable) {

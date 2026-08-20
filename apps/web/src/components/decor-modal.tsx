@@ -169,15 +169,17 @@ export function DecorModal({ documentId, counterpartyId, open, onClose, onConfir
           </div>
         )}
 
-        {/* Живой предпросмотр */}
-        <div className="rounded-[var(--radius-md)] px-[16px] py-[14px] text-[12.5px] leading-[1.6] text-[var(--ink-2)]"
+        {/* Живой предпросмотр. Класс document-viewer — тот же, что у листа на
+            рабочем экране: реквизиты показываются в две колонки, как они и уйдут
+            в Word. Раньше здесь стоял свой flex-col, и предпросмотр расходился
+            и с экраном, и со скачанным файлом. */}
+        <div className="document-viewer rounded-[var(--radius-md)] px-[16px] py-[14px] text-[12.5px] leading-[1.6] text-[var(--ink-2)]"
           style={{ background: 'white', border: '1px solid var(--line-2)', opacity: previewLoading ? 0.5 : 1, transition: 'opacity 0.2s' }}>
           {preview ? (
             <>
               <div className="[&_p]:mb-[6px]" dangerouslySetInnerHTML={{ __html: preview.preambleHtml }} />
               <div className="my-[10px] text-center text-[11px] text-[var(--ink-4)]">· · · тело договора · · ·</div>
-              <div className="[&_p]:mb-[4px] [&_h2]:text-[11px] [&_h2]:font-medium [&_h2]:uppercase [&_h2]:tracking-[0.08em] [&_h2]:mb-[8px] flex flex-col gap-[10px]"
-                dangerouslySetInnerHTML={{ __html: preview.requisitesHtml }} />
+              <div dangerouslySetInnerHTML={{ __html: preview.requisitesHtml }} />
             </>
           ) : (
             <p className="text-[12px] text-[var(--ink-4)]">Собираю предпросмотр…</p>
