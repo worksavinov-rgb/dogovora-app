@@ -325,7 +325,20 @@ function nodeText(n: Node): string {
   if (n.type === 'text') return n.text ?? ''
   return (n.children ?? []).map(nodeText).join('')
 }
-function bodyParagraph(runs: TextRun[], align?: DocxAlign): Paragraph {
+/**
+ * Абзац тела документа. В «компактном» режиме (блок реквизитов и подписей)
+ * убираем красную строку и выравнивание по ширине: в узкой колонке отступ
+ * первой строки ломает столбик «ИНН / БИК / Р-счёт», а justify растягивает
+ * строку подписи «_____ / _____» на всю ширину ячейки.
+ */
+function bodyParagraph(runs: TextRun[], align?: DocxAlign, compact = false): Paragraph {
+  if (compact) {
+    return new Paragraph({
+      children: runs,
+      alignment: align ?? AlignmentType.LEFT,
+      spacing: { after: 60, line: BODY_LINE_SPACING },
+    })
+  }
   return new Paragraph({
     children: runs,
     alignment: align ?? AlignmentType.JUSTIFIED,
@@ -348,7 +361,7 @@ function isAttachmentStart(text: string): boolean {
 // Сбрасывается в convertToDocx.
 let processedBlocks = 0
 
-function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
+function buildBlocks(nodes: Node[], compact = false): (Paragraph | Table)[] {
   const out: (Paragraph | Table)[] = []
 
   for (const n of nodes) {
@@ -359,7 +372,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
       // пустой абзац с одним пробелом, и интервалы между пунктами визуально удваиваются.
       if (!n.text.trim()) continue
       const runs = collectRuns([n])
-      if (!isBlank(runs)) out.push(bodyParagraph(runs))
+      if (!isBlank(runs)) out.push(bodyParagraph(runs, undefined, compact))
       continue
     }
 
@@ -403,7 +416,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
           break
         }
         const runs = collectRuns(n.children)
-        out.push(bodyParagraph(runs, alignFromClass(n.attribs['class'])))
+        out.push(bodyParagraph(runs, alignFromClass(n.attribs['class']), compact))
         break
       }
       case 'ul': case 'ol': {
@@ -412,7 +425,12 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
         break
       }
       case 'table': {
-        out.push(buildTable(n))
+        const tableCls = n.attribs['class'] ?? ''
+        if (tableCls.includes('doc-requisites-table')) {
+          out.push(buildRequisitesTableFromCells(n))
+        } else {
+          out.push(buildTable(n))
+        }
         break
       }
       case 'hr': {
@@ -435,7 +453,7 @@ function buildBlocks(nodes: Node[]): (Paragraph | Table)[] {
           if (titleEl) out.push(...buildBlocks([titleEl]))
           out.push(buildRequisitesTable(n))
         } else {
-          out.push(...buildBlocks(n.children))
+          out.push(...buildBlocks(n.children, compact))
         }
         break
       }
@@ -510,16 +528,62 @@ function buildTable(table: ElNode): Table {
   })
 }
 
+/**
+ * Блок реквизитов, пришедший из редактора в виде таблицы (table.doc-requisites-table).
+ * Рисуем теми же правилами, что и вариант с колонками-div: без рамок, компактные
+ * абзацы. Иначе Word показал бы обычную таблицу с сеткой.
+ */
+function buildRequisitesTableFromCells(table: ElNode): Table {
+  const cellNodes: ElNode[] = []
+  const walk = (nodes: Node[]) => {
+    for (const c of nodes) {
+      if (c.type !== 'el') continue
+      if (c.tag === 'td' || c.tag === 'th') cellNodes.push(c)
+      else walk(c.children)
+    }
+  }
+  walk(table.children)
+
+  const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
+  // insideHorizontal/insideVertical обязательны: без них Word ставит внутренние
+  // границы по умолчанию и между колонками реквизитов появляется линия.
+  const noBorders = {
+    top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
+    insideHorizontal: noBorder, insideVertical: noBorder,
+  }
+  const columns = cellNodes.length ? cellNodes : [table]
+  const colWidth = Math.floor(CONTENT_WIDTH / columns.length)
+
+  const cells = columns.map((col) => new TableCell({
+    children: buildBlocks(col.children, true).filter((b): b is Paragraph => b instanceof Paragraph),
+    borders: noBorders,
+    width: { size: colWidth, type: WidthType.DXA },
+    margins: { top: 40, bottom: 40, left: 80, right: 120 },
+  }))
+
+  return new Table({
+    rows: [new TableRow({ children: cells })],
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    columnWidths: Array(columns.length).fill(colWidth),
+    borders: noBorders,
+  })
+}
+
 /** Блок реквизитов (div.doc-requisites c колонками) → 2-колоночная таблица без рамок. */
 function buildRequisitesTable(div: ElNode): Table {
   const colDivs = div.children.filter((c): c is ElNode => c.type === 'el' && c.tag === 'div')
   const columns = colDivs.length ? colDivs : [div]
   const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' }
-  const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder }
+  // insideHorizontal/insideVertical обязательны: без них Word ставит внутренние
+  // границы по умолчанию и между колонками реквизитов появляется линия.
+  const noBorders = {
+    top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
+    insideHorizontal: noBorder, insideVertical: noBorder,
+  }
   const colWidth = Math.floor(CONTENT_WIDTH / columns.length)
 
   const cells = columns.map(col => new TableCell({
-    children: buildBlocks(col.children).filter((b): b is Paragraph => b instanceof Paragraph),
+    children: buildBlocks(col.children, true).filter((b): b is Paragraph => b instanceof Paragraph),
     borders: noBorders,
     width: { size: colWidth, type: WidthType.DXA },
     margins: { top: 40, bottom: 40, left: 80, right: 120 },

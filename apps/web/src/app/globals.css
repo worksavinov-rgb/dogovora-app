@@ -656,6 +656,28 @@ button { font-family: inherit; }
     row-gap: 28px;
   }
 }
+/* Тот же блок, но в виде таблицы: редактор не умеет <div>, поэтому колонки
+   переводятся в таблицу 1×2 (layoutDivsToTables). Рамок быть не должно —
+   в Word он тоже рисуется таблицей без сетки. */
+.document-viewer .doc-requisites-table,
+.document-viewer .ProseMirror .doc-requisites-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+.document-viewer .doc-requisites-table td,
+.document-viewer .ProseMirror .doc-requisites-table td {
+  vertical-align: top;
+  border: none;
+  padding: 0 24px 0 0;
+  width: 50%;
+}
+.document-viewer .doc-requisites-table td:last-child,
+.document-viewer .ProseMirror .doc-requisites-table td:last-child {
+  padding-right: 0;
+  padding-left: 8px;
+}
 .document-viewer .doc-requisites-title {
   grid-column: 1 / -1; /* заголовок — на всю ширину над обеими колонками */
   font-size: 14px;

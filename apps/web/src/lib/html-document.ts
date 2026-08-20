@@ -1002,11 +1002,11 @@ export function buildRequisitesHtml(
     '  <h2 class="doc-requisites-title">РЕКВИЗИТЫ И ПОДПИСИ СТОРОН</h2>',
     '  <div class="doc-requisites-party">',
     col1Lines.map(l => `    <p>${l}</p>`).join('\n'),
-    '    <p class="doc-signature-line">_______________&nbsp;&nbsp;&nbsp;/&nbsp;&nbsp;&nbsp;_______________</p>',
+    '    <p class="doc-signature-line">__________&nbsp;/&nbsp;__________</p>',
     '  </div>',
     '  <div class="doc-requisites-party">',
     col2Lines.map(l => `    <p>${l}</p>`).join('\n'),
-    '    <p class="doc-signature-line">_______________&nbsp;&nbsp;&nbsp;/&nbsp;&nbsp;&nbsp;_______________</p>',
+    '    <p class="doc-signature-line">__________&nbsp;/&nbsp;__________</p>',
     '  </div>',
     '</div>',
   ].join('\n')
