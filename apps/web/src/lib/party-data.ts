@@ -82,6 +82,14 @@ export async function buildDocumentParties(opts: {
     bik: profile.bankDetails[0]?.bik ?? null,
     correspondentAccount: profile.bankDetails[0]?.correspondentAccount ?? null,
     email: profile.email ?? null,
+    phone: profile.phone ?? null,
+    actualAddress: profile.actualAddress ?? null,
+    passportSeries: profile.passportSeries ?? null,
+    passportNumber: profile.passportNumber ?? null,
+    passportIssuedBy: profile.passportIssuedBy ?? null,
+    passportIssueDate: profile.passportIssueDate ?? null,
+    passportDeptCode: profile.passportDeptCode ?? null,
+    npdRegisteredDate: profile.npdRegisteredDate ?? null,
   } as UserProfileData : undefined
 
   const cp = await prisma.counterparty.findFirst({
@@ -95,11 +103,19 @@ export async function buildDocumentParties(opts: {
       ? await prisma.signatory.findFirst({ where: { id: opts.signatoryId, counterpartyId: cp.id } })
       : await resolveCounterpartySignatory(cp.id)
     counterpartyData = {
+      type: cp.type,
       name: cp.name,
       inn: cp.inn,
       kpp: cp.kpp,
       ogrn: cp.ogrn,
       legalAddress: cp.legalAddress,
+      actualAddress: cp.actualAddress,
+      passportSeries: cp.passportSeries,
+      passportNumber: cp.passportNumber,
+      passportIssuedBy: cp.passportIssuedBy,
+      passportIssueDate: cp.passportIssueDate,
+      passportDeptCode: cp.passportDeptCode,
+      npdRegisteredDate: cp.npdRegisteredDate,
       email: cp.email,
       phone: cp.phone,
       bankName: cp.bankDetails[0]?.bankName ?? null,
