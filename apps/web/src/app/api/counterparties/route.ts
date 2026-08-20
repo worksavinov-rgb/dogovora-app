@@ -3,16 +3,24 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 
+const TYPE_ENUM = z.enum(['INDIVIDUAL', 'SELF_EMPLOYED', 'SOLE_PROPRIETOR', 'COMPANY', 'ANO', 'PAO', 'ZAO'])
+
 const createSchema = z.object({
   name: z.string().min(1, 'Укажите название'),
+  type: TYPE_ENUM.default('COMPANY'),
   inn: z.string().optional(),
   kpp: z.string().optional(),
   ogrn: z.string().optional(),
   legalAddress: z.string().optional(),
   actualAddress: z.string().optional(),
+  passportSeries: z.string().optional(),
+  passportNumber: z.string().optional(),
+  passportIssuedBy: z.string().optional(),
+  passportIssueDate: z.string().optional(),
+  passportDeptCode: z.string().optional(),
+  npdRegisteredDate: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')),
   phone: z.string().optional(),
-  orgForm: z.string().optional(), // ООО, ИП, АО, АНО...
   bankName: z.string().optional(),
   checkingAccount: z.string().optional(),
   bik: z.string().optional(),
@@ -84,7 +92,8 @@ export async function POST(req: NextRequest) {
     throw err
   }
 
-  const { bankName, checkingAccount, bik, correspondentAccount, orgForm, actualAddress, signatory, ...cpData } = data
+  // type, actualAddress и паспортные поля остаются в cpData — это колонки БД.
+  const { bankName, checkingAccount, bik, correspondentAccount, signatory, ...cpData } = data
 
   const cp = await prisma.counterparty.create({
     data: {
