@@ -48,6 +48,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ paymentUrl: init.paymentUrl, paymentId: payment.id })
   } catch (e) {
     logger.error({ event: 'payment.init_failed', user_id: userId, order_id: orderId, error: String(e) })
+    // Init не прошёл — банк платёж не зарегистрировал, значит и у нас он не должен
+    // висеть «живым»: помечаем отменённым, чтобы не остался мёртвой строкой без вебхука.
+    try {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'CANCELED', errorCode: 'INIT_FAILED' },
+      })
+    } catch (updateError) {
+      logger.error({ event: 'payment.cancel_failed', user_id: userId, order_id: orderId, error: String(updateError) })
+    }
     return NextResponse.json({ error: 'Не удалось создать платёж. Попробуйте позже.' }, { status: 502 })
   }
 }
