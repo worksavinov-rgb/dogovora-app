@@ -8,18 +8,23 @@ import type { PaymentStatus } from '@prisma/client'
  * право начислить; повторные вебхуки видят count=0 и выходят. Инкремент баланса
  * атомарен на уровне SQL, отдельный FOR UPDATE не нужен.
  * Дополнительно guard ограничен status IN (NEW, AUTHORIZED): платёж в терминальном
- * статусе (REJECTED/CANCELED/REFUNDED) с пустым creditedAt никогда не будет начислен.
+ * статусе (REJECTED/CANCELED/REFUNDED) с пустым creditedAt никогда не будет начислен —
+ * такой случай возвращает 'refused' (не 'already'), чтобы вызывающий код мог отличить
+ * настоящий повтор уже начисленного платежа от отказа начислить реально подтверждённый.
  */
 export async function creditForPayment(
   paymentId: string,
   db: typeof prisma = prisma,
-): Promise<'credited' | 'already'> {
+): Promise<'credited' | 'already' | 'refused'> {
   return db.$transaction(async (tx) => {
     const marked = await tx.payment.updateMany({
       where: { id: paymentId, creditedAt: null, status: { in: ['NEW', 'AUTHORIZED'] } },
       data: { creditedAt: new Date(), status: 'CONFIRMED' },
     })
-    if (marked.count === 0) return 'already'
+    if (marked.count === 0) {
+      const existing = await tx.payment.findUnique({ where: { id: paymentId }, select: { creditedAt: true } })
+      return existing && existing.creditedAt === null ? 'refused' : 'already'
+    }
 
     const payment = await tx.payment.findUnique({ where: { id: paymentId } })
     if (!payment) return 'already'

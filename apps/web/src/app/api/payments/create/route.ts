@@ -6,7 +6,7 @@ import { prisma } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { getPackage, priceKopecks } from '@/lib/token-packages'
 import { buildReceipt } from '@/lib/tbank/receipt'
-import { initPayment } from '@/lib/tbank/client'
+import { initPayment, TBankInitError } from '@/lib/tbank/client'
 
 // POST /api/payments/create — создаёт платёж и возвращает ссылку на оплату.
 export async function POST(req: NextRequest) {
@@ -47,7 +47,10 @@ export async function POST(req: NextRequest) {
     logger.info({ event: 'payment.created', user_id: userId, order_id: orderId, amount, tokens: pkg.tokens })
     return NextResponse.json({ paymentUrl: init.paymentUrl, paymentId: payment.id })
   } catch (e) {
-    logger.error({ event: 'payment.init_failed', user_id: userId, order_id: orderId, error: String(e) })
+    // Логируем только стабильный код ошибки, НЕ String(e): текст банка (Message/Details)
+    // может содержать данные чека — например email пользователя (правило №11, 152-ФЗ).
+    const errorCode = e instanceof TBankInitError ? e.code : 'unknown'
+    logger.error({ event: 'payment.init_failed', user_id: userId, order_id: orderId, error_code: errorCode })
     // Init не прошёл — банк платёж не зарегистрировал, значит и у нас он не должен
     // висеть «живым»: помечаем отменённым, чтобы не остался мёртвой строкой без вебхука.
     try {

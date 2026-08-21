@@ -20,6 +20,32 @@ function publicBase(): string {
   return process.env.PUBLIC_BASE_URL || ''
 }
 
+function assertAbsolutePublicBase(base: string): void {
+  if (!/^https?:\/\/.+/i.test(base)) {
+    // Пустой/относительный PUBLIC_BASE_URL даёт относительный NotificationURL — если банк
+    // такой всё же примет, пользователь оплатит, а нотификация никогда не придёт (тихая
+    // невосстановимая потеря). Лучше упасть на Init явной 502-ошибкой создания платежа.
+    throw new TBankInitError(
+      `PUBLIC_BASE_URL должен быть абсолютным http(s) URL, получено: "${base}"`,
+      'invalid_public_base_url',
+    )
+  }
+}
+
+/**
+ * Ошибка инициации платежа. `code` — стабильный машиночитаемый маркер без банковского
+ * свободного текста (Message/Details могут содержать ПДн из чека — email и т.п.),
+ * его безопасно логировать; полный `message` — для внутренней диагностики у вызывающего.
+ */
+export class TBankInitError extends Error {
+  code: string
+  constructor(message: string, code: string) {
+    super(message)
+    this.name = 'TBankInitError'
+    this.code = code
+  }
+}
+
 /**
  * Инициирует одностадийный платёж. Подпись считается по КОРНЕВЫМ полям
  * (Receipt в подпись не входит — так требует Т-Банк). Возвращает ссылку на
@@ -27,6 +53,7 @@ function publicBase(): string {
  */
 export async function initPayment(params: InitParams, fetchImpl: typeof fetch = fetch): Promise<InitResult> {
   const base = publicBase()
+  assertAbsolutePublicBase(base)
   const root: Record<string, unknown> = {
     TerminalKey: process.env.TBANK_TERMINAL_KEY || '',
     Amount: params.amountKopecks,
@@ -54,7 +81,10 @@ export async function initPayment(params: InitParams, fetchImpl: typeof fetch = 
     Details?: string
   }
   if (!data.Success || !data.PaymentURL) {
-    throw new Error(`Init failed: ${data.ErrorCode ?? '?'} ${data.Message ?? ''} ${data.Details ?? ''}`.trim())
+    throw new TBankInitError(
+      `Init failed: ${data.ErrorCode ?? '?'} ${data.Message ?? ''} ${data.Details ?? ''}`.trim(),
+      data.ErrorCode ?? 'unknown',
+    )
   }
   return { paymentId: String(data.PaymentId), paymentUrl: data.PaymentURL }
 }

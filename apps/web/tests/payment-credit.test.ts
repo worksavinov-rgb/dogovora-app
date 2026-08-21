@@ -55,11 +55,12 @@ describe('creditForPayment', () => {
     expect(tx.transaction.create).not.toHaveBeenCalled()
   })
 
-  it('терминально отклонённый платёж не начисляется, даже если creditedAt пуст', async () => {
+  it('терминально отклонённый платёж возвращает "refused" (не "already"), а не начисляется', async () => {
     const { db, tx } = makeFakeDb({ id: 'p2', userId: 'u1', tokens: 1000, status: 'REJECTED' })
     const r = await creditForPayment('p2', db)
-    expect(r).toBe('already')
+    expect(r).toBe('refused')
     expect(tx.wallet.update).not.toHaveBeenCalled()
     expect(tx.transaction.create).not.toHaveBeenCalled()
   })
+
 })

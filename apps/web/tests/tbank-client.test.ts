@@ -41,4 +41,32 @@ describe('initPayment', () => {
       initPayment({ orderId: 'o', amountKopecks: 1000, description: 'd', receipt: {} }, fakeFetch),
     ).rejects.toThrow(/9999|Отказ|Init/)
   })
+
+  it('пустой PUBLIC_BASE_URL → бросает ДО fetch (иначе относительный NotificationURL и тихая потеря нотификации)', async () => {
+    process.env.PUBLIC_BASE_URL = ''
+    let fetchCalled = false
+    const fakeFetch = (async () => {
+      fetchCalled = true
+      return { ok: true, json: async () => ({ Success: true, PaymentId: '1', PaymentURL: 'https://pay/1' }) }
+    }) as unknown as typeof fetch
+
+    await expect(
+      initPayment({ orderId: 'o', amountKopecks: 1000, description: 'd', receipt: {} }, fakeFetch),
+    ).rejects.toThrow(/PUBLIC_BASE_URL/)
+    expect(fetchCalled).toBe(false)
+  })
+
+  it('неабсолютный PUBLIC_BASE_URL (относительный путь) → бросает ДО fetch', async () => {
+    process.env.PUBLIC_BASE_URL = '/relative/path'
+    let fetchCalled = false
+    const fakeFetch = (async () => {
+      fetchCalled = true
+      return { ok: true, json: async () => ({ Success: true, PaymentId: '1', PaymentURL: 'https://pay/1' }) }
+    }) as unknown as typeof fetch
+
+    await expect(
+      initPayment({ orderId: 'o', amountKopecks: 1000, description: 'd', receipt: {} }, fakeFetch),
+    ).rejects.toThrow(/PUBLIC_BASE_URL/)
+    expect(fetchCalled).toBe(false)
+  })
 })

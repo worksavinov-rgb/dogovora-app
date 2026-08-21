@@ -12,8 +12,18 @@ export interface TokenPackage {
 }
 
 function envRub(id: string, fallback: number): number {
-  const v = Number(process.env[`TOKEN_PACKAGE_${id.toUpperCase()}_RUB`])
-  return Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback
+  const key = `TOKEN_PACKAGE_${id.toUpperCase()}_RUB`
+  const raw = process.env[key]
+  // Переменная не задана вовсе — используем плейсхолдер как раньше.
+  if (raw === undefined) return fallback
+  // Переменная ЗАДАНА, но битая (опечатка, пусто, отрицательное, не число) — падаем
+  // на старте, а не молча откатываемся на плейсхолдер: это ровно тот случай, когда
+  // цена важнее всего (кто-то сознательно пытался её переопределить перед запуском).
+  const v = Number(raw)
+  if (!Number.isFinite(v) || v <= 0) {
+    throw new Error(`Некорректное значение переменной окружения ${key}: "${raw}" — ожидается положительное число`)
+  }
+  return Math.floor(v)
 }
 
 export const TOKEN_PACKAGES: TokenPackage[] = [

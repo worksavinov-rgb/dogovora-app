@@ -58,12 +58,25 @@ export async function POST(req: NextRequest) {
     case 'reject':
       logger.error({ event: 'payment.webhook_bad_signature', order_id: String(body.OrderId ?? '') })
       return new NextResponse('FORBIDDEN', { status: 403 })
-    case 'ignore':
-      logger.info({ event: 'payment.webhook_ignored', reason: outcome.reason, order_id: String(body.OrderId ?? '') })
+    case 'ignore': {
+      // amount_mismatch/unknown_order — сигнал мошенничества или рассинхрона с банком,
+      // должен быть виден громко. no_order/unhandled_status — обычный шум, info хватает.
+      const loud = outcome.reason === 'amount_mismatch' || outcome.reason === 'unknown_order'
+      const log = loud ? logger.error : logger.info
+      log({ event: 'payment.webhook_ignored', reason: outcome.reason, order_id: String(body.OrderId ?? '') })
       return OK()
-    case 'status':
+    }
+    case 'status': {
+      let count = 0
       try {
-        await prisma.payment.update({ where: { id: outcome.paymentId }, data: { status: outcome.status } })
+        // updateMany + creditedAt: null — поздняя нотификация (AUTHORIZED/REJECTED),
+        // пришедшая после того как платёж уже начислен по CONFIRMED, не должна
+        // затирать статус уже начисленного платежа (Т-Банк повторяет нотификации до месяца).
+        const result = await prisma.payment.updateMany({
+          where: { id: outcome.paymentId, creditedAt: null },
+          data: { status: outcome.status },
+        })
+        count = result.count
       } catch (err) {
         // Не проглатываем: пробрасываем дальше, чтобы ответ ушёл не 200 и банк повторил запрос.
         logger.error({
@@ -73,8 +86,13 @@ export async function POST(req: NextRequest) {
         })
         throw err
       }
-      logger.info({ event: 'payment.webhook_status', payment_id: outcome.paymentId, status: outcome.status })
+      if (count === 0) {
+        logger.info({ event: 'payment.webhook_status_ignored', payment_id: outcome.paymentId, status: outcome.status })
+      } else {
+        logger.info({ event: 'payment.webhook_status', payment_id: outcome.paymentId, status: outcome.status })
+      }
       return OK()
+    }
     case 'credit': {
       let res: Awaited<ReturnType<typeof creditForPayment>>
       try {
@@ -87,7 +105,15 @@ export async function POST(req: NextRequest) {
         })
         throw err
       }
-      logger.info({ event: 'payment.webhook_credit', payment_id: outcome.paymentId, result: res })
+      if (res === 'refused') {
+        // Банк подтвердил (CONFIRMED), но guard отказал в начислении — платёж терминально
+        // отклонён/отменён у нас при пустом creditedAt. Это не безобидный повтор, а потеря
+        // реального платежа. Ретрай не поможет (см. creditForPayment), поэтому громко логируем,
+        // но всё равно отвечаем OK — чтобы банк не долбил повторами то, что не исправится само.
+        logger.error({ event: 'payment.webhook_credit_refused', payment_id: outcome.paymentId })
+      } else {
+        logger.info({ event: 'payment.webhook_credit', payment_id: outcome.paymentId, result: res })
+      }
       return OK()
     }
   }

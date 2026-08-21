@@ -16,6 +16,9 @@ const PUBLIC_PATHS = [
   // доступ контролируется непредсказуемым токеном (см. api/share/[token])
   '/share',
   '/api/share',
+  // Вебхук Т-Банка: нотификация приходит от банка без сессии пользователя,
+  // подлинность подтверждается подписью запроса (см. classifyNotification), а не cookie.
+  '/api/payments/webhook',
 ]
 
 function ensureRequestId(req: NextRequest): string {
