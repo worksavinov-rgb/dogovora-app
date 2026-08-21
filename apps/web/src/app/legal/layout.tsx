@@ -37,6 +37,12 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
               {d.shortTitle}
             </Link>
           ))}
+          <Link
+            href="/support"
+            className="text-[12.5px] text-[var(--ink-4)] hover:text-[var(--ink-2)] no-underline transition-colors duration-[120ms]"
+          >
+            Поддержка
+          </Link>
         </div>
       </footer>
     </div>

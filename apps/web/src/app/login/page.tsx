@@ -360,6 +360,17 @@ export default function LoginPage() {
               Скоро
             </p>
 
+            {/* Помощь */}
+            <p className="text-[12px] text-[var(--ink-4)] text-center mt-[24px] pt-[20px] border-t border-[var(--line)]">
+              Не получается войти или есть вопрос?{' '}
+              <Link
+                href="/support"
+                className="text-[var(--accent)] hover:text-[var(--accent-hover)] no-underline underline underline-offset-2 decoration-[var(--line-strong)]"
+              >
+                Написать в поддержку
+              </Link>
+            </p>
+
           </div>
         </div>
       </div>
