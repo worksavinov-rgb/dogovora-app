@@ -14,7 +14,9 @@ export async function POST(req: NextRequest) {
     // Отвечаем НЕ "OK": для Т-Банка "OK" значит "обработано, не повторять".
     // Источники нотификаций банка — небольшой пул IP, легитимный всплеск может
     // попасть под троттлинг — реальный платёж не должен молча потеряться без ретрая.
-    logger.error({ event: 'payment.webhook_rate_limited', ip })
+    // IP не логируем — это персональные данные (152-ФЗ, правило №11: в логах только
+    // размеры/счётчики/коды, без PII).
+    logger.error({ event: 'payment.webhook_rate_limited' })
     return new NextResponse('TOO MANY REQUESTS', { status: 429 })
   }
 
@@ -67,7 +69,7 @@ export async function POST(req: NextRequest) {
         logger.error({
           event: 'payment.webhook_status_failed',
           payment_id: outcome.paymentId,
-          error: err,
+          error: String(err),
         })
         throw err
       }
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest) {
         logger.error({
           event: 'payment.webhook_credit_failed',
           payment_id: outcome.paymentId,
-          error: err,
+          error: String(err),
         })
         throw err
       }

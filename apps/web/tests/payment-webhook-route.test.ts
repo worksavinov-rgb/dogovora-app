@@ -114,5 +114,37 @@ describe('POST /api/payments/webhook', () => {
     expect(res.status).toBe(400)
     expect(classifyNotification).not.toHaveBeenCalled()
     expect(creditForPayment).not.toHaveBeenCalled()
+    expect(loggerError).toHaveBeenCalledWith(expect.objectContaining({ event: 'payment.webhook_bad_body' }))
+  })
+
+  it('status → prisma.payment.update вызван с ожидаемыми id/status, 200 и тело ровно "OK"', async () => {
+    classifyNotification.mockResolvedValue({ action: 'status', paymentId: 'p1', status: 'REJECTED' })
+    prismaPaymentUpdate.mockResolvedValue({})
+
+    const res = await POST(makeReq({ OrderId: 'ord-1', Status: 'REJECTED', Amount: 30000, Token: 'x' }))
+
+    expect(prismaPaymentUpdate).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { status: 'REJECTED' } })
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('OK')
+  })
+
+  it('status с падением prisma.payment.update → ошибка пробрасывается, не 200/"OK", logger.error вызван', async () => {
+    classifyNotification.mockResolvedValue({ action: 'status', paymentId: 'p1', status: 'REJECTED' })
+    prismaPaymentUpdate.mockRejectedValue(new Error('db down'))
+
+    await expect(POST(makeReq({ OrderId: 'ord-1', Status: 'REJECTED', Amount: 30000, Token: 'x' }))).rejects.toThrow(
+      'db down'
+    )
+    expect(loggerError).toHaveBeenCalledWith(expect.objectContaining({ event: 'payment.webhook_status_failed' }))
+  })
+
+  it('credit с падением creditForPayment → ошибка пробрасывается, не 200/"OK", logger.error вызван', async () => {
+    classifyNotification.mockResolvedValue({ action: 'credit', paymentId: 'p1' })
+    creditForPayment.mockRejectedValue(new Error('credit failed'))
+
+    await expect(POST(makeReq({ OrderId: 'ord-1', Status: 'CONFIRMED', Amount: 30000, Token: 'x' }))).rejects.toThrow(
+      'credit failed'
+    )
+    expect(loggerError).toHaveBeenCalledWith(expect.objectContaining({ event: 'payment.webhook_credit_failed' }))
   })
 })
