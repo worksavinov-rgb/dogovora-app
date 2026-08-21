@@ -1024,12 +1024,16 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
   const STATUS_OPTIONS = [
     { value: 'DRAFT', label: 'Черновик', color: 'var(--ink-3)' },
     { value: 'IN_PROGRESS', label: 'В работе', color: 'oklch(0.45 0.10 235)' },
-    { value: 'REVIEW', label: 'На проверке', color: 'oklch(0.45 0.10 75)' },
-    { value: 'APPROVED', label: 'Утверждено', color: 'var(--ok)' },
+    { value: 'REVIEW', label: 'На согласовании', color: 'oklch(0.45 0.10 75)' },
+    { value: 'APPROVED', label: 'Согласован', color: 'var(--ok)' },
+    { value: 'SIGNED', label: 'Подписан', color: 'oklch(0.32 0.08 155)' },
   ]
   const effectiveStatusValue = version.status
-  const currentStatus = STATUS_OPTIONS.find(s => s.value === effectiveStatusValue)
-  const currentStatusLabel = currentStatus?.label ?? effectiveStatusValue
+  // Legacy-статус PAID (эпоха постоплаты) показываем как «Согласован» (APPROVED),
+  // не как сырое 'PAID'. На changeStatus это не влияет — там передаётся выбранный value.
+  const displayStatusValue = effectiveStatusValue === 'PAID' ? 'APPROVED' : effectiveStatusValue
+  const currentStatus = STATUS_OPTIONS.find(s => s.value === displayStatusValue)
+  const currentStatusLabel = currentStatus?.label ?? displayStatusValue
   const currentStatusColor = currentStatus?.color ?? 'var(--ink-3)'
   return (
     <>
@@ -1188,10 +1192,10 @@ export default function WorkPage({ params }: { params: Promise<{ id: string }> }
                     {STATUS_OPTIONS.map(opt => (
                       <button key={opt.value} onClick={() => changeStatus(opt.value)}
                         className="w-full text-left px-[12px] py-[8px] text-[12px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer flex items-center gap-[8px]"
-                        style={{ color: opt.value === effectiveStatusValue ? 'var(--ink)' : 'var(--ink-3)', fontWeight: opt.value === effectiveStatusValue ? 600 : 400 }}>
+                        style={{ color: opt.value === displayStatusValue ? 'var(--ink)' : 'var(--ink-3)', fontWeight: opt.value === displayStatusValue ? 600 : 400 }}>
                         <span className="w-[6px] h-[6px] rounded-full shrink-0" style={{ background: opt.color }} />
                         {opt.label}
-                        {opt.value === effectiveStatusValue && ' ✓'}
+                        {opt.value === displayStatusValue && ' ✓'}
                       </button>
                     ))}
                   </div>

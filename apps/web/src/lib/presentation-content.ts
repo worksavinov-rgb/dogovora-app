@@ -17,7 +17,7 @@ import {
   replaceRequisitesSection,
 } from './html-document'
 import { hasInlineRequisites } from './html-document'
-import { resolveCounterpartySignatory } from './party-data'
+import { resolveCounterpartySignatory, resolveDocumentProfile } from './party-data'
 import { getStructuredContentCached, looksLikeUpload } from './structure-uploaded'
 import { logger } from './logger'
 
@@ -53,7 +53,10 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
   if (!doc) return null
 
   const { role1, role2 } = rolesFor(userRole)
-  const profile = doc.profile
+  // Профиль документа: явно связанный, иначе запасной (как в download/generate) —
+  // чтобы у загруженного договора без выбранного юрлица тоже была «моя» сторона,
+  // а блок реквизитов подставлялся полностью, а не оставался пустым.
+  const profile = doc.profile ?? await resolveDocumentProfile({ userId: doc.userId, profileId: doc.profileId })
   const cp = doc.counterparty
   // Подписант контрагента — через общий резолвер (party-data): дефолтный, а если
   // «по умолчанию» никто не отмечен — первый созданный. Здесь стояло жёсткое
@@ -118,12 +121,16 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
   // принёс готовый договор со своей шапкой, подменять её нельзя — там могут быть
   // формулировки и стороны, которых в ЛК нет.
   const preambleHtml = doc.preambleHtml ?? null
-  // Реквизиты — наоборот, подставляем всегда: ИНН, счета и БИК должны браться из
-  // структурированных данных ЛК, а не из распознанного текста файла.
-  let requisitesHtml = doc.requisitesHtml ?? null
-  if (!requisitesHtml && userProfile && counterpartyData) {
-    requisitesHtml = buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
-  }
+  // Реквизиты подставляем из АКТУАЛЬНЫХ данных ЛК на КАЖДЫЙ показ — поэтому правки
+  // карточки контрагента/профиля отражаются в договоре сразу (ИНН, счета, БИК, адрес,
+  // подписант). Сохранённый слой оформления (doc.requisitesHtml) для загруженного
+  // договора НЕ имеет приоритета над живыми данными: он мог быть собран, когда
+  // карточка контрагента содержала лишь имя+ИНН, и «замораживал» неполные реквизиты
+  // (симптом: заполнил карточку → в договоре по-прежнему только «ИП … / ИНН …»).
+  // Откатываемся на сохранённый слой только если из ЛК строить нечего.
+  const requisitesHtml = (userProfile && counterpartyData)
+    ? buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
+    : (doc.requisitesHtml ?? null)
 
   return { preambleHtml, requisitesHtml, counterpartyName: cp?.name ?? null, counterpartyInn: cp?.inn ?? null }
 }
@@ -131,7 +138,17 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
 /** Совпадает ли сторона в документе с контрагентом из ЛК (защита от подмены чужих реквизитов). */
 function partyMatches(html: string, name: string | null, inn: string | null): boolean {
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
-  if (inn && text.includes(inn)) return true
+  if (inn) {
+    // ИНН из карточки может отличаться от текста форматированием (пробелы) —
+    // сверяем и как есть, и по цифрам В ПРЕДЕЛАХ одной числовой группы. Соседние
+    // числа не склеиваем, чтобы не ослабить защиту от подмены чужих реквизитов.
+    if (text.includes(inn)) return true
+    const innDigits = inn.replace(/\D/g, '')
+    if (innDigits) {
+      const runs = (text.match(/\d[\d\s]*\d|\d/g) ?? []).map((r) => r.replace(/\s+/g, ''))
+      if (runs.includes(innDigits)) return true
+    }
+  }
   if (name) {
     // Сравниваем по значимой части названия (без кавычек и юр-формы)
     const core = name.replace(/[«»"']/g, ' ').replace(/^(ООО|АО|ПАО|ЗАО|АНО|ИП)\s+/i, '').trim()

@@ -59,6 +59,78 @@ function fixSymbolBullets(root: HTMLElement): void {
   })
 }
 
+// ─── Разбивка на страницы по высоте ──────────────────────────────────────────
+// Почему нужна: docx-preview рисует «страницы», разрезая документ только по ЯВНЫМ
+// разрывам (w:br type=page / w:lastRenderedPageBreak). Настоящие Word-файлы такие
+// маркеры содержат — поэтому загруженные документы красиво бьются на листы. А наши
+// собранные из HTML .docx (генерация ИИ, ручные/ИИ-правки) их не имеют, и весь
+// документ выходит одним бесконечным листом. Здесь мы добираем недостающее: если
+// docx-preview выдал ОДИН лист, а контент выше страницы — режем его на листы А4 по
+// измеренной высоте, клонируя оболочку страницы (те же класс/поля/размер).
+//
+// Консервативно и безопасно: работаем только когда лист ровно один (нативные
+// разрывы не трогаем), только переносим узлы (ничего не режем внутри), при любой
+// ошибке оставляем исходный один лист. Блок выше страницы (длинная таблица) кладём
+// на отдельный лист как есть — пусть слегка перельётся, это прежнее поведение.
+function outerHeight(el: HTMLElement): number {
+  const cs = getComputedStyle(el)
+  return el.getBoundingClientRect().height + parseFloat(cs.marginTop || '0') + parseFloat(cs.marginBottom || '0')
+}
+
+function paginateByHeight(container: HTMLElement): void {
+  const wrapper = container.querySelector<HTMLElement>('.docx-wrapper') ?? container
+  const pages = Array.from(wrapper.children).filter(
+    (c): c is HTMLElement => c instanceof HTMLElement && c.tagName === 'SECTION',
+  )
+  // Ровно один лист = нативных разрывов нет. Иначе — оставляем как есть.
+  if (pages.length !== 1) return
+  const page = pages[0]
+  const article = page.querySelector<HTMLElement>(':scope > article')
+  if (!article) return
+
+  const cs = getComputedStyle(page)
+  const pageHeight = parseFloat(cs.minHeight || '0')
+  const padTop = parseFloat(cs.paddingTop || '0')
+  const padBottom = parseFloat(cs.paddingBottom || '0')
+  if (!pageHeight) return
+  const avail = pageHeight - padTop - padBottom
+  if (avail <= 0) return
+
+  // Уже помещается на один лист — делить нечего (небольшой допуск на округления).
+  if (article.getBoundingClientRect().height <= avail + 2) return
+
+  const blocks = Array.from(article.children).filter((c): c is HTMLElement => c instanceof HTMLElement)
+  if (blocks.length <= 1) return
+
+  // Собираем группы блоков, каждая ≤ высоты листа.
+  const groups: HTMLElement[][] = []
+  let current: HTMLElement[] = []
+  let used = 0
+  for (const block of blocks) {
+    const h = outerHeight(block)
+    if (current.length > 0 && used + h > avail) {
+      groups.push(current)
+      current = []
+      used = 0
+    }
+    current.push(block)
+    used += h
+  }
+  if (current.length > 0) groups.push(current)
+  if (groups.length <= 1) return
+
+  // Клонируем оболочку листа (без контента) и раскладываем группы по листам.
+  const frag = document.createDocumentFragment()
+  for (const group of groups) {
+    const newPage = page.cloneNode(false) as HTMLElement
+    const newArticle = article.cloneNode(false) as HTMLElement
+    for (const block of group) newArticle.appendChild(block) // перенос узла (не копия)
+    newPage.appendChild(newArticle)
+    frag.appendChild(newPage)
+  }
+  wrapper.replaceChild(frag, page)
+}
+
 export function DocxPreview({
   docx,
   loading = false,
@@ -95,6 +167,9 @@ export function DocxPreview({
         await renderAsync(docx, container, undefined, RENDER_OPTIONS as Record<string, unknown>)
         if (cancelled) return
         fixSymbolBullets(container)
+        // Добираем постраничную разбивку для документов без явных разрывов
+        // (собранные из HTML). Изолируем: сбой пагинации не должен рушить показ.
+        try { paginateByHeight(container) } catch { /* остаётся один лист */ }
         setRendering(false)
         onRenderedRef.current?.()
       } catch (e) {

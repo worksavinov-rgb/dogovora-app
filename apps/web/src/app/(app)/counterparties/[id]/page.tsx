@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, use } from 'react'
+import { useState, useEffect, useRef, use } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Avatar } from '@/components/ui/avatar'
@@ -26,7 +26,13 @@ interface BankDetail { id: string; bankName: string; checkingAccount: string; bi
 interface SignatoryScope { scope: string }
 interface Signatory { id: string; fullName: string; signatureName: string; position: string; basisType: string; poaNumber: string | null; poaDate: string | null; poaExpiry: string | null; scopes: SignatoryScope[] }
 interface Version { id: string; number: number; status: string; createdAt: string; purchase: { id: string } | null }
-interface Document { id: string; title: string; type: string; createdAt: string; versions: Version[] }
+interface ParentDoc { id: string; title: string; number: string | null }
+interface Document {
+  id: string; title: string; type: string; number: string | null; createdAt: string; updatedAt: string
+  parentDocumentId: string | null; parentDocument: ParentDoc | null
+  versions: Version[]
+  _count: { childDocuments: number; versions: number }
+}
 
 interface ContactPerson { role: string; email: string; phone: string }
 
@@ -40,8 +46,9 @@ interface Counterparty {
   bankDetails: BankDetail[]; signatories: Signatory[]; documents: Document[]
 }
 
-const STATUS_MAP: Record<string, 'draft' | 'progress' | 'review' | 'approved' | 'paid' | 'signed'> = {
-  DRAFT: 'draft', IN_PROGRESS: 'progress', REVIEW: 'review', APPROVED: 'approved', PAID: 'paid', SIGNED: 'signed',
+// Legacy-статус PAID больше не показываем как «Оплачено» — маппим в «Согласован».
+const STATUS_MAP: Record<string, 'draft' | 'progress' | 'review' | 'approved' | 'signed'> = {
+  DRAFT: 'draft', IN_PROGRESS: 'progress', REVIEW: 'review', APPROVED: 'approved', PAID: 'approved', SIGNED: 'signed',
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -63,90 +70,265 @@ function relativeDate(iso: string): string {
 
 // ─── Вкладка: Документы ───────────────────────────────────────────────────────
 
+// Канонические ярлыки статусов (PAID — легаси, показываем как «Согласован»).
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'Черновик', IN_PROGRESS: 'В работе', REVIEW: 'На проверке',
-  APPROVED: 'Утверждено', PAID: 'Оплачено', SIGNED: 'Подписано',
+  DRAFT: 'Черновик', IN_PROGRESS: 'В работе', REVIEW: 'На согласовании',
+  APPROVED: 'Согласован', PAID: 'Согласован', SIGNED: 'Подписан',
 }
 
-function isClosedVersion(ver: Version) {
-  return ver.purchase || ver.status === 'PAID' || ver.status === 'SIGNED'
+// Статусы, которые можно выставить вручную из меню документа.
+const STATUS_FLOW: Array<{ value: string; label: string }> = [
+  { value: 'DRAFT', label: 'Черновик' },
+  { value: 'IN_PROGRESS', label: 'В работе' },
+  { value: 'REVIEW', label: 'На согласовании' },
+  { value: 'APPROVED', label: 'Согласован' },
+  { value: 'SIGNED', label: 'Подписан' },
+]
+
+/** Плоский упорядоченный список для дерева: корень → его дети → следующий корень.
+ *  Корень — документ без родителя ИЛИ чей родитель не входит в набор контрагента. */
+function buildTree(docs: Document[]): Array<{ doc: Document; depth: number }> {
+  const present = new Set(docs.map((d) => d.id))
+  const roots = docs
+    .filter((d) => !d.parentDocumentId || !present.has(d.parentDocumentId))
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+
+  const childrenOf = new Map<string, Document[]>()
+  for (const d of docs) {
+    if (d.parentDocumentId && present.has(d.parentDocumentId)) {
+      const arr = childrenOf.get(d.parentDocumentId) ?? []
+      arr.push(d)
+      childrenOf.set(d.parentDocumentId, arr)
+    }
+  }
+
+  const result: Array<{ doc: Document; depth: number }> = []
+  for (const root of roots) {
+    result.push({ doc: root, depth: 0 })
+    const children = (childrenOf.get(root.id) ?? []).sort(
+      (a, b) => (a.number ?? '').localeCompare(b.number ?? '', 'ru', { numeric: true }),
+    )
+    for (const child of children) result.push({ doc: child, depth: 1 })
+  }
+  return result
 }
 
-function DocumentsTab({ cp }: { cp: Counterparty }) {
+function downloadVersion(versionId: string, fileName: string) {
+  fetch(`/api/versions/${versionId}/download`).then(async (r) => {
+    if (!r.ok) return
+    const blob = await r.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = fileName; a.click()
+    URL.revokeObjectURL(url)
+  })
+}
+
+// ─── Меню трёх точек для строки документа ────────────────────────────────────
+
+function DocRowMenu({ doc, onStatusChange, onDelete }: {
+  doc: Document
+  onStatusChange: (versionId: string, newStatus: string) => void
+  onDelete: (doc: Document) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   const router = useRouter()
+  const lastVer = doc.versions[0]
 
-  // Только документы с хотя бы одной оплаченной/подписанной версией
-  const visibleDocs = cp.documents
-    .map((doc) => ({ ...doc, versions: doc.versions.filter(isClosedVersion) }))
-    .filter((doc) => doc.versions.length > 0)
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-[28px] h-[28px] flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+        title="Действия"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
+        </svg>
+      </button>
+
+      {open && (() => {
+        const rect = ref.current?.getBoundingClientRect()
+        const goUp = rect ? rect.top > window.innerHeight - rect.bottom : false
+        return (
+          <div
+            className="absolute right-0 z-50 rounded-[var(--radius-md)] py-[4px] min-w-[190px]"
+            style={{ background: 'white', border: '1px solid var(--line)', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', ...(goUp ? { bottom: '32px' } : { top: '32px' }) }}
+          >
+            <button
+              className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+              onClick={() => { router.push(`/documents/${doc.id}`); setOpen(false) }}
+            >
+              Посмотреть
+            </button>
+            <button
+              className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+              onClick={() => { router.push(`/documents/${doc.id}`); setOpen(false) }}
+            >
+              Открыть
+            </button>
+            <button
+              className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+              onClick={() => { router.push(`/documents/${doc.id}/work`); setOpen(false) }}
+            >
+              Редактировать
+            </button>
+
+            {/* Статус последней версии */}
+            <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+            <p className="px-[14px] pt-[4px] pb-[2px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Статус</p>
+            {STATUS_FLOW.map((s) => {
+              const isCurrent = lastVer?.status === s.value || (s.value === 'APPROVED' && lastVer?.status === 'PAID')
+              return (
+                <button
+                  key={s.value}
+                  disabled={!lastVer || isCurrent}
+                  className="w-full text-left px-[14px] py-[7px] text-[13px] flex items-center gap-[8px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
+                  style={{ color: isCurrent ? 'var(--accent)' : 'var(--ink)' }}
+                  onClick={() => {
+                    if (!lastVer || isCurrent) return
+                    onStatusChange(lastVer.id, s.value)
+                    setOpen(false)
+                  }}
+                >
+                  <span className="w-[12px] shrink-0 text-[var(--accent)]">{isCurrent ? '✓' : ''}</span>
+                  {s.label}
+                </button>
+              )
+            })}
+
+            <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
+            <button
+              className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[oklch(0.97_0.015_20)] transition-colors cursor-pointer"
+              style={{ color: 'var(--danger)' }}
+              onClick={() => { onDelete(doc); setOpen(false) }}
+            >
+              Удалить документ
+            </button>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
+function DocumentsTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => void }) {
+  const router = useRouter()
+  const [deleteDoc, setDeleteDoc] = useState<Document | null>(null)
+
+  // Показываем ВСЕ документы контрагента и ВСЕ их версии, деревом как в разделе «Документы».
+  const rows = buildTree(cp.documents)
+
+  const handleStatusChange = async (versionId: string, newStatus: string) => {
+    await fetch(`/api/versions/${versionId}/status`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    })
+    onRefresh()
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteDoc) return
+    await fetch(`/api/documents/${deleteDoc.id}`, { method: 'DELETE' })
+    setDeleteDoc(null)
+    onRefresh()
+  }
+
+  const delChildCount = deleteDoc?._count.childDocuments ?? 0
+  const delMessage = [
+    'Документ удаляется целиком — вместе со всеми его версиями.',
+    delChildCount > 0 ? `Внимание: у документа есть вложения (${delChildCount}) — приложения и допсоглашения будут удалены вместе с ним.` : null,
+    'Восстановить будет нельзя.',
+  ].filter(Boolean).join(' ')
 
   return (
     <div className="flex flex-col gap-[16px]">
-      {visibleDocs.length === 0 ? (
+      <ConfirmDialog
+        open={!!deleteDoc}
+        title={`Удалить «${deleteDoc?.title ?? ''}»?`}
+        message={delMessage}
+        confirmLabel="Удалить"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteDoc(null)}
+      />
+
+      {rows.length === 0 ? (
         <Card pad={false}>
           <div className="py-[60px] text-center">
-            <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">Оплаченных документов нет</p>
-            <p className="text-[13px] text-[var(--ink-4)]">Оплаченные и подписанные версии появятся здесь</p>
+            <p className="text-[14px] font-medium text-[var(--ink-2)] mb-[8px]">Документов пока нет</p>
+            <p className="text-[13px] text-[var(--ink-4)]">Здесь появятся все договоры и приложения этого контрагента</p>
           </div>
         </Card>
       ) : (
         <Card pad={false}>
-          {visibleDocs.map((doc, i) => (
-            <div key={doc.id}>
-              {/* Заголовок документа — кликабельный */}
-              <div
-                onClick={() => router.push(`/documents/${doc.id}`)}
-                className={[
-                  'px-[16px] py-[12px] flex items-center gap-[10px] cursor-pointer hover:bg-[var(--surface-inset)] transition-colors',
-                  i > 0 ? 'border-t border-[var(--line)]' : '',
-                ].join(' ')}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-semibold text-[var(--ink)] truncate">{doc.title}</p>
-                </div>
-                <span className="shrink-0 text-[11px] text-[var(--ink-4)]">{TYPE_LABELS[doc.type] ?? doc.type}</span>
-                <span className="shrink-0 text-[11px] text-[var(--ink-4)]">{relativeDate(doc.createdAt)}</span>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-              </div>
-
-              {/* Версии */}
-              {doc.versions.map((ver) => (
+          {rows.map(({ doc, depth }, i) => {
+            const isChild = depth === 1
+            return (
+              <div key={doc.id}>
+                {/* Заголовок документа — кликабельный */}
                 <div
-                  key={ver.id}
-                  onClick={() => router.push(`/documents/${doc.id}/work?version=${ver.id}`)}
-                  className="flex items-center gap-[12px] px-[16px] py-[10px] pl-[42px] border-t border-[var(--line)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                  onClick={() => router.push(`/documents/${doc.id}`)}
+                  className={[
+                    'py-[12px] pr-[12px] flex items-center gap-[10px] cursor-pointer hover:bg-[var(--surface-inset)] transition-colors',
+                    i > 0 ? 'border-t border-[var(--line)]' : '',
+                    isChild ? 'bg-[var(--surface-inset)]' : '',
+                  ].join(' ')}
+                  style={{ paddingLeft: isChild ? 42 : 16 }}
                 >
-                  <span className="text-[12px] text-[var(--ink-4)] shrink-0 w-[32px]" style={{ fontFamily: 'var(--font-mono)' }}>v.{ver.number}</span>
-                  <span className="flex-1 text-[12px] text-[var(--ink-3)]">{relativeDate(ver.createdAt)}</span>
-                  <Badge variant={ver.purchase ? 'paid' : (STATUS_MAP[ver.status] ?? 'draft')}>
-                    {ver.purchase && ver.status !== 'SIGNED' ? 'Оплачено' : STATUS_LABELS[ver.status] ?? ver.status}
-                  </Badge>
-                  {ver.purchase && (
+                  {isChild && <span className="shrink-0 text-[var(--ink-4)] text-[11px] leading-none">↳</span>}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isChild ? 'var(--accent)' : 'var(--ink-3)'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <p className={['font-semibold text-[var(--ink)]', isChild ? 'text-[12px]' : 'text-[13px]'].join(' ')} style={{ overflowWrap: 'anywhere' }}>{doc.title}</p>
+                    {!isChild && doc._count.childDocuments > 0 && (
+                      <p className="text-[11px] text-[var(--ink-4)]">
+                        {doc._count.childDocuments} {doc._count.childDocuments === 1 ? 'вложение' : doc._count.childDocuments < 5 ? 'вложения' : 'вложений'}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-[11px] text-[var(--ink-4)]">{TYPE_LABELS[doc.type] ?? doc.type}</span>
+                  <span className="shrink-0 text-[11px] text-[var(--ink-4)]">{relativeDate(doc.updatedAt)}</span>
+                  <DocRowMenu doc={doc} onStatusChange={handleStatusChange} onDelete={setDeleteDoc} />
+                </div>
+
+                {/* Версии */}
+                {doc.versions.map((ver) => (
+                  <div
+                    key={ver.id}
+                    onClick={() => router.push(`/documents/${doc.id}/work?version=${ver.id}`)}
+                    className="flex items-center gap-[12px] px-[16px] py-[10px] pl-[42px] border-t border-[var(--line)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
+                  >
+                    <span className="text-[12px] text-[var(--ink-4)] shrink-0 w-[32px]" style={{ fontFamily: 'var(--font-mono)' }}>v.{ver.number}</span>
+                    <span className="flex-1 text-[12px] text-[var(--ink-3)]">{relativeDate(ver.createdAt)}</span>
+                    <Badge variant={STATUS_MAP[ver.status] ?? 'draft'}>
+                      {STATUS_LABELS[ver.status] ?? ver.status}
+                    </Badge>
                     <button
                       className="shrink-0 w-[28px] h-[28px] flex items-center justify-center text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors"
                       title="Скачать"
                       onClick={(e) => {
                         e.stopPropagation()
-                        fetch(`/api/versions/${ver.id}/download`).then(async (r) => {
-                          if (!r.ok) return
-                          const blob = await r.blob()
-                          const url = URL.createObjectURL(blob)
-                          const a = document.createElement('a')
-                          a.href = url; a.download = `${doc.title}_v${ver.number}.docx`; a.click()
-                          URL.revokeObjectURL(url)
-                        })
+                        downloadVersion(ver.id, `${doc.title}_v${ver.number}.docx`)
                       }}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                     </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))}
+                  </div>
+                ))}
+              </div>
+            )
+          })}
         </Card>
       )}
     </div>
@@ -589,14 +771,14 @@ export default function CounterpartyPage({ params }: { params: Promise<{ id: str
               <span>Контрагент с {new Date(cp.createdAt).toLocaleDateString('ru', { month: 'long', year: 'numeric' })}</span>
             </div>
           </div>
-          <Button variant="primary">Новый документ</Button>
+          <Button variant="primary" onClick={() => router.push('/documents/new')}>Новый документ</Button>
         </div>
 
         {/* Статистика */}
         <div className="grid grid-cols-4 gap-[12px] mt-[20px] pt-[16px] border-t border-[var(--line)]">
           {[
             { label: 'Документов', value: cp.documents.length, sub: `${cp.documents.filter(d => d.versions.some(v => v.status !== 'DRAFT')).length} активных` },
-            { label: 'Версий', value: totalVersions, sub: `${cp.documents.reduce((s, d) => s + d.versions.filter(v => v.status === 'APPROVED' || v.status === 'PAID').length, 0)} утверждено` },
+            { label: 'Версий', value: totalVersions, sub: `${cp.documents.reduce((s, d) => s + d.versions.filter(v => v.status === 'APPROVED' || v.status === 'PAID' || v.status === 'SIGNED').length, 0)} согласовано` },
             { label: 'Подписано', value: totalSigned > 0 ? `${totalSigned} вер.` : '—', sub: '' },
             { label: 'Последняя активность', value: relativeDate(cp.updatedAt), sub: `версия v.${cp.documents[0]?.versions[0]?.number ?? '—'}` },
           ].map((s) => (
@@ -627,7 +809,7 @@ export default function CounterpartyPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Содержимое вкладки */}
-      {activeTab === 'documents' && <DocumentsTab cp={cp} />}
+      {activeTab === 'documents' && <DocumentsTab cp={cp} onRefresh={load} />}
       {activeTab === 'requisites' && <RequisitesTab cp={cp} onRefresh={load} />}
     </div>
   )
