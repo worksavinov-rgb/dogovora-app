@@ -36,15 +36,18 @@ const TYPE_LABELS: Record<string, string> = { CONTRACT: 'Договор', APPEND
 const PROFILE_TYPE_SHORT: Record<string, string> = {
   SOLE_PROPRIETOR: 'ИП', COMPANY: 'ООО', INDIVIDUAL: 'Физ.', ANO: 'АНО', PAO: 'ПАО', ZAO: 'ЗАО',
 }
-const STATUS_MAP: Record<string, 'draft'|'progress'|'review'|'approved'|'paid'|'signed'> = {
-  DRAFT:'draft', IN_PROGRESS:'progress', REVIEW:'review', APPROVED:'approved', PAID:'paid', SIGNED:'signed'
+// Legacy-статус PAID больше не показываем как «Оплачено» — маппим в «Согласован».
+const STATUS_MAP: Record<string, 'draft'|'progress'|'review'|'approved'|'signed'> = {
+  DRAFT:'draft', IN_PROGRESS:'progress', REVIEW:'review', APPROVED:'approved', PAID:'approved', SIGNED:'signed'
 }
-// Статусы, которые можно выставлять вручную (PAID — только через оплату, SIGNED — через подписание)
+// Канонические статусы: любой можно выставить вручную. SIGNED идёт через модалку
+// подписания (проставляет номер/дату), остальные — прямой сменой статуса.
 const STATUS_FLOW: Array<{ value: string; label: string }> = [
   { value: 'DRAFT', label: 'Черновик' },
   { value: 'IN_PROGRESS', label: 'В работе' },
-  { value: 'REVIEW', label: 'На проверке' },
-  { value: 'APPROVED', label: 'Утверждено' },
+  { value: 'REVIEW', label: 'На согласовании' },
+  { value: 'APPROVED', label: 'Согласован' },
+  { value: 'SIGNED', label: 'Подписан' },
 ]
 
 function formatSize(bytes: number | null): string {
@@ -86,10 +89,21 @@ function sortDocs(docs: Document[], field: SortField, dir: SortDir): Document[] 
 
 /** Строит плоский упорядоченный массив для рендера: корень → его дети → следующий корень … */
 function buildTree(docs: Document[], sortField: SortField, sortDir: SortDir): Array<{ doc: Document; depth: number; parentId: string | null }> {
-  const roots = sortDocs(docs.filter((d) => !d.parentDocument), sortField, sortDir)
+  // Множество id документов, реально присутствующих в текущем наборе (после фильтров).
+  const present = new Set(docs.map((d) => d.id))
+  // Корень для отрисовки — документ БЕЗ родителя ЛИБО «осиротевший»: его родитель
+  // отфильтрован и в набор не попал (например, фильтр по типу «Приложение»
+  // оставляет только приложения — их родительские договоры отсутствуют).
+  const roots = sortDocs(
+    docs.filter((d) => !d.parentDocument || !present.has(d.parentDocument.id)),
+    sortField,
+    sortDir,
+  )
+  // Дети строятся только для родителей, присутствующих в наборе — иначе
+  // осиротевший ребёнок задвоился бы (и как корень, и как чей-то потомок).
   const childrenOf = new Map<string, Document[]>()
   for (const d of docs) {
-    if (d.parentDocument) {
+    if (d.parentDocument && present.has(d.parentDocument.id)) {
       const arr = childrenOf.get(d.parentDocument.id) ?? []
       arr.push(d)
       childrenOf.set(d.parentDocument.id, arr)
@@ -584,10 +598,6 @@ function RowMenu({ doc, onStatusChange, onPreview, onEdit, onSign, onDelete, onL
     setOpen((v) => !v)
   }
 
-  const isSigned = lastVer?.status === 'SIGNED'
-  const isPaid = !!lastVer?.purchase || lastVer?.status === 'PAID'
-  const canSign = !!lastVer && isPaid && !isSigned
-
   return (
     <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
       <button
@@ -636,39 +646,29 @@ function RowMenu({ doc, onStatusChange, onPreview, onEdit, onSign, onDelete, onL
           <p className="px-[14px] pt-[4px] pb-[2px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">
             Статус
           </p>
-          {lastVer && (isSigned || isPaid) ? (
-            <div className="px-[14px] py-[7px] flex items-center gap-[6px] text-[13px] text-[var(--ink-3)]">
-              <span className="font-medium" style={{ color: isSigned ? 'oklch(0.32 0.08 155)' : 'oklch(0.25 0.10 145)' }}>
-                {isSigned ? 'Подписан' : 'Оплачено'}
-              </span>
-              <span className="text-[11px] text-[var(--ink-4)]">— менять нельзя</span>
-            </div>
-          ) : (
-            STATUS_FLOW.map((s) => {
-              const isCurrent = lastVer?.status === s.value
-              return (
-                <button
-                  key={s.value}
-                  disabled={!lastVer || isCurrent}
-                  className="w-full text-left px-[14px] py-[7px] text-[13px] flex items-center gap-[8px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
-                  style={{ color: isCurrent ? 'var(--accent)' : 'var(--ink)' }}
-                  onClick={() => { if (lastVer && !isCurrent) { onStatusChange(doc.id, lastVer.id, s.value); setOpen(false) } }}
-                >
-                  <span className="w-[12px] shrink-0 text-[var(--accent)]">{isCurrent ? '✓' : ''}</span>
-                  {s.label}
-                </button>
-              )
-            })
-          )}
-          {canSign && lastVer && (
-            <button
-              className="w-full text-left px-[14px] py-[8px] text-[13px] font-medium hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-              style={{ color: 'oklch(0.32 0.08 155)' }}
-              onClick={() => { onSign(doc, lastVer.id); setOpen(false) }}
-            >
-              ✎ Подписать договор
-            </button>
-          )}
+          {/* Статус можно поменять у любого документа. Текущий помечен галочкой и
+              не кликабелен. «Подписан» ведёт через модалку подписания (номер/дата),
+              остальные — прямой сменой статуса. */}
+          {STATUS_FLOW.map((s) => {
+            const isCurrent = lastVer?.status === s.value
+            return (
+              <button
+                key={s.value}
+                disabled={!lastVer || isCurrent}
+                className="w-full text-left px-[14px] py-[7px] text-[13px] flex items-center gap-[8px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer disabled:cursor-default disabled:hover:bg-transparent"
+                style={{ color: isCurrent ? 'var(--accent)' : 'var(--ink)' }}
+                onClick={() => {
+                  if (!lastVer || isCurrent) return
+                  if (s.value === 'SIGNED') onSign(doc, lastVer.id)
+                  else onStatusChange(doc.id, lastVer.id, s.value)
+                  setOpen(false)
+                }}
+              >
+                <span className="w-[12px] shrink-0 text-[var(--accent)]">{isCurrent ? '✓' : ''}</span>
+                {s.label}
+              </button>
+            )
+          })}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
           <button
             className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
@@ -810,14 +810,14 @@ export default function DocumentsPage() {
   // Удаление ИЗ СПИСКА документов = документ целиком, со всеми версиями (и с
   // вложениями, если это корневой договор). Предупреждение это подчёркивает и
   // советует сперва проверить список версий.
-  const delIsPaid = !!deleteConfirm?.versions.some((v) => v.purchase)
   const delChildCount = deleteConfirm?._count.childDocuments ?? 0
-  const delChildPhrase = delChildCount > 0
-    ? `, а также ${delChildCount} ${delChildCount === 1 ? 'вложенный документ' : delChildCount < 5 ? 'вложенных документа' : 'вложенных документов'} (приложения, допсоглашения)`
+  const delHasChildren = delChildCount > 0
+  const delChildPhrase = delHasChildren
+    ? ` ВМЕСТЕ С ${delChildCount} ${delChildCount === 1 ? 'вложенным документом' : delChildCount < 5 ? 'вложенными документами' : 'вложенными документами'} (приложения, допсоглашения)`
     : ''
   const delMessage = [
     `Из списка документ удаляется целиком — вместе со ВСЕМИ его версиями${delChildPhrase}.`,
-    delIsPaid ? 'Среди версий есть оплаченные: списанные средства не возвращаются, но записи об оплате останутся в истории платежей.' : null,
+    delHasChildren ? 'Вложенные приложения и допсоглашения будут удалены безвозвратно вместе с ним.' : null,
     'Если нужна только одна версия — откройте документ и удалите конкретную версию в списке версий.',
     'Восстановить будет нельзя.',
   ].filter(Boolean).join(' ')
@@ -842,7 +842,7 @@ export default function DocumentsPage() {
     <>
     <ConfirmDialog
       open={!!deleteConfirm}
-      title={delIsPaid ? `Удалить оплаченный документ «${deleteConfirm?.title ?? ''}»?` : `Удалить «${deleteConfirm?.title ?? ''}»?`}
+      title={delHasChildren ? `Удалить «${deleteConfirm?.title ?? ''}» и вложения?` : `Удалить «${deleteConfirm?.title ?? ''}»?`}
       message={delMessage}
       confirmLabel="Удалить"
       onConfirm={confirmDelete}
@@ -939,9 +939,9 @@ export default function DocumentsPage() {
           <option value="">Статус: любой</option>
           <option value="DRAFT">Черновик</option>
           <option value="IN_PROGRESS">В работе</option>
-          <option value="REVIEW">На проверке</option>
-          <option value="APPROVED">Утверждено</option>
-          <option value="PAID">Оплачено</option>
+          <option value="REVIEW">На согласовании</option>
+          <option value="APPROVED">Согласован</option>
+          <option value="SIGNED">Подписан</option>
         </select>
 
         {counterparties.length > 0 && (
@@ -1103,7 +1103,7 @@ export default function DocumentsPage() {
                 </p>
                 {/* Статус */}
                 <div className="shrink-0">
-                  {lastVer && <StatusBadge status={lastVer.purchase ? 'paid' : (STATUS_MAP[lastVer.status] ?? 'draft')} />}
+                  {lastVer && <StatusBadge status={STATUS_MAP[lastVer.status] ?? 'draft'} />}
                 </div>
                 {/* Обновлён */}
                 <p className="hidden md:block text-[12px] text-[var(--ink-3)]">{relDate(doc.updatedAt)}</p>

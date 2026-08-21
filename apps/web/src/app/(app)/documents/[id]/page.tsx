@@ -50,7 +50,7 @@ interface Document {
 
 const TYPE_LABELS: Record<string, string> = { CONTRACT: 'Договор', APPENDIX: 'Приложение', AMENDMENT: 'Доп. соглашение' }
 const STATUS_MAP: Record<string, 'draft'|'progress'|'review'|'approved'|'paid'|'signed'> = {
-  DRAFT:'draft', IN_PROGRESS:'progress', REVIEW:'review', APPROVED:'approved', PAID:'paid', SIGNED:'signed'
+  DRAFT:'draft', IN_PROGRESS:'progress', REVIEW:'review', APPROVED:'approved', PAID:'approved', SIGNED:'signed'
 }
 
 function relDate(iso: string): string {
@@ -245,11 +245,11 @@ function VersionMenu({ ver, doc, onStatusChange, onDeleted, onSign, onDeleteDocu
   }, [open])
 
   const ALL_STATUSES = [
-    { key: 'DRAFT',       label: 'Черновик',         color: 'var(--ink-3)' },
-    { key: 'IN_PROGRESS', label: 'В работе',          color: 'oklch(0.5 0.1 220)' },
-    { key: 'REVIEW',      label: 'На проверке',       color: 'oklch(0.55 0.12 60)' },
-    { key: 'APPROVED',    label: 'Утверждено',        color: 'oklch(0.45 0.1 145)' },
-    { key: 'SIGNED',      label: 'Подписано',         color: 'oklch(0.32 0.08 155)' },
+    { key: 'DRAFT',       label: 'Черновик',          color: 'var(--ink-3)' },
+    { key: 'IN_PROGRESS', label: 'В работе',           color: 'oklch(0.5 0.1 220)' },
+    { key: 'REVIEW',      label: 'На согласовании',    color: 'oklch(0.55 0.12 60)' },
+    { key: 'APPROVED',    label: 'Согласован',         color: 'oklch(0.45 0.1 145)' },
+    { key: 'SIGNED',      label: 'Подписан',           color: 'oklch(0.32 0.08 155)' },
   ]
   async function handleDownload() {
     // Оформление ещё не собрано → на рабочий экран, там шаг «Оформление»
@@ -290,9 +290,10 @@ function VersionMenu({ ver, doc, onStatusChange, onDeleted, onSign, onDeleteDocu
         >
           {/* Открыть / Скачать */}
           <button
-            className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
+            className="w-full text-left px-[14px] py-[8px] text-[13px] text-[var(--ink)] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer flex items-center gap-[6px]"
             onClick={() => { router.push(`/documents/${doc.id}/work?version=${ver.id}`); setOpen(false) }}
           >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Открыть в редакторе
           </button>
           {Boolean(ver.content) && (
@@ -308,19 +309,29 @@ function VersionMenu({ ver, doc, onStatusChange, onDeleted, onSign, onDeleteDocu
           {/* Смена статуса (SIGNED — через модалку подписания) */}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
           <p className="px-[14px] py-[4px] text-[10px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em]">Сменить статус</p>
-          {ALL_STATUSES.filter((s) => s.key !== ver.status).map((s) => (
-            <button
-              key={s.key}
-              className="w-full text-left px-[14px] py-[7px] text-[13px] hover:bg-[var(--surface-inset)] transition-colors cursor-pointer"
-              style={{ color: s.color }}
-              onClick={() => {
-                if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
-                else { onStatusChange(ver.id, s.key); setOpen(false) }
-              }}
-            >
-              → {s.label}
-            </button>
-          ))}
+          {ALL_STATUSES.map((s) => {
+            const isCurrent = s.key === ver.status
+            return (
+              <button
+                key={s.key}
+                disabled={isCurrent}
+                className={['w-full text-left px-[14px] py-[7px] text-[13px] transition-colors flex items-center gap-[8px]',
+                  isCurrent ? 'cursor-default' : 'hover:bg-[var(--surface-inset)] cursor-pointer'].join(' ')}
+                style={{ color: s.color }}
+                onClick={isCurrent ? undefined : () => {
+                  if (s.key === 'SIGNED') { onSign(ver); setOpen(false) }
+                  else { onStatusChange(ver.id, s.key); setOpen(false) }
+                }}
+              >
+                <span className="w-[14px] shrink-0 flex items-center justify-center">
+                  {isCurrent && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="oklch(0.45 0.1 145)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  )}
+                </span>
+                {s.label}
+              </button>
+            )
+          })}
 
           {/* Удалить версию */}
           <div className="mx-[8px] my-[4px] h-px bg-[var(--line)]" />
@@ -390,7 +401,7 @@ function VersionRow({
             onClick={() => router.push(`/documents/${doc.id}/work?version=${ver.id}`)}
             className="h-[28px] px-[10px] text-[12px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer flex items-center gap-[4px]"
           >
-            Открыть
+            Открыть версии
           </button>
 
           <VersionMenu ver={ver} doc={doc} onStatusChange={onStatusChange} onDeleted={onDeleted} onSign={onSign} onDeleteDocument={onDeleteDocument} />
@@ -475,12 +486,9 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   }
 
   function handleVersionDeleted(verId: string) {
-    const isPaid = !!doc?.versions.find((v) => v.id === verId)?.purchase
     setConfirmDialog({
-      title: isPaid ? 'Удалить оплаченную версию?' : 'Удалить версию?',
-      message: isPaid
-        ? 'Это оплаченная версия — списанные средства не возвращаются, но запись об оплате останется в истории платежей. Восстановить версию будет нельзя.'
-        : 'Версия будет удалена без возможности восстановления.',
+      title: 'Удалить версию?',
+      message: 'Версия будет удалена без возможности восстановления.',
       onConfirm: async () => {
         setConfirmDialog(null)
         const res = await fetch(`/api/versions/${verId}`, { method: 'DELETE' })
@@ -491,17 +499,14 @@ export default function DocumentPage({ params }: { params: Promise<{ id: string 
   }
 
   function handleDeleteDocument() {
-    const isPaid = !!doc?.versions.some((v) => v.purchase)
     const childCount = doc?.childDocuments.length ?? 0
     const message = [
-      isPaid
-        ? 'Это оплаченный документ — списанные средства не возвращаются, но запись об оплате останется в истории платежей.'
-        : `Документ «${doc?.title}» и все его версии будут удалены.`,
+      `Документ «${doc?.title}» и все его версии будут удалены.`,
       childCount > 0 ? `Вместе с ним удалятся ${childCount} ${childCount === 1 ? 'связанный документ' : childCount < 5 ? 'связанных документа' : 'связанных документов'} (приложения, допсоглашения).` : null,
       'Восстановить будет нельзя.',
     ].filter(Boolean).join(' ')
     setConfirmDialog({
-      title: isPaid ? 'Удалить оплаченный документ?' : 'Удалить документ?',
+      title: 'Удалить документ?',
       message,
       onConfirm: async () => {
         setConfirmDialog(null)

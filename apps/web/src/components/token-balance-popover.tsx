@@ -21,6 +21,27 @@ interface TokenBalancePopoverProps {
   prices?: { generate?: number; editPackage?: number; uploadEditStart?: number }
 }
 
+/** Шестиугольный жетон-токен с внутренней точкой — узнаётся как «токен», не карта. */
+function IconToken({ size = 12 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className="shrink-0"
+    >
+      <path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5L12 2.5z" />
+      <circle cx="12" cy="12" r="3.2" />
+    </svg>
+  )
+}
+
 function DocIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="9" height="12" viewBox="0 0 24 30" aria-hidden className="shrink-0">
@@ -65,9 +86,7 @@ export function TokenBalancePopover({ balance, prices }: TokenBalancePopoverProp
         title="Остаток токенов"
         aria-expanded={open}
       >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" />
-        </svg>
+        <IconToken />
         <span style={{ fontFamily: 'var(--font-mono)' }}>{balance.toLocaleString('ru')}</span>
       </button>
 

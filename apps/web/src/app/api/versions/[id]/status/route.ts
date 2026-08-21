@@ -12,8 +12,9 @@ const schema = z.object({
 })
 
 // PATCH /api/versions/:id/status — смена статуса версии
-// Флоу: DRAFT → IN_PROGRESS → REVIEW → APPROVED → SIGNED (предоплатная модель:
-// оплата версии не требуется, PAID — legacy-статус старых оплаченных версий)
+// Статусы: DRAFT / IN_PROGRESS / REVIEW / APPROVED / SIGNED. Смена свободная:
+// любой статус можно поставить из любого в любой момент (в т.ч. изменить уже
+// подписанную версию). PAID — legacy-статус старых оплаченных версий.
 export async function PATCH(req: NextRequest, { params }: Params) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -34,15 +35,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   })
   if (!version) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  if (version.status === 'SIGNED') {
-    return NextResponse.json({ error: 'Нельзя изменить статус подписанной версии' }, { status: 400 })
-  }
-
-  // Подписать можно утверждённую версию (или legacy-оплаченную).
-  if (data.status === 'SIGNED' && !['APPROVED', 'PAID'].includes(version.status)) {
-    return NextResponse.json({ error: 'Подписать можно только утверждённую версию' }, { status: 400 })
-  }
-
+  // Свободная смена статуса: без ограничений на переходы — любой статус можно
+  // поставить из любого текущего (включая уже подписанную версию).
   const updated = await prisma.version.update({
     where: { id },
     data: { status: data.status },

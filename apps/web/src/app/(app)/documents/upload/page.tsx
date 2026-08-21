@@ -349,10 +349,21 @@ export default function UploadPage() {
   const [docType, setDocType] = useState<'CONTRACT' | 'APPENDIX' | 'AMENDMENT'>('CONTRACT')
   const [saving, setSaving] = useState(false)
 
-  // Инлайн-создание контрагента прямо в модалке (без ухода со страницы)
+  // Инлайн-создание контрагента прямо в модалке (без ухода со страницы).
+  // Поле название обязательно, остальные реквизиты — по желанию (можно завести
+  // контрагента сразу с банком/адресом/подписантом, не уходя со страницы).
   const [addingCp, setAddingCp] = useState(false)
   const [newCpName, setNewCpName] = useState('')
   const [newCpInn, setNewCpInn] = useState('')
+  const [newCpKpp, setNewCpKpp] = useState('')
+  const [newCpOgrn, setNewCpOgrn] = useState('')
+  const [newCpAddress, setNewCpAddress] = useState('')
+  const [newCpBank, setNewCpBank] = useState('')
+  const [newCpBik, setNewCpBik] = useState('')
+  const [newCpAccount, setNewCpAccount] = useState('')
+  const [newCpCorrAccount, setNewCpCorrAccount] = useState('')
+  const [newCpSignName, setNewCpSignName] = useState('')
+  const [newCpSignPosition, setNewCpSignPosition] = useState('')
   const [savingCp, setSavingCp] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
@@ -655,18 +666,69 @@ export default function UploadPage() {
     }
   }
 
+  // Сброс полей инлайн-формы контрагента.
+  const resetInlineCp = () => {
+    setNewCpName(''); setNewCpInn(''); setNewCpKpp(''); setNewCpOgrn(''); setNewCpAddress('')
+    setNewCpBank(''); setNewCpBik(''); setNewCpAccount(''); setNewCpCorrAccount('')
+    setNewCpSignName(''); setNewCpSignPosition('')
+  }
+
+  // Предзаполнение инлайн-формы данными контрагента, извлечёнными из документа
+  // (доступны только после «Проверить на риски» с согласием на ПДн). Заполняем
+  // лишь пустые поля, чтобы не затирать уже введённое пользователем.
+  const seedInlineCpFromExtracted = () => {
+    const p = counterpartyParty
+    if (!p) return
+    setNewCpName((v) => v || p.name || '')
+    setNewCpInn((v) => v || p.inn || '')
+    setNewCpKpp((v) => v || p.kpp || '')
+    setNewCpOgrn((v) => v || p.ogrn || '')
+    setNewCpAddress((v) => v || p.legalAddress || '')
+    setNewCpBank((v) => v || p.bankName || '')
+    setNewCpBik((v) => v || p.bik || '')
+    setNewCpAccount((v) => v || p.checkingAccount || '')
+    setNewCpCorrAccount((v) => v || p.correspondentAccount || '')
+    setNewCpSignName((v) => v || p.signatorName || '')
+    setNewCpSignPosition((v) => v || p.signatorPosition || '')
+  }
+
+  // Открыть инлайн-форму нового контрагента, предзаполнив её извлечёнными данными.
+  const beginAddCounterparty = () => {
+    seedInlineCpFromExtracted()
+    setAddingCp(true)
+  }
+
   // Инлайн-создание контрагента прямо в модалке: сохраняем, выбираем и
-  // остаёмся на месте — документ и все поля не сбрасываются.
+  // остаёмся на месте — документ и все поля не сбрасываются. Название обязательно,
+  // прочие реквизиты и подписант — по желанию (сразу заводим полную карточку).
   const saveInlineCounterparty = async () => {
     const name = newCpName.trim()
     if (!name || savingCp) return
     setSavingCp(true)
     setError(null)
     try {
+      const payload: Record<string, unknown> = {
+        name,
+        inn: newCpInn.trim() || undefined,
+        kpp: newCpKpp.trim() || undefined,
+        ogrn: newCpOgrn.trim() || undefined,
+        legalAddress: newCpAddress.trim() || undefined,
+        bankName: newCpBank.trim() || undefined,
+        bik: newCpBik.trim() || undefined,
+        checkingAccount: newCpAccount.trim() || undefined,
+        correspondentAccount: newCpCorrAccount.trim() || undefined,
+      }
+      if (newCpSignName.trim()) {
+        payload.signatory = {
+          fullName: newCpSignName.trim(),
+          position: newCpSignPosition.trim() || '',
+          basisType: 'CHARTER',
+        }
+      }
       const res = await fetch('/api/counterparties', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, inn: newCpInn.trim() || undefined }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string }
@@ -677,8 +739,7 @@ export default function UploadPage() {
       setResolvedCounterpartyId(cp.id)
       setCounterpartySaved(true)
       setAddingCp(false)
-      setNewCpName('')
-      setNewCpInn('')
+      resetInlineCp()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить контрагента')
     } finally {
@@ -751,12 +812,12 @@ export default function UploadPage() {
   }
 
   const openSaveModal = async () => {
-    // Если контрагент ещё не выбран — нужен выбор из списка
-    if (!resolvedCounterpartyId && existingCounterparties.length > 0) {
-      setShowSaveModal(true)
-    } else {
-      setShowSaveModal(true)
+    // Если контрагент не выбран и в системе его ещё нет — сразу покажется
+    // инлайн-форма нового контрагента; предзаполним её извлечёнными данными.
+    if (!resolvedCounterpartyId && existingCounterparties.length === 0) {
+      seedInlineCpFromExtracted()
     }
+    setShowSaveModal(true)
   }
 
   const scoreColor = (s: number) => s >= 70 ? 'oklch(0.5 0.14 145)' : s >= 45 ? 'oklch(0.55 0.12 60)' : 'oklch(0.55 0.18 20)'
@@ -1008,7 +1069,7 @@ export default function UploadPage() {
       {/* ─── Модалка: заполнить карточку документа ────────────────────────────── */}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-[16px]" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={(e) => { if (e.target === e.currentTarget) setShowSaveModal(false) }}>
-          <div className="w-full max-w-[460px] rounded-[var(--radius-xl)] p-[28px]" style={{ background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 8px 32px rgba(0,0,0,0.16)' }}>
+          <div className="w-full max-w-[460px] rounded-[var(--radius-xl)] p-[28px]" style={{ background: '#ffffff', border: '1px solid var(--line-2)', boxShadow: '0 8px 32px rgba(0,0,0,0.16)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 400, marginBottom: 6 }}>Открыть в редакторе</h2>
             <p className="text-[13px] text-[var(--ink-3)] mb-[20px]">Уточните детали документа — он появится в архиве с историей версий.</p>
 
@@ -1067,45 +1128,176 @@ export default function UploadPage() {
               </div>
 
               {/* Контрагент */}
-              {resolvedCounterpartyId ? (
-                <div className="rounded-[var(--radius-md)] p-[12px] flex items-center gap-[8px]" style={{ background: 'oklch(0.96 0.015 145)', border: '1px solid oklch(0.88 0.04 145)' }}>
-                  <div style={{ color: 'oklch(0.45 0.14 145)' }}><CheckIcon /></div>
-                  <p className="text-[12px]" style={{ color: 'oklch(0.4 0.12 145)' }}>
-                    Контрагент уже выбран
-                  </p>
-                  <button onClick={() => { setResolvedCounterpartyId(null); setCounterpartySaved(false) }} className="ml-auto text-[11px] cursor-pointer" style={{ color: 'var(--ink-4)' }}>
-                    Изменить
-                  </button>
-                </div>
-              ) : (
+              {resolvedCounterpartyId ? (() => {
+                // Явно показываем, КАКОЙ контрагент выбран (название + ИНН), а не
+                // просто «уже выбран» — чтобы пользователь видел, к кому привяжется документ.
+                const selectedCp = existingCounterparties.find((c) => c.id === resolvedCounterpartyId)
+                return (
+                  <div>
+                    <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[6px]">Контрагент</label>
+                    <div className="rounded-[var(--radius-md)] p-[12px] flex items-center gap-[8px]" style={{ background: 'oklch(0.96 0.015 145)', border: '1px solid oklch(0.88 0.04 145)' }}>
+                      <div style={{ color: 'oklch(0.45 0.14 145)', flexShrink: 0 }}><CheckIcon /></div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13px] font-medium truncate" style={{ color: 'oklch(0.32 0.1 145)' }}>
+                          {selectedCp?.name ?? 'Контрагент выбран'}
+                        </p>
+                        {selectedCp?.inn && (
+                          <p className="text-[11px] mt-[1px]" style={{ color: 'oklch(0.45 0.09 145)', fontFamily: 'var(--font-mono)' }}>
+                            ИНН {selectedCp.inn}
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={() => { setResolvedCounterpartyId(null); setCounterpartySaved(false) }} className="shrink-0 text-[11px] cursor-pointer underline" style={{ color: 'var(--ink-4)' }}>
+                        Изменить
+                      </button>
+                    </div>
+                  </div>
+                )
+              })() : (
                 <div>
                   <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[6px]">Контрагент</label>
                   {addingCp || existingCounterparties.length === 0 ? (
                     // Инлайн-форма нового контрагента — сохраняет и остаётся в модалке,
-                    // ничего не сбрасывая. Достаточно названия; ИНН по желанию.
-                    <div className="rounded-[var(--radius-md)] p-[12px] flex flex-col gap-[8px]" style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}>
-                      <input
-                        type="text"
-                        value={newCpName}
-                        onChange={(e) => setNewCpName(e.target.value)}
-                        placeholder="Название контрагента *"
-                        className="w-full h-[36px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
-                        style={{ background: 'var(--surface)' }}
-                      />
-                      <input
-                        type="text"
-                        value={newCpInn}
-                        onChange={(e) => setNewCpInn(e.target.value)}
-                        placeholder="ИНН (необязательно)"
-                        className="w-full h-[36px] px-[12px] text-[14px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
-                        style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
-                      />
+                    // ничего не сбрасывая. Обязательно только название; остальные
+                    // реквизиты и подписант — по желанию: можно сразу завести полную
+                    // карточку, чтобы реквизиты подтянулись в договор без ухода со страницы.
+                    <div className="rounded-[var(--radius-md)] p-[12px] flex flex-col gap-[10px]" style={{ background: 'var(--surface-inset)', border: '1px solid var(--line-2)' }}>
+                      <div className="flex flex-col gap-[8px] max-h-[300px] overflow-y-auto pr-[2px]">
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">Название *</label>
+                          <input
+                            type="text"
+                            value={newCpName}
+                            onChange={(e) => setNewCpName(e.target.value)}
+                            placeholder="ООО «Ромашка» / ИП Иванов И.И."
+                            className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                            style={{ background: 'var(--surface)' }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-[8px]">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">ИНН</label>
+                            <input
+                              type="text"
+                              value={newCpInn}
+                              onChange={(e) => setNewCpInn(e.target.value)}
+                              className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                              style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">КПП</label>
+                            <input
+                              type="text"
+                              value={newCpKpp}
+                              onChange={(e) => setNewCpKpp(e.target.value)}
+                              className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                              style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">ОГРН / ОГРНИП</label>
+                          <input
+                            type="text"
+                            value={newCpOgrn}
+                            onChange={(e) => setNewCpOgrn(e.target.value)}
+                            className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                            style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">Юридический адрес</label>
+                          <input
+                            type="text"
+                            value={newCpAddress}
+                            onChange={(e) => setNewCpAddress(e.target.value)}
+                            className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                            style={{ background: 'var(--surface)' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">Банк</label>
+                          <input
+                            type="text"
+                            value={newCpBank}
+                            onChange={(e) => setNewCpBank(e.target.value)}
+                            className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                            style={{ background: 'var(--surface)' }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-[8px]">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">БИК</label>
+                            <input
+                              type="text"
+                              value={newCpBik}
+                              onChange={(e) => setNewCpBik(e.target.value)}
+                              className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                              style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">Р/счёт</label>
+                            <input
+                              type="text"
+                              value={newCpAccount}
+                              onChange={(e) => setNewCpAccount(e.target.value)}
+                              className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                              style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">К/счёт</label>
+                          <input
+                            type="text"
+                            value={newCpCorrAccount}
+                            onChange={(e) => setNewCpCorrAccount(e.target.value)}
+                            className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                            style={{ background: 'var(--surface)', fontFamily: 'var(--font-mono)' }}
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-[8px]">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">Подписант (ФИО)</label>
+                            <input
+                              type="text"
+                              value={newCpSignName}
+                              onChange={(e) => setNewCpSignName(e.target.value)}
+                              placeholder="Иванов Иван Иванович"
+                              className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                              style={{ background: 'var(--surface)' }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.08em] mb-[4px]">Должность</label>
+                            <input
+                              type="text"
+                              value={newCpSignPosition}
+                              onChange={(e) => setNewCpSignPosition(e.target.value)}
+                              placeholder="Генеральный директор"
+                              className="w-full h-[36px] px-[10px] text-[13px] rounded-[var(--radius-md)] border border-[var(--line-2)] focus:border-[var(--accent)] outline-none transition-colors"
+                              style={{ background: 'var(--surface)' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
                       <p className="text-[11px] text-[var(--ink-4)] leading-snug">
-                        Реквизиты и подписанта можно дополнить позже в карточке контрагента.
+                        Обязательно только название. Реквизиты и подписанта можно заполнить сейчас
+                        или дополнить позже в карточке контрагента.
                       </p>
                       <div className="flex gap-[8px]">
                         {existingCounterparties.length > 0 && (
-                          <Button variant="ghost" size="sm" onClick={() => { setAddingCp(false); setNewCpName(''); setNewCpInn('') }} disabled={savingCp}>
+                          <Button variant="ghost" size="sm" onClick={() => { setAddingCp(false); resetInlineCp() }} disabled={savingCp}>
                             Назад к списку
                           </Button>
                         )}
@@ -1127,7 +1319,7 @@ export default function UploadPage() {
                           <option key={cp.id} value={cp.id}>{cp.name}{cp.inn ? ` (ИНН ${cp.inn})` : ''}</option>
                         ))}
                       </select>
-                      <button onClick={() => setAddingCp(true)} className="self-start text-[12px] font-medium cursor-pointer" style={{ color: 'var(--accent)' }}>
+                      <button onClick={beginAddCounterparty} className="self-start text-[12px] font-medium cursor-pointer" style={{ color: 'var(--accent)' }}>
                         + Добавить нового контрагента
                       </button>
                     </div>

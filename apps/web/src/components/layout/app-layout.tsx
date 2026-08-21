@@ -19,8 +19,8 @@ function IconFiles() {
 function IconClock() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 }
-function IconWallet() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M16 12h.01"/><path d="M2 10h20"/></svg>
+function IconToken() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5L12 2.5z"/><circle cx="12" cy="12" r="3.2"/></svg>
 }
 function IconReceipt() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2v20l3-3 3 3 3-3 3 3 3-3V2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="12" y2="15"/></svg>
@@ -69,7 +69,7 @@ const navGroups = [
   {
     title: 'Финансы',
     items: [
-      { href: '/balance', label: 'Баланс', icon: <IconWallet /> },
+      { href: '/balance', label: 'Баланс', icon: <IconToken /> },
       { href: '/payments', label: 'История платежей', icon: <IconReceipt /> },
       { href: '/storage', label: 'Хранилище', icon: <IconHardDrive /> },
     ],
@@ -244,9 +244,9 @@ function Topbar({ breadcrumbs = [], actions, balance, onMenuClick }: TopbarProps
         {/* Баланс */}
         {balance !== undefined && (
           <div className="flex items-center gap-[6px] bg-[var(--surface)] border border-[var(--line-2)] rounded-[var(--radius-md)] px-[10px] h-[32px]">
-            <IconWallet />
+            <IconToken />
             <span className="font-[var(--font-mono)] text-[13px] font-medium text-[var(--ink)] tabular-nums" title="Баланс в токенах">
-              {balance.toLocaleString('ru')} ⬡
+              {balance.toLocaleString('ru')}
             </span>
           </div>
         )}

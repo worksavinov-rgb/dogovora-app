@@ -14,7 +14,8 @@ const variantStyles: Record<BadgeVariant, string> = {
   progress:  'text-[oklch(0.45_0.10_235)] bg-[var(--info-soft)] border-[oklch(0.85_0.04_235)]',
   review:    'text-[oklch(0.45_0.10_75)] bg-[var(--warn-soft)] border-[oklch(0.85_0.06_75)]',
   approved:  'text-[var(--ok)] bg-[var(--ok-soft)] border-[oklch(0.85_0.04_155)]',
-  paid:      'text-[oklch(0.25_0.10_145)] bg-[oklch(0.88_0.10_145)] border-[oklch(0.72_0.14_145)]',
+  // paid — legacy-статус PAID; выглядит как «Согласован» (те же цвета, что approved)
+  paid:      'text-[var(--ok)] bg-[var(--ok-soft)] border-[oklch(0.85_0.04_155)]',
   signed:    'text-[oklch(0.32_0.08_155)] bg-[oklch(0.94_0.04_155)] border-[oklch(0.80_0.06_155)]',
   danger:    'text-[var(--danger)] bg-[var(--danger-soft)] border-[oklch(0.85_0.05_25)]',
 }
@@ -23,9 +24,9 @@ const variantLabels: Record<BadgeVariant, string> = {
   default:  '',
   draft:    'Черновик',
   progress: 'В работе',
-  review:   'На проверке',
-  approved: 'Утверждено',
-  paid:     'Оплачено',
+  review:   'На согласовании',
+  approved: 'Согласован',
+  paid:     'Согласован',
   signed:   'Подписан',
   danger:   'Требует внимания',
 }

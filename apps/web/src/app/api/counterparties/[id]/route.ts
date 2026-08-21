@@ -50,6 +50,8 @@ export async function GET(req: NextRequest, { params }: Params) {
         orderBy: { updatedAt: 'desc' },
         include: {
           versions: { orderBy: { number: 'desc' }, include: { purchase: true } },
+          parentDocument: { select: { id: true, title: true, number: true } },
+          _count: { select: { childDocuments: true, versions: true } },
         },
       },
     },
