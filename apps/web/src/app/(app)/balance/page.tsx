@@ -51,6 +51,9 @@ export default function BalancePage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [packages, setPackages] = useState<{ id: string; tokens: number; priceRub: number; label: string; badge?: string }[]>([])
+  const [buying, setBuying] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   async function loadData() {
     try {
@@ -65,6 +68,8 @@ export default function BalancePage() {
       }
       if (txRes.ok) setTransactions((await txRes.json()).items ?? [])
       if (!walletRes.ok && !txRes.ok) setLoadError(true)
+      const pkgRes = await fetch('/api/payments/packages')
+      if (pkgRes.ok) setPackages((await pkgRes.json()).packages ?? [])
     } catch {
       setLoadError(true)
     } finally {
@@ -73,6 +78,40 @@ export default function BalancePage() {
   }
 
   useEffect(() => { loadData() }, [])
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const p = q.get('payment')
+    if (p === 'success') setNotice('Оплата принята. Токены зачислятся в течение минуты — баланс обновится.')
+    if (p === 'fail') setNotice('Оплата не завершена. Попробуйте ещё раз.')
+    if (p) {
+      // Дать вебхуку время начислить и подтянуть баланс
+      const t = setInterval(loadData, 3000)
+      const stop = setTimeout(() => clearInterval(t), 30000)
+      return () => { clearInterval(t); clearTimeout(stop) }
+    }
+  }, [])
+
+  async function buy(packageId: string) {
+    setBuying(packageId)
+    try {
+      const res = await fetch('/api/payments/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packageId }),
+      })
+      const data = await res.json()
+      if (res.ok && data.paymentUrl) {
+        window.location.href = data.paymentUrl
+      } else {
+        setNotice(data.error || 'Не удалось начать оплату.')
+        setBuying(null)
+      }
+    } catch {
+      setNotice('Сеть недоступна. Попробуйте позже.')
+      setBuying(null)
+    }
+  }
 
   if (loading) {
     return (
@@ -118,12 +157,34 @@ export default function BalancePage() {
             </p>
           </Card>
 
-          {/* Пояснение: пополнение появится позже */}
+          {/* Пополнение — фикс-пакеты */}
           <Card>
-            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">Пополнение</p>
-            <p className="text-[13px] text-[var(--ink-2)] leading-[1.6]">
-              Токены списываются за генерацию документов, пакеты правок, проверку и анализ.
-              Пополнение появится вместе с подключением платёжного шлюза.
+            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">Пополнение</p>
+            {notice && (
+              <p className="text-[13px] text-[var(--ink-2)] mb-[12px] leading-[1.6]">{notice}</p>
+            )}
+            <div className="grid grid-cols-2 gap-[10px]">
+              {packages.map((pkg) => (
+                <button
+                  key={pkg.id}
+                  onClick={() => buy(pkg.id)}
+                  disabled={buying !== null}
+                  className="text-left rounded-[10px] p-[14px] transition-colors disabled:opacity-60"
+                  style={{ border: '1px solid var(--line)', background: 'var(--surface)' }}
+                >
+                  <div className="flex items-center justify-between mb-[6px]">
+                    <span className="text-[13px] font-medium text-[var(--ink)]">{pkg.label}</span>
+                    {pkg.badge && (
+                      <span className="text-[10px] px-[6px] py-[2px] rounded-full" style={{ background: 'oklch(0.95 0.03 260)', color: 'var(--accent)' }}>{pkg.badge}</span>
+                    )}
+                  </div>
+                  <p className="text-[18px]" style={{ fontFamily: 'var(--font-mono)' }}>{pkg.tokens.toLocaleString('ru')}<span className="text-[12px] text-[var(--ink-4)]"> токенов</span></p>
+                  <p className="text-[13px] text-[var(--ink-3)] mt-[2px]" style={{ fontFamily: 'var(--font-mono)' }}>{pkg.priceRub.toLocaleString('ru')} ₽</p>
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-[var(--ink-4)] mt-[12px] leading-[1.5]">
+              Оплата картой, СБП или T-Pay через защищённую страницу Т-Банка. Купленные токены не возвращаются.
             </p>
           </Card>
 
