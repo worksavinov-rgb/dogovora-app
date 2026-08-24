@@ -26,9 +26,11 @@ export async function GET(req: NextRequest) {
   })
 
   const typeMap: Record<string, number> = { CONTRACT: 0, APPENDIX: 0, AMENDMENT: 0 }
+  const countMap: Record<string, number> = { CONTRACT: 0, APPENDIX: 0, AMENDMENT: 0 }
   let totalVersions = 0
 
   for (const doc of docs) {
+    countMap[doc.type] = (countMap[doc.type] ?? 0) + 1
     for (const ver of doc.versions) {
       totalVersions++
       let bytes = ver.fileSize ?? 0
@@ -53,9 +55,9 @@ export async function GET(req: NextRequest) {
     totalDocs: docs.length,
     totalVersions,
     breakdown: [
-      { type: 'CONTRACT',  label: 'Договоры',       bytes: typeMap.CONTRACT  ?? 0 },
-      { type: 'APPENDIX',  label: 'Приложения',      bytes: typeMap.APPENDIX  ?? 0 },
-      { type: 'AMENDMENT', label: 'Доп. соглашения', bytes: typeMap.AMENDMENT ?? 0 },
+      { type: 'CONTRACT',  label: 'Договоры',       bytes: typeMap.CONTRACT  ?? 0, count: countMap.CONTRACT  ?? 0 },
+      { type: 'APPENDIX',  label: 'Приложения',      bytes: typeMap.APPENDIX  ?? 0, count: countMap.APPENDIX  ?? 0 },
+      { type: 'AMENDMENT', label: 'Доп. соглашения', bytes: typeMap.AMENDMENT ?? 0, count: countMap.AMENDMENT ?? 0 },
     ],
   })
 }

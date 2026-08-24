@@ -9,6 +9,16 @@ interface BreakdownItem {
   type: string
   label: string
   bytes: number
+  count: number
+}
+
+// Склонение слова «документ» по количеству
+function pluralDocs(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'документ'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'документа'
+  return 'документов'
 }
 
 interface StorageData {
@@ -141,7 +151,7 @@ export default function StoragePage() {
 
             <div className="flex-1 w-full">
               <div className="mb-[16px]">
-                <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[4px]">
+                <p className="text-[11px] font-semibold text-[var(--ink-2)] uppercase tracking-[0.1em] mb-[4px]">
                   Использовано
                 </p>
                 <p className="text-[22px] font-medium text-[var(--ink)]" style={{ fontFamily: 'var(--font-mono)' }}>
@@ -149,21 +159,24 @@ export default function StoragePage() {
                 </p>
               </div>
 
-              {/* Breakdown по типам */}
-              <div className="flex flex-col gap-[8px]">
+              {/* Breakdown по типам: количество документов + занятый объём */}
+              <div className="flex flex-col gap-[10px]">
                 {data.breakdown.map((item) => (
                   <div key={item.type} className="flex items-center gap-[8px]">
                     <div
                       className="shrink-0 w-[8px] h-[8px] rounded-full"
                       style={{ background: TYPE_COLORS[item.type] ?? 'var(--ink-4)' }}
                     />
-                    <p className="flex-1 text-[12px] text-[var(--ink-3)]">{item.label}</p>
-                    <p
-                      className="text-[12px] font-medium text-[var(--ink-2)]"
+                    <p className="flex-1 text-[13px] font-medium text-[var(--ink-2)]">{item.label}</p>
+                    <span className="text-[11px] text-[var(--ink-4)]">
+                      {item.count} {pluralDocs(item.count)}
+                    </span>
+                    <span
+                      className="text-[12px] font-medium text-[var(--ink)] w-[64px] text-right"
                       style={{ fontFamily: 'var(--font-mono)' }}
                     >
                       {formatBytes(item.bytes)}
-                    </p>
+                    </span>
                   </div>
                 ))}
                 {data.breakdown.every((b) => b.bytes === 0) && (
@@ -177,7 +190,7 @@ export default function StoragePage() {
         {/* Правая — сводка */}
         <div className="flex flex-col gap-[12px]">
           <Card>
-            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[12px]">
+            <p className="text-[11px] font-semibold text-[var(--ink-2)] uppercase tracking-[0.1em] mb-[12px]">
               В хранилище
             </p>
             <div className="flex flex-col gap-[8px]">
@@ -194,12 +207,13 @@ export default function StoragePage() {
           </Card>
 
           <Card>
-            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[10px]">
+            <p className="text-[11px] font-semibold text-[var(--ink-2)] uppercase tracking-[0.1em] mb-[10px]">
               Как это работает
             </p>
-            <div className="flex flex-col gap-[6px] text-[12px] text-[var(--ink-3)] leading-[1.6]">
-              <p>Каждое изменение документа — новая версия, старые не перезаписываются.</p>
-              <p>Купленные версии доступны для скачивания в любой момент.</p>
+            <div className="flex flex-col gap-[8px] text-[12px] text-[var(--ink-3)] leading-[1.6]">
+              <p>Каждое изменение документа — новая версия. Старые версии не перезаписываются и остаются в истории.</p>
+              <p>Любую версию можно скачать в Word бесплатно и без ограничений — сколько угодно раз.</p>
+              <p>Место в хранилище не тарифицируется: храните столько документов и версий, сколько нужно.</p>
             </div>
           </Card>
         </div>

@@ -716,6 +716,16 @@ function SortableHeader({ label, field, current, dir, onSort }: {
 
 // ─── Главная страница ─────────────────────────────────────────────────────────
 
+// Синий значок Word для кнопки загрузки .docx
+function WordIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0" aria-hidden="true">
+      <rect width="16" height="16" rx="3" fill="#2B579A" />
+      <text x="8" y="11.5" textAnchor="middle" fontSize="9.5" fontWeight="700" fill="#ffffff" fontFamily="Arial, sans-serif">W</text>
+    </svg>
+  )
+}
+
 export default function DocumentsPage() {
   const router = useRouter()
   const [docs, setDocs] = useState<Document[]>([])
@@ -838,6 +848,25 @@ export default function DocumentsPage() {
     })
   }
 
+  // Взаимодействие со строкой: одиночный клик разворачивает/сворачивает вложения
+  // (приложения и допсоглашения) у договора-родителя, двойной — переходит к списку
+  // версий документа. Одиночное действие откладываем на 220 мс и отменяем, если
+  // следом пришёл двойной клик, — иначе двойной сначала бы дёрнул разворот.
+  const rowClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function handleRowClick(doc: Document, isChild: boolean, hasChildren: boolean) {
+    if (rowClickTimer.current) clearTimeout(rowClickTimer.current)
+    rowClickTimer.current = setTimeout(() => {
+      rowClickTimer.current = null
+      if (!isChild && hasChildren) toggleCollapse(doc.id)
+    }, 220)
+  }
+
+  function handleRowDoubleClick(doc: Document) {
+    if (rowClickTimer.current) { clearTimeout(rowClickTimer.current); rowClickTimer.current = null }
+    router.push(`/documents/${doc.id}`)
+  }
+
   return (
     <>
     <ConfirmDialog
@@ -891,7 +920,7 @@ export default function DocumentsPage() {
           </div>
           <div className="flex items-center gap-[8px]">
             <Button variant="secondary" onClick={() => router.push('/documents/upload')}>
-              ↑ Загрузить · бесплатно
+              <span className="inline-flex items-center gap-[7px]"><WordIcon /> Загрузить Word</span>
             </Button>
             <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать договор</Button>
           </div>
@@ -998,7 +1027,7 @@ export default function DocumentsPage() {
             </p>
             {view !== 'archive' && (
               <div className="flex items-center gap-[8px] justify-center">
-                <Button variant="secondary" onClick={() => router.push('/documents/upload')}>↑ Загрузить · бесплатно</Button>
+                <Button variant="secondary" onClick={() => router.push('/documents/upload')}><span className="inline-flex items-center gap-[7px]"><WordIcon /> Загрузить Word</span></Button>
                 <Button variant="primary" onClick={() => router.push('/documents/new')}>+ Создать договор</Button>
               </div>
             )}
@@ -1017,9 +1046,11 @@ export default function DocumentsPage() {
             return (
               <div
                 key={doc.id}
-                onClick={() => router.push(`/documents/${doc.id}`)}
+                onClick={() => handleRowClick(doc, isChild, hasChildren)}
+                onDoubleClick={() => handleRowDoubleClick(doc)}
+                title={!isChild && hasChildren ? 'Клик — вложения, двойной клик — версии' : 'Двойной клик — версии'}
                 className={[
-                  'cursor-pointer hover:bg-[var(--surface-2)] transition-colors items-center',
+                  'cursor-pointer hover:bg-[var(--surface-2)] transition-colors items-center select-none',
                   'flex gap-[12px] py-[10px] pr-[16px]',
                   'md:grid md:grid-cols-[1fr_80px_100px_180px_180px_72px_130px_80px_60px_36px] md:gap-[8px]',
                   i < pageRows.length - 1 ? 'border-b border-[var(--line)]' : '',
