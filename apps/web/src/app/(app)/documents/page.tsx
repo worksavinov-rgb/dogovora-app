@@ -878,7 +878,7 @@ export default function DocumentsPage() {
         onClose={() => setPreviewDoc(null)}
       />
     )}
-    <div className="max-w-[1280px]">
+    <div className="w-full">
       {/* Заголовок */}
       <div className="mb-[24px]">
         <p className="text-[12px] text-[var(--ink-4)] font-medium mb-[4px]">
