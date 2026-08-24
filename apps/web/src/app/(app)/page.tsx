@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { WordIcon } from '@/components/ui/word-icon'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -65,8 +67,10 @@ function getDateStr() {
 
 // ─── Quick action карточка ────────────────────────────────────────────────────
 
-function QuickAction({ icon, label, sub, onClick, highlight }: {
-  icon: string; label: string; sub: string; onClick: () => void; highlight?: boolean
+function QuickAction({ icon, label, sub, onClick, highlight, iconPlain }: {
+  icon: ReactNode; label: string; sub: string; onClick: () => void; highlight?: boolean
+  /** Белая плитка под иконку — для цветного значка (напр. Word), чтобы он читался */
+  iconPlain?: boolean
 }) {
   return (
     <button
@@ -90,7 +94,11 @@ function QuickAction({ icon, label, sub, onClick, highlight }: {
       )}
       <div
         className="w-[32px] h-[32px] rounded-[var(--radius-md)] flex items-center justify-center mb-[12px] text-[16px]"
-        style={{ background: highlight ? 'var(--accent)' : 'var(--surface-inset)', color: highlight ? '#fff' : 'inherit' }}
+        style={
+          iconPlain
+            ? { background: '#ffffff', border: '1px solid var(--line-2)' }
+            : { background: highlight ? 'var(--accent)' : 'var(--surface-inset)', color: highlight ? '#fff' : 'inherit' }
+        }
       >
         {icon}
       </div>
@@ -165,8 +173,8 @@ export default function HomePage() {
           <div className="grid grid-cols-3 gap-[12px]">
             <QuickAction icon="+" label="Создать договор" sub="С нуля через Догодок · 100 токенов"
               onClick={() => router.push('/documents/new')} />
-            <QuickAction icon="↑" label="Загрузить документ" sub="Готовый файл в систему · бесплатно"
-              onClick={() => router.push('/documents/upload')} highlight />
+            <QuickAction icon={<WordIcon size={18} />} label="Загрузить Word" sub="Готовый файл в систему · бесплатно"
+              onClick={() => router.push('/documents/upload')} highlight iconPlain />
             <QuickAction icon="☰" label="Все документы" sub={docs.length > 0 ? `${docs.length} в архиве` : 'Архив договоров'}
               onClick={() => router.push('/documents')} />
           </div>
