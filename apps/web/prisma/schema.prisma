@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 // ─── Пользователь ────────────────────────────────────────────────────────────
@@ -606,4 +608,73 @@ model AIUsageLog {
   @@index([createdAt])
   @@index([task])
   @@map("ai_usage_logs")
+}
+
+// ─── Юридическая база (нормы права) ──────────────────────────────────────────
+// APPEND-ONLY редакции: правка закона = новая LegalActEdition, старая isCurrent=false.
+
+enum LegalActKind {
+  CODE // кодекс
+  FEDERAL_LAW // федеральный закон (N-ФЗ)
+  LAW_RF // закон РФ (напр. 2300-1)
+}
+
+model LegalAct {
+  id           String       @id @default(cuid())
+  kind         LegalActKind
+  number       String // «14-ФЗ», «2300-1», «ГК-1» (для частей кодекса)
+  shortName    String // «ГК РФ», «ЗоЗПП», «152-ФЗ»
+  title        String // полное официальное название
+  officialUrl  String? // ссылка на первоисточник
+  sourceSystem String       @default("pravo.gov.ru")
+  createdAt    DateTime     @default(now())
+
+  editions LegalActEdition[]
+
+  @@unique([kind, number])
+  @@map("legal_acts")
+}
+
+model LegalActEdition {
+  id           String   @id @default(cuid())
+  actId        String
+  editionDate  DateTime // дата редакции (по официальному источнику)
+  amendedByRef String? // каким актом внесены изменения
+  sourceUrl    String? // откуда взят текст этой редакции
+  importedAt   DateTime @default(now())
+  isCurrent    Boolean  @default(true)
+
+  act   LegalAct    @relation(fields: [actId], references: [id], onDelete: Cascade)
+  norms LegalNorm[]
+
+  @@index([actId, isCurrent])
+  @@map("legal_act_editions")
+}
+
+model LegalNorm {
+  id              String  @id @default(cuid())
+  editionId       String
+  path            String // «ч.2 ст.454 п.1»
+  articleNumber   String // «454»
+  paragraphNumber String? // «1»
+  title           String  @default("") // заголовок статьи, если есть
+  text            String // текст нормы
+  // fts и embedding создаются в migration.sql (Prisma их не типизирует полноценно)
+  fts             Unsupported("tsvector")?
+  embedding       Unsupported("vector(1536)")?
+
+  edition LegalActEdition @relation(fields: [editionId], references: [id], onDelete: Cascade)
+
+  @@index([editionId])
+  @@map("legal_norms")
+}
+
+model LegalContractTypeMap {
+  id           String @id @default(cuid())
+  contractType String // ключ из ContractType (contract-types.ts)
+  actShortName String // shortName акта из LegalAct
+  priority     Int    @default(100) // меньше = выше в пред-фильтре
+
+  @@unique([contractType, actShortName])
+  @@map("legal_contract_type_map")
 }
