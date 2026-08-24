@@ -688,7 +688,7 @@ model LegalTrackedAct {
   actId      String? // связь с LegalAct, если акт уже загружен в базу
   shortName  String   @unique // «ГК РФ», «152-ФЗ»
   number     String // «51-ФЗ», «2300-1» — справочно (номера ФЗ переиспользуются!)
-  matchTerms String[] // фрагменты названия для поиска поправок в complexName
+  matchPatterns String[] // регулярки с допуском на склонение (в JS \w не ловит кириллицу)
   lastCheckedAt DateTime? // до какой даты публикаций уже просмотрено
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
@@ -704,7 +704,7 @@ model LegalChangeAlert {
   eoNumber      String // номер официального опубликования — уникальный ключ акта
   complexName   String // полное название закона-поправки
   documentDate  DateTime
-  matchedTerm   String // по какому фрагменту опознали
+  matchedPattern String // по какому шаблону опознали
   hasText       Boolean           @default(false) // доступен ли машиночитаемый текст
   status        LegalAlertStatus  @default(NEW)
   createdAt     DateTime          @default(now())
