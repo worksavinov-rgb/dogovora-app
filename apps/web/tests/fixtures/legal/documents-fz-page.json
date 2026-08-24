@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "eoNumber": "0001202608040078",
+      "hasSvg": false,
+      "zipFileLength": null,
+      "publishDateShort": "2026-08-04T00:00:00",
+      "complexName": "Федеральный закон от 04.08.2026 № 334-ФЗ\n \"О внесении изменений в отдельные законодательные акты Российской Федерации\"",
+      "pagesCount": 45,
+      "pdfFileLength": 2408334,
+      "jdRegNumber": null,
+      "jdRegDate": null,
+      "name": "\"О внесении изменений в отдельные законодательные акты Российской Федерации\"",
+      "number": "334-ФЗ",
+      "documentDate": "2026-08-04T00:00:00",
+      "signatoryAuthorityId": "225698f1-cfbc-4e42-9caa-32f9f7403211",
+      "documentTypeId": "82a8bf1c-3bc7-47ed-827f-7affd43a7f27",
+      "title": "Федеральный закон от 04.08.2026 № 334-ФЗ<br /> \"О внесении изменений в отдельные законодательные акты Российской Федерации\"",
+      "viewDate": "04.08.2026",
+      "id": "ac47584e-fc7c-485f-8552-9529d2bc85a7"
+    },
+    {
+      "eoNumber": "0001202608040076",
+      "hasSvg": false,
+      "zipFileLength": null,
+      "publishDateShort": "2026-08-04T00:00:00",
+      "complexName": "Федеральный закон от 04.08.2026 № 333-ФЗ\n \"О внесении изменений в отдельные законодательные акты Российской Федерации\"",
+      "pagesCount": 4,
+      "pdfFileLength": 148225,
+      "jdRegNumber": null,
+      "jdRegDate": null,
+      "name": "\"О внесении изменений в отдельные законодательные акты Российской Федерации\"",
+      "number": "333-ФЗ",
+      "documentDate": "2026-08-04T00:00:00",
+      "signatoryAuthorityId": "225698f1-cfbc-4e42-9caa-32f9f7403211",
+      "documentTypeId": "82a8bf1c-3bc7-47ed-827f-7affd43a7f27",
+      "title": "Федеральный закон от 04.08.2026 № 333-ФЗ<br /> \"О внесении изменений в отдельные законодательные акты Российской Федерации\"",
+      "viewDate": "04.08.2026",
+      "id": "eb49c2b7-6668-4c41-a71e-cd7a9c96f3d0"
+    }
+  ],
+  "itemsTotalCount": 7878,
+  "itemsPerPage": 100,
+  "currentPage": 1,
+  "pagesTotalCount": 79
+}
