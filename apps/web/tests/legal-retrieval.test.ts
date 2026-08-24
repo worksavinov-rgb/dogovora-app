@@ -53,3 +53,44 @@ describe('retrieveNorms', () => {
     expect(queryRows).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('retrieveNorms — краевые случаи', () => {
+  it('вырожденный (нулевой) вектор в БД не отправляется', async () => {
+    // <=> с нулевым вектором даёт NaN, NaN отравляет нормализацию и порядок выдачи.
+    const queryRows = vi.fn(async () => fakeRows('fts'))
+    const zeroEmbedder = { embed: async () => [new Array(1536).fill(0)] }
+    const res = await retrieveNorms(
+      { queryText: '!!! ???' },
+      { queryRows, embedder: zeroEmbedder },
+    )
+    expect(queryRows).toHaveBeenCalledTimes(1) // только FTS, векторного запроса нет
+    expect(res.every((r) => Number.isFinite(r.score))).toBe(true)
+  })
+
+  it('опечатка в типе договора снимает фильтр, а не сужает до одного акта', async () => {
+    let actsParam: unknown = 'не вызывали'
+    const queryRows = vi.fn(async (_sql: string, params: unknown[]) => {
+      actsParam = params[1]
+      return fakeRows('fts')
+    })
+    await retrieveNorms(
+      { contractType: 'suply', queryText: 'поставка' }, // опечатка
+      { queryRows, embedder: hashEmbedder },
+    )
+    expect(actsParam).toBeNull()
+  })
+
+  it('известный тип договора фильтр применяет', async () => {
+    let actsParam: unknown = null
+    const queryRows = vi.fn(async (_sql: string, params: unknown[]) => {
+      actsParam = params[1]
+      return fakeRows('fts')
+    })
+    await retrieveNorms(
+      { contractType: 'supply', queryText: 'поставка' },
+      { queryRows, embedder: hashEmbedder },
+    )
+    expect(Array.isArray(actsParam)).toBe(true)
+    expect(actsParam as string[]).toContain('ГК РФ')
+  })
+})

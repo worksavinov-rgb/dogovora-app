@@ -3,7 +3,7 @@
 // чтобы модуль тестировался без живой БД.
 
 import { mergeRankings, type ScoredNorm } from './ranking'
-import { actsForContractType } from './contract-types'
+import { actsForContractType, isKnownContractType } from './contract-types'
 import type { EmbeddingClient } from './embeddings'
 
 export interface NormRow {
@@ -71,14 +71,20 @@ export async function retrieveNorms(
   const topK = input.topK ?? 8
   const perMethod = topK * 3
   // null → без пред-фильтра по акту; иначе массив shortName
-  const acts = input.contractType ? actsForContractType(input.contractType) : null
+  // Неизвестный тип (например опечатка) НЕ сужает выборку: фильтр просто снимается.
+  // Иначе опечатка молча оставила бы поиск с одним ГК и спрятала нужные нормы.
+  const acts = input.contractType && isKnownContractType(input.contractType)
+    ? actsForContractType(input.contractType)
+    : null
 
   const ftsRows = await deps.queryRows(FTS_SQL, [query, acts, perMethod])
 
   let vectorRows: NormRow[] = []
   try {
     const [vec] = await deps.embedder.embed([query])
-    if (vec && vec.length > 0) {
+    // Вырожденный (нулевой) вектор отправлять нельзя: оператор <=> вернёт NaN,
+    // NaN отравит нормализацию рейтингов и порядок всей выдачи станет случайным.
+    if (vec && vec.length > 0 && vec.some((x) => x !== 0)) {
       const vecLiteral = `[${vec.join(',')}]`
       vectorRows = await deps.queryRows(VECTOR_SQL, [vecLiteral, acts, perMethod])
     }

@@ -20,7 +20,7 @@ export interface SyncDeps {
 }
 
 export interface SyncOptions {
-  /** С какой даты публикации смотреть, если у акта нет lastCheckedAt. */
+  /** С какой даты смотреть акт, который ещё ни разу не проверяли (бэкфилл). */
   defaultSince?: Date
   /** Предохранитель от вычитывания всего корпуса. */
   maxPages?: number
@@ -31,6 +31,12 @@ export interface SyncOptions {
 export interface SyncReport {
   scannedDocuments: number
   pagesFetched: number
+  /**
+   * Выдача оборвана предохранителем maxPages — просмотрено НЕ всё окно.
+   * В этом случае lastCheckedAt не сдвигается, иначе непрочитанные страницы
+   * не были бы просмотрены никогда.
+   */
+  truncated: boolean
   /** shortName → сколько новых алертов записано. */
   newAlertsByAct: Record<string, number>
   totalNewAlerts: number
@@ -39,11 +45,14 @@ export interface SyncReport {
 const DEFAULT_MAX_PAGES = 20
 const PAGE_SIZE = 100
 
-/** Самая ранняя дата, с которой нужно смотреть публикации. */
-function earliestSince(tracked: TrackedActRecord[], fallback: Date): Date {
-  const dates = tracked.map((t) => t.lastCheckedAt).filter((d): d is Date => d instanceof Date)
-  if (dates.length !== tracked.length || dates.length === 0) return fallback
-  return dates.reduce((min, d) => (d < min ? d : min), dates[0])
+/**
+ * Самая ранняя дата, с которой нужно смотреть публикации.
+ * Акт без lastCheckedAt считается требующим бэкфилла и берёт backfillSince,
+ * иначе новый акт в реестре молча получил бы только последнее окно.
+ */
+function earliestSince(tracked: TrackedActRecord[], backfillSince: Date): Date {
+  const dates = tracked.map((t) => t.lastCheckedAt ?? backfillSince)
+  return dates.reduce((min, d) => (d < min ? d : min), dates[0] ?? backfillSince)
 }
 
 export async function syncTrackedActs(deps: SyncDeps, opts: SyncOptions = {}): Promise<SyncReport> {
@@ -52,7 +61,9 @@ export async function syncTrackedActs(deps: SyncDeps, opts: SyncOptions = {}): P
   const fallbackSince = opts.defaultSince ?? new Date(now.getTime() - 30 * 24 * 3600 * 1000)
 
   const tracked = (await deps.loadTracked()).filter((t) => t.matchPatterns.length > 0)
-  const report: SyncReport = { scannedDocuments: 0, pagesFetched: 0, newAlertsByAct: {}, totalNewAlerts: 0 }
+  const report: SyncReport = {
+    scannedDocuments: 0, pagesFetched: 0, truncated: false, newAlertsByAct: {}, totalNewAlerts: 0,
+  }
   if (tracked.length === 0) return report
 
   const since = earliestSince(tracked, fallbackSince)
@@ -75,6 +86,8 @@ export async function syncTrackedActs(deps: SyncDeps, opts: SyncOptions = {}): P
     index += 1
   }
   report.scannedDocuments = docs.length
+  // Страниц больше, чем разрешил предохранитель — окно просмотрено не полностью.
+  report.truncated = totalPages > maxPages
 
   // ── прогоняем шаблоны каждого акта по общей выборке ───────────────────────
   for (const act of tracked) {
@@ -82,7 +95,10 @@ export async function syncTrackedActs(deps: SyncDeps, opts: SyncOptions = {}): P
     const added = hits.length > 0 ? await deps.saveAlerts(act.id, hits) : 0
     report.newAlertsByAct[act.shortName] = added
     report.totalNewAlerts += added
-    await deps.markChecked(act.id, now)
+    // Сдвигаем отметку только если окно дочитано: иначе пропущенные страницы
+    // остались бы непросмотренными навсегда. Отметка ставится по акту отдельно,
+    // поэтому сбой на одном акте не откатывает уже обработанные.
+    if (!report.truncated) await deps.markChecked(act.id, now)
   }
 
   return report

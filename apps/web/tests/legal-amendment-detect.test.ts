@@ -45,13 +45,18 @@ describe('detectAmendments', () => {
 
   it('ловит склонённые названия кодексов на реальных данных API', () => {
     // «в часть четвертую Гражданского кодекса» — родительный падеж
+    // Ожидания заданы явно, а не тем же regex, которым отбирались хиты.
     const gk = detectAmendments(trackedFromCore('ГК РФ'), real)
     expect(gk.length).toBeGreaterThan(0)
-    for (const h of gk) expect(h.complexName.toLowerCase()).toMatch(/гражданск[а-яё]*\s+кодекс/)
+    for (const h of gk) expect(h.complexName).toContain('Гражданского кодекса')
 
     const nk = detectAmendments(trackedFromCore('НК РФ'), real)
     expect(nk.length).toBeGreaterThan(0)
-    for (const h of nk) expect(h.complexName.toLowerCase()).toMatch(/налогов[а-яё]*\s+кодекс/)
+    for (const h of nk) expect(h.complexName).toContain('Налогового кодекса')
+
+    // Именительный падеж («Гражданский кодекс») в этих названиях не встречается —
+    // подстрочный поиск по нему нашёл бы ноль.
+    expect(gk.some((h) => h.complexName.includes('Гражданский кодекс'))).toBe(false)
   })
 
   it('ГК не путается с Гражданским процессуальным кодексом', () => {
@@ -72,6 +77,26 @@ describe('detectAmendments', () => {
     const broken: TrackedAct = { shortName: 'X', number: 'X', matchPatterns: ['[незакрытая', 'о рекламе'] }
     const docs = [doc({ eoNumber: 'e', complexName: 'О внесении изменений в Федеральный закон "О рекламе"' })]
     expect(detectAmendments(broken, docs).map((h) => h.eoNumber)).toEqual(['e'])
+  })
+
+  it('вложенное название закона не приписывается кодексу', () => {
+    // Правится закон-поправка, а не ГК: «в статью 2 Федерального закона
+    // "О внесении изменений в Гражданский кодекс"».
+    const docs = [doc({
+      eoNumber: 'nested',
+      complexName: 'Федеральный закон "О внесении изменений в статью 2 Федерального закона "О внесении изменений в Гражданский кодекс Российской Федерации""',
+    })]
+    expect(detectAmendments(trackedFromCore('ГК РФ'), docs)).toEqual([])
+  })
+
+  it('обычная (невложенная) поправка к кодексу по-прежнему ловится', () => {
+    const docs = [doc({ eoNumber: 'plain', complexName: 'Федеральный закон "О внесении изменений в часть первую Гражданского кодекса Российской Федерации"' })]
+    expect(detectAmendments(trackedFromCore('ГК РФ'), docs).map((h) => h.eoNumber)).toEqual(['plain'])
+  })
+
+  it('широкий шаблон «о рекламе» не ловит закон о другом акте', () => {
+    const docs = [doc({ eoNumber: 'r', complexName: 'Федеральный закон "О внесении изменений в Федеральный закон "О связи""' })]
+    expect(detectAmendments(trackedFromCore('38-ФЗ'), docs)).toEqual([])
   })
 
   it('пустой список → пусто', () => {

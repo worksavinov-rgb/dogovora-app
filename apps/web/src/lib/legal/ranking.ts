@@ -1,4 +1,11 @@
 // Слияние результатов двух методов поиска (полнотекст + вектор) в один рейтинг.
+//
+// Используется RRF (Reciprocal Rank Fusion): вклад результата определяется его
+// ПОЗИЦИЕЙ в своём списке, а не абсолютной оценкой. Это важно, потому что шкалы
+// несопоставимы: ts_rank даёт десятые доли, косинусная близость — почти единицу.
+// Нормализация min-max на таких данных ведёт себя плохо: единственный (пусть и
+// слабый) результат одного метода получал бы максимум 1.0 и обгонял сильный
+// результат другого, а худший элемент любого списка всегда обнулялся бы.
 
 export interface ScoredNorm {
   normId: string
@@ -9,20 +16,24 @@ interface MergeOpts {
   ftsWeight?: number
   vectorWeight?: number
   topK?: number
+  /** Сглаживание RRF: чем больше, тем меньше разрыв между верхними позициями. */
+  k?: number
 }
 
-/** min-max нормализация оценок списка в [0,1]. Если все равны — все получают 1. */
-function normalize(list: ScoredNorm[]): Map<string, number> {
-  const out = new Map<string, number>()
-  if (list.length === 0) return out
-  const scores = list.map((s) => s.score)
-  const min = Math.min(...scores)
-  const max = Math.max(...scores)
-  const span = max - min
-  for (const item of list) {
-    out.set(item.normId, span === 0 ? 1 : (item.score - min) / span)
-  }
-  return out
+const DEFAULT_K = 60
+
+/** Вклад позиции в списке: 1 / (k + позиция), позиция с единицы. */
+function contribute(
+  list: ScoredNorm[],
+  weight: number,
+  k: number,
+  into: Map<string, number>,
+): void {
+  const ordered = [...list].sort((a, b) => b.score - a.score)
+  ordered.forEach((item, i) => {
+    const add = weight / (k + i + 1)
+    into.set(item.normId, (into.get(item.normId) ?? 0) + add)
+  })
 }
 
 export function mergeRankings(
@@ -33,17 +44,11 @@ export function mergeRankings(
   const ftsWeight = opts.ftsWeight ?? 0.5
   const vectorWeight = opts.vectorWeight ?? 0.5
   const topK = opts.topK ?? 8
-
-  const ftsNorm = normalize(fts)
-  const vectorNorm = normalize(vector)
+  const k = opts.k ?? DEFAULT_K
 
   const combined = new Map<string, number>()
-  for (const [id, s] of ftsNorm) {
-    combined.set(id, (combined.get(id) ?? 0) + s * ftsWeight)
-  }
-  for (const [id, s] of vectorNorm) {
-    combined.set(id, (combined.get(id) ?? 0) + s * vectorWeight)
-  }
+  contribute(fts, ftsWeight, k, combined)
+  contribute(vector, vectorWeight, k, combined)
 
   return [...combined.entries()]
     .map(([normId, score]) => ({ normId, score }))

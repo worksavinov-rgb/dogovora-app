@@ -47,6 +47,23 @@ function compile(patterns: string[]): Array<{ src: string; re: RegExp }> {
   return out
 }
 
+/**
+ * Область, в которой ищем название правимого акта.
+ *
+ * Названия бывают вложенными: «О внесении изменений в статью 2 Федерального
+ * закона "О внесении изменений в Гражданский кодекс"». Здесь правится
+ * закон-поправка, а не ГК, поэтому всё после ВТОРОЙ формулы отбрасываем —
+ * иначе алерт ушёл бы не тому акту.
+ */
+function targetSegment(complexName: string): string {
+  const hay = complexName.toLowerCase()
+  const first = hay.indexOf(AMENDMENT_MARKER)
+  if (first < 0) return ''
+  const from = first + AMENDMENT_MARKER.length
+  const second = hay.indexOf(AMENDMENT_MARKER, from)
+  return second < 0 ? complexName.slice(from) : complexName.slice(from, second)
+}
+
 export function detectAmendments(tracked: TrackedAct, docs: PravoDoc[]): AmendmentHit[] {
   const patterns = compile(tracked.matchPatterns)
   const hits: AmendmentHit[] = []
@@ -54,7 +71,8 @@ export function detectAmendments(tracked: TrackedAct, docs: PravoDoc[]): Amendme
     const hay = d.complexName.toLowerCase()
     // Сам акт (или любой не-изменяющий закон) поправкой не считается.
     if (!hay.includes(AMENDMENT_MARKER)) continue
-    const hit = patterns.find((p) => p.re.test(d.complexName))
+    const segment = targetSegment(d.complexName)
+    const hit = patterns.find((p) => p.re.test(segment))
     if (hit) {
       hits.push({
         eoNumber: d.eoNumber,

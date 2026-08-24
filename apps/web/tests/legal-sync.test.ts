@@ -100,3 +100,31 @@ describe('syncTrackedActs', () => {
     expect(deps.saveAlerts).not.toHaveBeenCalled()
   })
 })
+
+describe('syncTrackedActs — защита от потери документов', () => {
+  it('при обрыве по maxPages НЕ сдвигает отметку проверки', async () => {
+    // Иначе непрочитанные страницы не будут просмотрены никогда.
+    const search = vi.fn(async () => page([doc({ eoNumber: 'x', complexName: 'О внесении изменений в Трудовой кодекс' })], 79))
+    const deps = makeDeps({ search })
+    const rep = await syncTrackedActs(deps, { maxPages: 2, now: new Date('2026-08-10T00:00:00Z') })
+    expect(rep.truncated).toBe(true)
+    expect(deps.markChecked).not.toHaveBeenCalled()
+  })
+
+  it('когда окно дочитано — отметку сдвигает', async () => {
+    const deps = makeDeps()
+    const rep = await syncTrackedActs(deps, { maxPages: 20, now: new Date('2026-08-10T00:00:00Z') })
+    expect(rep.truncated).toBe(false)
+    expect(deps.markChecked).toHaveBeenCalledTimes(2)
+  })
+
+  it('новый акт в реестре бэкфиллится с defaultSince, а не с окна соседей', async () => {
+    const old = { ...gk, lastCheckedAt: new Date('2026-08-01T00:00:00Z') } // давно проверяется
+    const fresh = { ...tk, lastCheckedAt: null }                            // только добавлен
+    const deps = makeDeps({}, [old, fresh])
+    const backfill = new Date('2024-01-01T00:00:00Z')
+    await syncTrackedActs(deps, { now: new Date('2026-08-10T00:00:00Z'), defaultSince: backfill })
+    const params = (deps.search as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(params.publishDateFrom).toEqual(backfill)
+  })
+})

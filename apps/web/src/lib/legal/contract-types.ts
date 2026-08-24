@@ -16,18 +16,18 @@ export type ContractType =
   | 'procurement' // госзакупки
 
 export const CONTRACT_TYPE_ACTS: Record<ContractType, string[]> = {
-  supply: ['ГК РФ'],
-  services: ['ГК РФ'],
-  work: ['ГК РФ'],
-  lease: ['ГК РФ'],
-  sale: ['ГК РФ'],
-  loan: ['ГК РФ'],
-  employment: ['ТК РФ', 'ГК РФ'],
-  gph: ['ГК РФ', '422-ФЗ'],
-  agency: ['ГК РФ'],
-  ip_license: ['ГК РФ'],
-  consumer: ['ЗоЗПП', 'ГК РФ'],
-  procurement: ['44-ФЗ', '223-ФЗ', 'ГК РФ'],
+  supply: ['ГК РФ', '402-ФЗ', '173-ФЗ'],
+  services: ['ГК РФ', '402-ФЗ'],
+  work: ['ГК РФ', '402-ФЗ'],
+  lease: ['ГК РФ', '402-ФЗ'],
+  sale: ['ГК РФ', 'ЗоЗПП', '402-ФЗ'],
+  loan: ['ГК РФ', '173-ФЗ', 'НК РФ'],
+  employment: ['ТК РФ', 'ГК РФ', '152-ФЗ'],
+  gph: ['ГК РФ', '422-ФЗ', '152-ФЗ', 'НК РФ'],
+  agency: ['ГК РФ', '14-ФЗ (ООО)', '208-ФЗ (АО)'],
+  ip_license: ['ГК РФ', '38-ФЗ'],
+  consumer: ['ЗоЗПП', 'ГК РФ', '152-ФЗ', '38-ФЗ'],
+  procurement: ['44-ФЗ', '223-ФЗ', 'ГК РФ', 'НК РФ'],
 }
 
 const BASE_ACTS = ['ГК РФ']
@@ -37,4 +37,9 @@ export function actsForContractType(type: string | null | undefined): string[] {
   if (!type) return [...BASE_ACTS]
   const mapped = CONTRACT_TYPE_ACTS[type as ContractType]
   return mapped ? [...mapped] : [...BASE_ACTS]
+}
+
+/** Известен ли тип договора. Неизвестный не должен молча сужать поиск. */
+export function isKnownContractType(type: string | null | undefined): boolean {
+  return !!type && Object.prototype.hasOwnProperty.call(CONTRACT_TYPE_ACTS, type)
 }
