@@ -635,6 +635,8 @@ model LegalAct {
   @@map("legal_acts")
 }
 
+/// Инвариант: на один акт ровно одна редакция с isCurrent = true
+/// (частичный уникальный индекс в миграции fix_legal_constraints).
 model LegalActEdition {
   id           String   @id @default(cuid())
   actId        String
@@ -709,7 +711,8 @@ model LegalChangeAlert {
   status        LegalAlertStatus  @default(NEW)
   createdAt     DateTime          @default(now())
 
-  trackedAct LegalTrackedAct @relation(fields: [trackedActId], references: [id], onDelete: Cascade)
+  // Restrict: журнал алертов append-only, удаление акта не стирает историю.
+  trackedAct LegalTrackedAct @relation(fields: [trackedActId], references: [id], onDelete: Restrict)
 
   @@unique([trackedActId, eoNumber])
   @@index([status, createdAt])
