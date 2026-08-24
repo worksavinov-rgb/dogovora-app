@@ -678,3 +678,46 @@ model LegalContractTypeMap {
   @@unique([contractType, actShortName])
   @@map("legal_contract_type_map")
 }
+
+// ─── Юрбаза: мониторинг изменений законодательства ───────────────────────────
+// Какие акты отслеживаем в API pravo.gov.ru и какие поправки к ним найдены.
+// Алерты APPEND-ONLY: найденная поправка не удаляется, у неё меняется только статус.
+
+model LegalTrackedAct {
+  id         String   @id @default(cuid())
+  actId      String? // связь с LegalAct, если акт уже загружен в базу
+  shortName  String   @unique // «ГК РФ», «152-ФЗ»
+  number     String // «51-ФЗ», «2300-1» — справочно (номера ФЗ переиспользуются!)
+  matchTerms String[] // фрагменты названия для поиска поправок в complexName
+  lastCheckedAt DateTime? // до какой даты публикаций уже просмотрено
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  alerts LegalChangeAlert[]
+
+  @@map("legal_tracked_acts")
+}
+
+model LegalChangeAlert {
+  id            String            @id @default(cuid())
+  trackedActId  String
+  eoNumber      String // номер официального опубликования — уникальный ключ акта
+  complexName   String // полное название закона-поправки
+  documentDate  DateTime
+  matchedTerm   String // по какому фрагменту опознали
+  hasText       Boolean           @default(false) // доступен ли машиночитаемый текст
+  status        LegalAlertStatus  @default(NEW)
+  createdAt     DateTime          @default(now())
+
+  trackedAct LegalTrackedAct @relation(fields: [trackedActId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedActId, eoNumber])
+  @@index([status, createdAt])
+  @@map("legal_change_alerts")
+}
+
+enum LegalAlertStatus {
+  NEW // найдена, редакция ещё не обновлена
+  REVIEWED // просмотрена админом
+  APPLIED // редакция акта обновлена
+}
