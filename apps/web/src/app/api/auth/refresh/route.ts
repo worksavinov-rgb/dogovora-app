@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { refreshSession, accessCookieOptions, refreshCookieOptions } from '@/lib/refresh-session'
+import { publicUrl } from '@/lib/public-url'
 
 // POST /api/auth/refresh — обновить access-токен по refresh-токену с РОТАЦИЕЙ.
 // Старый refresh-токен отзывается, выдаётся новая пара. Это ограничивает
@@ -30,10 +31,11 @@ export async function GET(req: NextRequest) {
   const result = await refreshSession(req)
   if (!result.ok) {
     // refresh истёк/отозван — честно отправляем на вход.
-    return NextResponse.redirect(new URL('/login', req.url))
+    return NextResponse.redirect(publicUrl(req, '/login'))
   }
 
-  const res = NextResponse.redirect(new URL(next, req.url))
+  // Возврат на исходную страницу — по публичному хосту, а не req.url (0.0.0.0).
+  const res = NextResponse.redirect(publicUrl(req, next))
   res.cookies.set('access_token', result.accessToken, accessCookieOptions())
   res.cookies.set('refresh_token', result.refreshToken, refreshCookieOptions())
   return res

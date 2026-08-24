@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { publicUrl } from '@/lib/public-url'
 
 // Публичные маршруты (без авторизации)
 const PUBLIC_PATHS = [
@@ -71,12 +72,14 @@ export function middleware(req: NextRequest) {
     const hasRefresh = Boolean(req.cookies.get('refresh_token')?.value)
     if (hasRefresh && req.method === 'GET') {
       const nextPath = pathname + (req.nextUrl.search || '')
-      const refreshUrl = new URL('/api/auth/refresh', req.url)
+      // URL строим из публичного хоста (заголовки прокси), а не из req.url —
+      // иначе в standalone-режиме Location уходит на https://0.0.0.0 (см. publicUrl).
+      const refreshUrl = publicUrl(req, '/api/auth/refresh')
       refreshUrl.searchParams.set('next', nextPath)
       return attach(NextResponse.redirect(refreshUrl))
     }
 
-    return attach(NextResponse.redirect(new URL('/login', req.url)))
+    return attach(NextResponse.redirect(publicUrl(req, '/login')))
   }
 
   return attach(NextResponse.next({ request: { headers: requestHeaders } }))
