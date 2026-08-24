@@ -41,10 +41,23 @@ export interface SearchParams {
   name?: string
   number?: string
   block?: string
-  documentDateFrom?: string
-  publishDateFrom?: string
+  /** Дата или ISO-строка; в запрос уходит как ДД.ММ.ГГГГ (иначе портал игнорирует фильтр). */
+  documentDateFrom?: Date | string
+  publishDateFrom?: Date | string
   pageSize?: 100 | 200
   index?: number
+}
+
+/**
+ * Даты в фильтрах API принимаются ТОЛЬКО в формате ДД.ММ.ГГГГ.
+ * ISO-формат портал молча игнорирует и отдаёт весь корпус — проверено:
+ * PublishDateFrom=2026-08-01 → 7878 документов, PublishDateFrom=01.08.2026 → 57.
+ */
+export function toPravoDate(d: Date | string): string {
+  const date = typeof d === 'string' ? new Date(d) : d
+  const dd = String(date.getUTCDate()).padStart(2, '0')
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
+  return `${dd}.${mm}.${date.getUTCFullYear()}`
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -74,8 +87,8 @@ function buildDocumentsUrl(params: SearchParams): string {
   if (params.name) q.set('Name', params.name)
   if (params.number) q.set('Number', params.number)
   if (params.block) q.set('Block', params.block)
-  if (params.documentDateFrom) q.set('DocumentDateFrom', params.documentDateFrom)
-  if (params.publishDateFrom) q.set('PublishDateFrom', params.publishDateFrom)
+  if (params.documentDateFrom) q.set('DocumentDateFrom', toPravoDate(params.documentDateFrom))
+  if (params.publishDateFrom) q.set('PublishDateFrom', toPravoDate(params.publishDateFrom))
   q.set('PageSize', String(params.pageSize ?? 100))
   q.set('Index', String(params.index ?? 1))
   return `${PRAVO_BASE_URL}/api/Documents?${q.toString()}`

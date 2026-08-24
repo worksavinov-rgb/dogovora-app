@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   listDocumentTypes, searchDocuments, hasDocumentText,
-  DOC_TYPE_FEDERAL_LAW, PRAVO_BASE_URL,
+  DOC_TYPE_FEDERAL_LAW, PRAVO_BASE_URL, toPravoDate,
   type FetchLike,
 } from '../src/lib/legal/pravo-client'
 
@@ -62,5 +62,23 @@ describe('pravo-client', () => {
   it('на ошибку HTTP бросает исключение', async () => {
     const f: FetchLike = async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => 'boom' })
     await expect(listDocumentTypes(f)).rejects.toThrow()
+  })
+})
+
+describe('toPravoDate', () => {
+  it('форматирует дату как ДД.ММ.ГГГГ (ISO портал молча игнорирует)', () => {
+    expect(toPravoDate(new Date('2026-08-01T00:00:00Z'))).toBe('01.08.2026')
+    expect(toPravoDate('2026-12-31')).toBe('31.12.2026')
+  })
+
+  it('фильтр дат уходит в запрос в русском формате', async () => {
+    let called = ''
+    const f: FetchLike = async (url) => {
+      called = url
+      return { ok: true, status: 200, json: async () => ({ items: [] }), text: async () => '' }
+    }
+    await searchDocuments({ publishDateFrom: '2026-08-01' }, f)
+    expect(called).toContain('PublishDateFrom=01.08.2026')
+    expect(called).not.toContain('2026-08-01')
   })
 })
