@@ -4,8 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
+import { NumberFormatBuilder } from '@/components/number-format-builder'
 import { validateInn, validateOgrn, validateBik, validateCheckingAccount, validateKpp, validatePassportSeries, validatePassportNumber, validatePassportDeptCode } from '@/lib/validation'
-import { validateFormat, formatScope, renderNumber, SCOPE_LABELS, PLACEHOLDER_HINTS } from '@/lib/document-number'
 import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -262,8 +262,6 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
   const accountError = bank.checkingAccount ? validateCheckingAccount(bank.checkingAccount, bank.bik) : null
   const kppError = profile.kpp ? validateKpp(profile.kpp) : null
 
-  const numberFormat = profile.contractNumberFormat.trim()
-  const numberFormatError = numberFormat ? validateFormat(numberFormat) : null
 
   return (
     <div className="flex flex-col gap-[12px]">
@@ -417,39 +415,15 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
 
       <Card>
         <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Нумерация договоров</p>
-        <div className="flex flex-col gap-[12px]">
-          <Field label="Формат номера договора">
-            <Input value={profile.contractNumberFormat}
-              onChange={(e) => set('contractNumberFormat', e.target.value)}
-              placeholder="{NNN}/{ММ}-{ГГ}"
-              error={numberFormatError?.message}
-              style={{ fontFamily: 'var(--font-mono)' }} />
-          </Field>
-
-          {numberFormat && !numberFormatError && (
-            <p className="text-[11px] text-[var(--ink-4)]">
-              Пример: {renderNumber(numberFormat, 1, new Date())} · {SCOPE_LABELS[formatScope(numberFormat)]}
-            </p>
-          )}
-
-          {!isNew && profileId && nextNumber && (
-            <p className="text-[11px] text-[var(--ink-4)]">
-              Следующий номер: <span className="font-mono text-[var(--ink-2)]">{nextNumber}</span>
-            </p>
-          )}
-
-          <div className="flex flex-col gap-[2px]">
-            {PLACEHOLDER_HINTS.map((hint) => (
-              <p key={hint.token} className="text-[11px] text-[var(--ink-4)]">
-                <span className="font-mono">{hint.token}</span> — {hint.label}
-              </p>
-            ))}
-          </div>
-
-          <p className="text-[11px] text-[var(--ink-4)]">
-            Оставьте пустым, если не нужна автоматическая нумерация.
+        <NumberFormatBuilder
+          value={profile.contractNumberFormat}
+          onChange={(format) => set('contractNumberFormat', format)}
+        />
+        {!isNew && profileId && nextNumber && (
+          <p className="text-[11px] text-[var(--ink-4)] mt-[12px]">
+            Следующий номер: <span className="font-mono text-[var(--ink-2)]">{nextNumber}</span>
           </p>
-        </div>
+        )}
       </Card>
 
       <Card>

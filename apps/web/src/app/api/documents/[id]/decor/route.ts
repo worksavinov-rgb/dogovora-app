@@ -109,6 +109,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       data: {
         preambleHtml,
         requisitesHtml,
+        // Собрано автоматикой — значит блоки снова «живые» и будут пересобираться
+        // при каждом показе. Если человек до этого правил их руками, он только что
+        // сам попросил собрать заново.
+        preambleManual: false,
+        requisitesManual: false,
+        // Запоминаем ВЫБОР, а не только результат: без города и подписанта
+        // пересобрать блок точно так же невозможно.
+        decorCity: chosenCity,
+        decorSignatoryId: data.signatoryId ?? null,
         ...(data.profileId ? { profileId: data.profileId } : {}),
         ...(data.signingDate ? { signingDate: new Date(data.signingDate) } : {}),
       },
@@ -143,8 +152,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   await prisma.document.update({
     where: { id },
     data: {
-      ...(data.preambleHtml !== undefined ? { preambleHtml: sanitizeHtml(data.preambleHtml) } : {}),
-      ...(data.requisitesHtml !== undefined ? { requisitesHtml: sanitizeHtml(data.requisitesHtml) } : {}),
+      // Флаг ставим ровно на тот блок, который правили: с ним блок больше не
+      // пересобирается из карточек никогда — ручная правка старше автоматики.
+      ...(data.preambleHtml !== undefined
+        ? { preambleHtml: sanitizeHtml(data.preambleHtml), preambleManual: true }
+        : {}),
+      ...(data.requisitesHtml !== undefined
+        ? { requisitesHtml: sanitizeHtml(data.requisitesHtml), requisitesManual: true }
+        : {}),
     },
   })
   return NextResponse.json({ ok: true })
@@ -159,6 +174,16 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   const doc = await prisma.document.findFirst({ where: { id, userId }, select: { id: true } })
   if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  await prisma.document.update({ where: { id }, data: { preambleHtml: null, requisitesHtml: null } })
+  await prisma.document.update({
+    where: { id },
+    data: {
+      preambleHtml: null,
+      requisitesHtml: null,
+      preambleManual: false,
+      requisitesManual: false,
+      decorCity: null,
+      decorSignatoryId: null,
+    },
+  })
   return NextResponse.json({ ok: true })
 }

@@ -13,6 +13,8 @@
 import { prisma } from './db'
 import {
   buildRequisitesHtml,
+  buildContractPreambleHtml,
+  buildChildDocPreambleHtml,
   replaceDocumentPreamble,
   replaceRequisitesSection,
 } from './html-document'
@@ -48,6 +50,7 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
     include: {
       counterparty: { include: { bankDetails: { take: 1 } } },
       profile: { include: { bankDetails: { take: 1 } } },
+      parentDocument: { select: { number: true, title: true } },
     },
   })
   if (!doc) return null
@@ -63,7 +66,15 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
   // isDefault:true, и шапка получала прочерки «в лице ____, действующего на
   // основании ____», хотя подписант в карточке заполнен, — при этом DOCX брал
   // его же через резолвер. Один резолвер = одинаковый подписант везде.
-  const cpSig = cp ? await resolveCounterpartySignatory(cp.id) : null
+  // Подписант: сначала тот, которого человек выбрал на шаге «Оформление»
+  // (Document.decorSignatoryId), и только потом общий резолвер. Иначе показ
+  // подставлял дефолтного подписанта, а в согласованном оформлении стоял другой.
+  const cpSig = cp
+    ? (doc.decorSignatoryId
+        ? await prisma.signatory.findFirst({ where: { id: doc.decorSignatoryId, counterpartyId: cp.id } })
+          ?? await resolveCounterpartySignatory(cp.id)
+        : await resolveCounterpartySignatory(cp.id))
+    : null
 
   const userProfile = profile ? {
     type: profile.type,
@@ -116,21 +127,37 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
     signatorBasis: basisFrom(cpSig?.basisType ?? null, cpSig?.poaNumber ?? null),
   } : null
 
-  // Шапка — ТОЛЬКО та, которую пользователь сам согласовал на шаге «Оформление»
-  // (Document.preambleHtml). Своей шапки мы больше не собираем: если человек
-  // принёс готовый договор со своей шапкой, подменять её нельзя — там могут быть
-  // формулировки и стороны, которых в ЛК нет.
-  const preambleHtml = doc.preambleHtml ?? null
-  // Реквизиты подставляем из АКТУАЛЬНЫХ данных ЛК на КАЖДЫЙ показ — поэтому правки
-  // карточки контрагента/профиля отражаются в договоре сразу (ИНН, счета, БИК, адрес,
-  // подписант). Сохранённый слой оформления (doc.requisitesHtml) для загруженного
-  // договора НЕ имеет приоритета над живыми данными: он мог быть собран, когда
-  // карточка контрагента содержала лишь имя+ИНН, и «замораживал» неполные реквизиты
-  // (симптом: заполнил карточку → в договоре по-прежнему только «ИП … / ИНН …»).
-  // Откатываемся на сохранённый слой только если из ЛК строить нечего.
-  const requisitesHtml = (userProfile && counterpartyData)
-    ? buildRequisitesHtml(userProfile, counterpartyData, role1, role2)
-    : (doc.requisitesHtml ?? null)
+  // ─── Слой оформления: ручная правка старше автоматики ───────────────────────
+  //
+  // Блок, которого человек не касался, пересобирается из АКТУАЛЬНЫХ данных на
+  // каждый показ — иначе он устаревает молча (поменял номер договора, а в шапке
+  // остался старый; дозаполнил карточку контрагента, а в реквизитах прежние
+  // прочерки). Блок, поправленный руками (флаг ...Manual), не трогаем никогда:
+  // человек написал там то, что хотел, и перезаписывать это нельзя.
+  const canRebuild = Boolean(userProfile && counterpartyData)
+
+  // Шапки у документа может не быть вовсе — тогда её и не показываем. Своей мы
+  // не придумываем: пользователь мог принести готовый договор со своей шапкой,
+  // и подменять её без спроса нельзя. Шапка появляется, только когда её
+  // согласовали на шаге «Оформление».
+  let preambleHtml = doc.preambleHtml ?? null
+  if (preambleHtml && !doc.preambleManual && canRebuild) {
+    const city = doc.decorCity ?? undefined
+    const signingDate = doc.signingDate ? doc.signingDate.toISOString() : undefined
+    preambleHtml = doc.type === 'CONTRACT'
+      ? buildContractPreambleHtml(userProfile!, counterpartyData!, role1, role2, city, signingDate, doc.number)
+      : buildChildDocPreambleHtml(
+          userProfile!, counterpartyData!, role1, role2, doc.type,
+          doc.documentNumber ?? undefined, doc.parentDocument?.number ?? undefined,
+          doc.parentDocument?.title ?? undefined, city, signingDate,
+        )
+  }
+
+  const requisitesHtml = (doc.requisitesManual && doc.requisitesHtml)
+    ? doc.requisitesHtml
+    : (canRebuild
+        ? buildRequisitesHtml(userProfile!, counterpartyData!, role1, role2)
+        : (doc.requisitesHtml ?? null))
 
   return { preambleHtml, requisitesHtml, counterpartyName: cp?.name ?? null, counterpartyInn: cp?.inn ?? null }
 }
