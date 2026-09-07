@@ -73,7 +73,7 @@ vi.mock('@/lib/structure-uploaded', () => ({
 }))
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }))
 
-import { getPresentationContent } from '@/lib/presentation-content'
+import { getPresentationContent, assemblePresentation } from '@/lib/presentation-content'
 
 // Тело должно упоминать ОБЕ стороны: перед подстановкой блоков система сверяет
 // стороны документа с карточками ЛК, чтобы не вклеить чужие реквизиты.
@@ -163,5 +163,57 @@ describe('подписант из шага «Оформление»', () => {
   it('без явного выбора берётся дефолтный', async () => {
     const out = await present()
     expect(out).toContain('Петров Пётр Петрович')
+  })
+})
+
+// Сгенерированный договор: тело БЕЗ вклеенных реквизитов, шапка и реквизиты —
+// отдельный слой, который оборачивает тело. Это и есть путь, где жил баг:
+// сборка «листа» читала Document.preambleHtml НАПРЯМУЮ из базы, мимо пересборки,
+// и на экране оставался сохранённый блок со старым номером.
+const ТЕЛО_БЕЗ_РЕКВИЗИТОВ = [
+  '<h2>1. ПРЕДМЕТ ДОГОВОРА</h2>',
+  '<p>1.1. Исполнитель обязуется оказать услуги, а Заказчик обязуется принять и оплатить их.</p>',
+  '<h2>2. ЗАКЛЮЧИТЕЛЬНЫЕ ПОЛОЖЕНИЯ</h2>',
+  '<p>2.1. Договор вступает в силу с момента подписания обеими сторонами.</p>',
+].join('\n')
+
+const assemble = () => assemblePresentation({
+  versionId: 'v1', documentId: 'doc1', content: ТЕЛО_БЕЗ_РЕКВИЗИТОВ, userId: 'u1', userRole: 'customer',
+})
+
+describe('сборка листа (предпросмотр и выгрузка)', () => {
+  it('шапка без ручной правки приходит С НОВЫМ номером', async () => {
+    docRow.preambleHtml = СТАРАЯ_ШАПКА
+    docRow.number = '99/12-99'
+
+    const { full } = await assemble()
+    expect(full).toContain('99/12-99')
+    expect(full).not.toContain('17/03')
+  })
+
+  it('шапка с ручной правкой доходит до листа как есть', async () => {
+    docRow.preambleHtml = РУЧНАЯ_ШАПКА
+    docRow.preambleManual = true
+    docRow.number = '99/12-99'
+
+    const { full } = await assemble()
+    expect(full).toContain('ДОГОВОР ОСОБОГО ВИДА № РУЧ-1')
+    expect(full).not.toContain('99/12-99')
+  })
+
+  it('ручные реквизиты доходят до листа и не подменяются данными карточек', async () => {
+    docRow.requisitesHtml = РУЧНЫЕ_РЕКВИЗИТЫ
+    docRow.requisitesManual = true
+
+    const { full } = await assemble()
+    expect(full).toContain('ОСОБЫЕ РЕКВИЗИТЫ, ВПИСАННЫЕ ЧЕЛОВЕКОМ')
+    expect(full).not.toContain('БИК: 044525974')
+  })
+
+  it('тело договора на месте', async () => {
+    docRow.preambleHtml = СТАРАЯ_ШАПКА
+    const { full } = await assemble()
+    expect(full).toContain('1. ПРЕДМЕТ ДОГОВОРА')
+    expect(full).toContain('2. ЗАКЛЮЧИТЕЛЬНЫЕ ПОЛОЖЕНИЯ')
   })
 })

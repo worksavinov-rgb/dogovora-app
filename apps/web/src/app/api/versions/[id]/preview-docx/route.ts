@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { getUserId } from '@/lib/api-auth'
 import { convertToDocx } from '@shared/formatting/html-docx-converter'
 import { hasInlineRequisites } from '@/lib/html-document'
+import { resolveDecorBlocks } from '@/lib/presentation-content'
 import { logger } from '@/lib/logger'
 import { getRequestId } from '@/lib/request-context'
 
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     select: {
       content: true,
       document: {
-        select: { id: true, title: true, preambleHtml: true, requisitesHtml: true },
+        select: { id: true, title: true },
       },
     },
   })
@@ -65,11 +66,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     // оборачивать не нужно.
     const bare = body.bare === true
     const doc = version.document
-    const full = (bare || hasInlineRequisites(content))
-      ? content
-      : [doc.preambleHtml, content, doc.requisitesHtml]
-          .filter((s): s is string => Boolean(s && s.trim()))
-          .join('\n')
+    let full = content
+    if (!bare && !hasInlineRequisites(content)) {
+      // Через общий резолвер, а не из базы напрямую: он учитывает приоритет
+      // ручной правки и пересобирает блоки, которых человек не касался.
+      const decor = await resolveDecorBlocks(doc.id)
+      full = [decor.preambleHtml, content, decor.requisitesHtml]
+        .filter((s): s is string => Boolean(s && s.trim()))
+        .join('\n')
+    }
 
     const docx = await convertToDocx(full, { title: doc.title })
     return new NextResponse(new Uint8Array(docx), {

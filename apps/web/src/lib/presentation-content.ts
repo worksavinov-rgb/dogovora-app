@@ -188,6 +188,26 @@ function partyMatches(html: string, name: string | null, inn: string | null): bo
  * Контент версии для предпросмотра и выгрузки: структурирован + с эталонными
  * шапкой и реквизитами из ЛК (для загруженных документов).
  */
+
+/**
+ * Блоки оформления документа с учётом приоритета ручной правки.
+ *
+ * Единственная точка, откуда их следует брать. Раньше сборка «листа» читала
+ * Document.preambleHtml/requisitesHtml НАПРЯМУЮ из базы, и пересборка,
+ * сделанная внутри getReferenceBlocks, до предпросмотра и выгрузки не доходила:
+ * на экране оставался сохранённый когда-то блок со старым номером договора.
+ */
+export async function resolveDecorBlocks(
+  documentId: string,
+  userRole?: string,
+): Promise<{ preambleHtml: string | null; requisitesHtml: string | null }> {
+  const ref = await getReferenceBlocks(documentId, userRole)
+  return {
+    preambleHtml: ref?.preambleHtml ?? null,
+    requisitesHtml: ref?.requisitesHtml ?? null,
+  }
+}
+
 /**
  * Полная сборка версии для показа/шаринга/экспорта с учётом слоя оформления.
  *
@@ -211,11 +231,10 @@ export async function assemblePresentation(opts: {
     return { full: presented, body: presented, legacyInline: true }
   }
 
-  const doc = await prisma.document.findUnique({
-    where: { id: opts.documentId },
-    select: { preambleHtml: true, requisitesHtml: true },
-  })
-  const full = [doc?.preambleHtml, presented, doc?.requisitesHtml]
+  // Блоки берём через общий резолвер, а не из базы напрямую: он учитывает
+  // приоритет ручной правки и пересобирает то, чего человек не касался.
+  const decor = await resolveDecorBlocks(opts.documentId, opts.userRole)
+  const full = [decor.preambleHtml, presented, decor.requisitesHtml]
     .filter((s): s is string => Boolean(s && s.trim()))
     .join('\n')
   return { full, body: presented, legacyInline: false }
