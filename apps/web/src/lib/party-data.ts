@@ -9,6 +9,7 @@
 
 import { prisma } from './db'
 import type { CounterpartyData, UserProfileData } from './ai/types'
+import { signatoryBasisText } from './signatory-basis'
 
 /**
  * Профиль пользователя для документа: явно выбранный на документе, иначе
@@ -71,12 +72,10 @@ export async function buildDocumentParties(opts: {
     legalAddress: profile.legalAddress,
     signatorName: profile.signatorName,
     signatorPosition: profile.signatorPosition,
-    // В signatorBasis может лежать и enum-код ('CHARTER'/'POA'), и свободный текст.
-    signatorBasis: profile.signatorBasis === 'CHARTER'
-      ? 'Устава'
-      : profile.signatorBasis === 'POA'
-        ? 'Доверенности'
-        : profile.signatorBasis,
+    // В signatorBasis может лежать и enum-код, и свободный текст. Переводим общим
+    // переводчиком: здесь знали только CHARTER и POA, и CERTIFICATE уезжал в
+    // договор как есть — «действующего на основании CERTIFICATE».
+    signatorBasis: signatoryBasisText(profile.signatorBasis),
     bankName: profile.bankDetails[0]?.bankName ?? null,
     checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
     bik: profile.bankDetails[0]?.bik ?? null,

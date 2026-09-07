@@ -20,6 +20,7 @@ import {
 } from './html-document'
 import { hasInlineRequisites } from './html-document'
 import { resolveCounterpartySignatory, resolveDocumentProfile } from './party-data'
+import { signatoryBasisText } from './signatory-basis'
 import { getStructuredContentCached, looksLikeUpload } from './structure-uploaded'
 import { logger } from './logger'
 
@@ -86,7 +87,9 @@ async function getReferenceBlocks(documentId: string, userRole?: string) {
     legalAddress: profile.legalAddress,
     signatorName: profile.signatorName,
     signatorPosition: profile.signatorPosition,
-    signatorBasis: profile.signatorBasis,
+    // Тот же переводчик, что и в party-data: иначе предпросмотр и DOCX
+    // расходились бы, а служебный код уезжал в текст договора.
+    signatorBasis: signatoryBasisText(profile.signatorBasis),
     bankName: profile.bankDetails[0]?.bankName ?? null,
     checkingAccount: profile.bankDetails[0]?.checkingAccount ?? null,
     bik: profile.bankDetails[0]?.bik ?? null,

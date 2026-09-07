@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Field } from '@/components/ui/input'
 import { NumberFormatBuilder } from '@/components/number-format-builder'
+import { signatoryBasisText } from '@/lib/signatory-basis'
 import { validateInn, validateOgrn, validateBik, validateCheckingAccount, validateKpp, validatePassportSeries, validatePassportNumber, validatePassportDeptCode } from '@/lib/validation'
 import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
@@ -125,7 +126,10 @@ function profileToForm(p: Profile): Omit<Profile, 'id'> {
     passportDeptCode: p.passportDeptCode ?? '', npdRegisteredDate: p.npdRegisteredDate ?? '',
     contractNumberFormat: p.contractNumberFormat ?? '',
     signatorName: p.signatorName ?? '', signatorPosition: p.signatorPosition ?? '',
-    signatorBasis: p.signatorBasis ?? '',
+    // В поле мог осесть служебный код из бывшего раздела «Подписанты»
+    // (CERTIFICATE, CHARTER…). Показываем человеку текст, а не код, — и при
+    // следующем сохранении запись сама починится.
+    signatorBasis: signatoryBasisText(p.signatorBasis) ?? '',
     signatureFilePath: p.signatureFilePath, stampFilePath: p.stampFilePath,
     bankDetails: p.bankDetails.length > 0 ? p.bankDetails : [{ ...EMPTY_BANK }],
   }
