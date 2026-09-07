@@ -56,7 +56,7 @@ export function ConfirmDialog({
           <p className="text-[15px] font-semibold text-[var(--ink)] mb-[6px]">{title}</p>
           <p className="text-[13px] text-[var(--ink-3)] leading-[1.5]">{message}</p>
         </div>
-        <div className="flex gap-[8px] justify-end">
+        <div className="flex gap-[8px]">
           <button
             onClick={onCancel}
             className="h-[34px] px-[14px] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--ink-3)] bg-[var(--surface-inset)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"

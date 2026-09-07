@@ -804,16 +804,10 @@ function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDr
           {/* ─── Правая колонка: форма + превью ─── */}
           <div>
             {draft ? (
+              <>
               <div className="grid grid-cols-[1fr_220px] gap-[16px] items-start">
                 <div>
                   <ProfileForm profile={draft} onChange={(u) => { setDraft(u); setSaveError(null) }} isNew={selectedId === 'new'} profileId={selectedId === 'new' ? null : selectedId} />
-                  <div className="flex items-center justify-between mt-[16px] pt-[16px] border-t border-[var(--line)]">
-                    <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
-                    <div className="flex items-center gap-[12px]">
-                      <Button variant="danger" onClick={handleCancel}>Отмена</Button>
-                      <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Превью реквизитов */}
@@ -849,6 +843,15 @@ function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDr
                   </Card>
                 </div>
               </div>
+
+              {/* Действия — под обеими колонками: полоса идёт на всю ширину,
+                  кнопки выровнены по левому краю, как и остальные блоки формы */}
+              <div className="flex items-center gap-[12px] mt-[16px] pt-[16px] border-t border-[var(--line)]">
+                <Button variant="danger" onClick={handleCancel}>Отмена</Button>
+                <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
+                {saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}
+              </div>
+              </>
             ) : (
               <Card>
                 <div className="py-[60px] text-center">

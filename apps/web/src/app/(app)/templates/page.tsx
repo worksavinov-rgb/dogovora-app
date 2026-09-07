@@ -137,7 +137,7 @@ function PreviewDialog({ template, onUse, onClose }: {
         </div>
 
         {/* Подвал */}
-        <div className="flex items-center justify-end gap-[8px] px-[24px] py-[14px] border-t border-[var(--line)] shrink-0">
+        <div className="flex items-center gap-[8px] px-[24px] py-[14px] border-t border-[var(--line)] shrink-0">
           <button onClick={onClose}
             className="h-[36px] px-[16px] rounded-[var(--radius-md)] text-[13px] bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
             Закрыть
