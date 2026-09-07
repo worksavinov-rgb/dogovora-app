@@ -470,7 +470,7 @@ export default function NewCounterpartyPage() {
           <div className="flex items-center justify-between pt-[4px]">
             <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
             <div className="flex gap-[12px]">
-              <Button variant="ghost" onClick={() => router.push('/counterparties')}>Отмена</Button>
+              <Button variant="danger" onClick={() => router.push('/counterparties')}>Отмена</Button>
               <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить контрагента</Button>
             </div>
           </div>

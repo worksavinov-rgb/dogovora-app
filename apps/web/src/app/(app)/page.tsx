@@ -187,7 +187,7 @@ export default function HomePage() {
               onClick={() => router.push('/documents')}
               className="text-[12px] text-[var(--accent)] hover:opacity-70 transition-opacity cursor-pointer"
             >
-              Все документы →
+              Все документы
             </button>
           </div>
 

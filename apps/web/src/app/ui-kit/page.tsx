@@ -64,7 +64,7 @@ export default function UIKitPage() {
           <div className="flex flex-wrap items-center gap-[12px]">
             <Button variant="primary">Утвердить версию</Button>
             <Button variant="secondary">Создать документ</Button>
-            <Button variant="ghost">Отмена</Button>
+            <Button variant="danger">Отмена</Button>
             <Button variant="accent" icon={<span>✦</span>}>Применить Догодок</Button>
             <Button variant="danger">Удалить</Button>
           </div>

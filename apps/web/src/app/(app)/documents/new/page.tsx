@@ -733,7 +733,7 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                     onClick={() => setParentMode('upload')}
                     className="text-[12px] text-[var(--accent-ink)] hover:underline cursor-pointer"
                   >
-                    Загрузить договор с компьютера →
+                    Загрузить договор с компьютера
                   </button>
                 </div>
               ) : (
@@ -943,7 +943,7 @@ function Step1({ data, onChange, profiles, counterparties, templates, loadingTem
                 </svg>
                 <p className="text-[13px] text-[var(--ink-3)]">Нет загруженных шаблонов</p>
                 <a href="/templates" className="text-[12px] text-[var(--accent-ink)] hover:underline">
-                  Перейти в «Мои шаблоны» → загрузить
+                  Перейти в «Мои шаблоны» и загрузить
                 </a>
               </div>
             ) : (
@@ -1522,11 +1522,12 @@ export default function NewDocumentPage() {
             {error}
           </div>
         )}
-        {/* Все действия слева одной группой: «Назад» (контур) → «Сохранить
-            черновик» (белая) → главное действие (чёрная) */}
+        {/* Все действия слева одной группой. Цветовая иерархия вместо стрелок:
+            отмена/назад — красная, «Сохранить черновик» — белая, главное
+            действие — чёрная. */}
         <div className="flex items-center gap-[10px] flex-wrap">
-          <Button variant="outline" onClick={() => step > 1 ? setStep(step - 1) : router.push('/documents')}>
-            {step > 1 ? '← Назад' : 'Отменить'}
+          <Button variant="danger" onClick={() => step > 1 ? setStep(step - 1) : router.push('/documents')}>
+            {step > 1 ? 'Назад' : 'Отменить'}
           </Button>
           <div className="flex items-center gap-[10px]">
             <Button variant="secondary" onClick={handleSaveDraft} loading={saving && step === 2}>
@@ -1548,7 +1549,7 @@ export default function NewDocumentPage() {
                   setStep(2)
                 }
               }}>
-                {step1.base === 'upload' && step1.uploadedText ? '✦ Создать черновик' : 'Далее →'}
+                {step1.base === 'upload' && step1.uploadedText ? '✦ Создать черновик' : 'Далее'}
               </Button>
             ) : (
               <Button variant="primary" onClick={handleCreate} loading={saving}>

@@ -209,14 +209,14 @@ export default function PaymentsPage() {
                   disabled={page === 0}
                   className="h-[28px] px-[10px] text-[12px] rounded-[var(--radius-md)] bg-[var(--surface-inset)] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer disabled:opacity-40"
                 >
-                  ← Назад
+                  Назад
                 </button>
                 <button
                   onClick={() => setPage((p) => p + 1)}
                   disabled={(page + 1) * PER_PAGE >= total}
                   className="h-[28px] px-[10px] text-[12px] rounded-[var(--radius-md)] bg-[var(--surface-inset)] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer disabled:opacity-40"
                 >
-                  Вперёд →
+                  Вперёд
                 </button>
               </div>
             </div>

@@ -632,7 +632,7 @@ function RequisitesTab({ cp, onRefresh }: { cp: Counterparty; onRefresh: () => v
         {/* Кнопки редактирования */}
         {editing && (
           <div className="flex items-center justify-end gap-[12px] pt-[4px]">
-            <Button variant="ghost" onClick={() => setEditing(false)}>Отмена</Button>
+            <Button variant="danger" onClick={() => setEditing(false)}>Отмена</Button>
             <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
           </div>
         )}

@@ -123,7 +123,7 @@ export function TokenBalancePopover({ balance, prices }: TokenBalancePopoverProp
             onClick={() => { setOpen(false); router.push('/balance') }}
             className="mt-[12px] w-full h-[30px] rounded-[var(--radius-md)] text-[12px] font-medium bg-[var(--surface-inset)] text-[var(--ink-2)] hover:bg-[var(--surface-2)] transition-colors cursor-pointer"
           >
-            Пополнить баланс →
+            Пополнить баланс
           </button>
         </div>
       )}

@@ -878,7 +878,7 @@ function RequisitesContent({ loading, saving, profiles, selectedId, draft, setDr
                   <div className="flex items-center justify-between mt-[16px] pt-[16px] border-t border-[var(--line)]">
                     <div>{saveError && <p className="text-[13px] text-[var(--danger)]">{saveError}</p>}</div>
                     <div className="flex items-center gap-[12px]">
-                      <Button variant="ghost" onClick={handleCancel}>Отмена</Button>
+                      <Button variant="danger" onClick={handleCancel}>Отмена</Button>
                       <Button variant="primary" onClick={handleSave} loading={saving}>Сохранить изменения</Button>
                     </div>
                   </div>

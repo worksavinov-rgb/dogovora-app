@@ -186,7 +186,7 @@ export function SignatoryModal({ initial, counterpartyName, onSave, onClose }: P
         <div className="px-[24px] py-[16px] border-t border-[var(--line)] flex items-center justify-between">
           {error && <p className="text-[12px] text-[var(--danger)]">{error}</p>}
           <div className="flex gap-[8px] ml-auto">
-            <Button variant="ghost" onClick={onClose}>Отмена</Button>
+            <Button variant="danger" onClick={onClose}>Отмена</Button>
             <Button variant="primary" onClick={handleSave} loading={saving}>✓ Сохранить подписанта</Button>
           </div>
         </div>

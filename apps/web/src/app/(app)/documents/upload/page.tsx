@@ -1000,7 +1000,7 @@ export default function UploadPage() {
                           className="shrink-0 h-[30px] px-[12px] rounded-[var(--radius-md)] text-[11px] font-semibold transition-opacity cursor-pointer disabled:opacity-50"
                           style={{ background: 'oklch(0.5 0.1 60)', color: '#fff' }}
                         >
-                          {savingProfile ? 'Сохраняю…' : 'Сохранить →'}
+                          {savingProfile ? 'Сохраняю…' : 'Сохранить'}
                         </button>
                       </div>
                     )}
@@ -1013,7 +1013,7 @@ export default function UploadPage() {
                           Ваши реквизиты сохранены в <strong>Мои реквизиты</strong>
                         </p>
                         <button onClick={() => router.push('/requisites')} className="ml-auto text-[11px] cursor-pointer underline" style={{ color: 'oklch(0.4 0.12 145)' }}>
-                          Проверить →
+                          Проверить
                         </button>
                       </div>
                     )}
@@ -1057,10 +1057,10 @@ export default function UploadPage() {
           {/* Кнопки */}
           <div className="flex gap-[10px] pt-[4px]">
             <Button variant="ghost" size="md" onClick={() => { setStep('upload'); setResult(null); setParties(null); setMyPartyIndex(1); setResolvedCounterpartyId(null); setCounterpartySaved(false); setMyProfileId(null); setDocNumber('') }}>
-              ← Загрузить другой
+              Загрузить другой
             </Button>
             <Button variant="primary" size="md" onClick={openSaveModal} className="flex-1">
-              Редактировать документ →
+              Редактировать документ
             </Button>
           </div>
         </div>
@@ -1348,9 +1348,9 @@ export default function UploadPage() {
             {error && <p className="text-[12px] mt-[12px]" style={{ color: 'var(--danger)' }}>{error}</p>}
 
             <div className="flex gap-[10px] mt-[24px]">
-              <Button variant="ghost" size="md" onClick={() => setShowSaveModal(false)} disabled={saving}>Отмена</Button>
+              <Button variant="danger" size="md" onClick={() => setShowSaveModal(false)} disabled={saving}>Отмена</Button>
               <Button variant="primary" size="md" onClick={createAndOpen} disabled={!resolvedCounterpartyId || !docTitle.trim() || saving} className="flex-1">
-                {saving ? 'Создаём…' : 'Открыть в редакторе →'}
+                {saving ? 'Создаём…' : 'Открыть в редакторе'}
               </Button>
             </div>
           </div>

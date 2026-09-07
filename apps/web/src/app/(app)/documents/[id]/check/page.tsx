@@ -199,7 +199,7 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
             onClick={() => router.push(`/documents/${id}`)}
             className="text-[12px] text-[var(--ink-4)] hover:text-[var(--ink)] transition-colors cursor-pointer"
           >
-            ← Вернуться к документу
+            Вернуться к документу
           </button>
         </div>
       </div>
@@ -218,7 +218,7 @@ export default function CheckPage({ params }: { params: Promise<{ id: string }> 
           onClick={() => router.push(`/documents/${id}`)}
           className="mt-[8px] h-[38px] px-[20px] rounded-[var(--radius-md)] text-[13px] font-medium bg-[var(--ink)] text-[var(--bg)] hover:opacity-90 transition-opacity cursor-pointer"
         >
-          ← Вернуться к документу
+          Вернуться к документу
         </button>
       </div>
     )

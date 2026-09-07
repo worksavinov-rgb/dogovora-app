@@ -196,7 +196,7 @@ export function NumberFormatBuilder({ value, onChange }: Props) {
         onClick={() => setManual((m) => !m)}
         className="self-start text-[12px] text-[var(--ink-4)] hover:text-[var(--ink-2)] underline underline-offset-2 transition-colors cursor-pointer"
       >
-        {manual ? '← Вернуться к выбору' : 'Задать свой шаблон вручную'}
+        {manual ? 'Вернуться к выбору' : 'Задать свой шаблон вручную'}
       </button>
     </div>
   )
