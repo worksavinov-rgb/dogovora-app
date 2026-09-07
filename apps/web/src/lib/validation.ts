@@ -91,6 +91,26 @@ export function validateCheckingAccount(account: string, bik: string): string | 
   return null
 }
 
+// ─── Корреспондентский счёт ───────────────────────────────────────────────────
+
+// У корр. счёта ДРУГАЯ контрольная сумма, чем у расчётного: ключ считается не по
+// последним трём цифрам БИК, а по префиксу «0» + цифры БИК[4..6]. Проверено на живой
+// карточке: к/с 30101810200000000700 при БИК 044525700 по расчётной формуле не
+// сходится, по этой — сходится. Без отдельного валидатора корр. счёт отвергался.
+export function validateCorrespondentAccount(account: string, bik: string): string | null {
+  if (!account) return null
+  if (!/^\d{20}$/.test(account)) return 'Корреспондентский счёт должен содержать 20 цифр'
+
+  if (bik.length === 9) {
+    const key = '0' + bik.slice(4, 6) + account
+    const coefficients = [7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1, 3, 7, 1]
+    const sum = coefficients.reduce((s, c, i) => s + c * parseInt(key[i]!), 0)
+    if (sum % 10 !== 0) return 'Неверная контрольная сумма корреспондентского счёта'
+  }
+
+  return null
+}
+
 // ─── КПП ─────────────────────────────────────────────────────────────────────
 
 export function validateKpp(kpp: string): string | null {

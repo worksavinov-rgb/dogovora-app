@@ -7,6 +7,8 @@ import { Avatar } from '@/components/ui/avatar'
 import { Card } from '@/components/ui/card'
 import { CounterpartyRowSkeleton } from '@/components/ui/skeleton'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { AddCounterpartyModal } from '@/components/counterparties/add-counterparty-modal'
+import { useRequisitesDraftStore } from '@/store/requisites-draft'
 
 interface Counterparty {
   id: string
@@ -177,6 +179,10 @@ export default function CounterpartiesPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Окно выбора способа добавления: вручную или из файла с реквизитами.
+  const [addOpen, setAddOpen] = useState(false)
+  const setRequisitesDraft = useRequisitesDraftStore((s) => s.setDraft)
+
   const totalDocs = items.reduce((s, c) => s + c._count.documents, 0)
   const totalVersions = items.reduce((s, c) => s + c.versionCount, 0)
 
@@ -191,7 +197,7 @@ export default function CounterpartiesPage() {
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 400, marginBottom: 4 }}>Контрагенты</h2>
             <p className="text-[14px] text-[var(--ink-3)]">Все, с кем вы заключали или обсуждали договоры. По каждому — отдельная история документов и версий.</p>
           </div>
-          <Button variant="primary" onClick={() => router.push('/counterparties/new')}>+ Новый контрагент</Button>
+          <Button variant="primary" onClick={() => setAddOpen(true)}>+ Новый контрагент</Button>
         </div>
       </div>
 
@@ -244,7 +250,7 @@ export default function CounterpartiesPage() {
             <p className="text-[13px] text-[var(--ink-4)]">
               {q ? 'Попробуйте изменить запрос' : tab === 'archive' ? 'Контрагенты, которых вы отправите в архив, появятся здесь' : 'Добавьте первого контрагента чтобы начать'}
 </p>
-            {!q && tab !== 'archive' && <Button variant="primary" onClick={() => router.push('/counterparties/new')}>+ Добавить контрагента</Button>}
+            {!q && tab !== 'archive' && <Button variant="primary" onClick={() => setAddOpen(true)}>+ Добавить контрагента</Button>}
           </div>
         ) : (
           <div>
@@ -271,6 +277,18 @@ export default function CounterpartiesPage() {
           </div>
         )}
       </Card>
+
+      {addOpen && (
+        <AddCounterpartyModal
+          onClose={() => setAddOpen(false)}
+          onManual={() => { setAddOpen(false); router.push('/counterparties/new') }}
+          onParsed={(fields, fileName) => {
+            setRequisitesDraft({ fields, fileName })
+            setAddOpen(false)
+            router.push('/counterparties/new')
+          }}
+        />
+      )}
     </div>
   )
 }

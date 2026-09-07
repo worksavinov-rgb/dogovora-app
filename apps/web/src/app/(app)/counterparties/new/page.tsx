@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,8 @@ import { SignatoryModal, SignatoryData } from '@/components/counterparties/signa
 import { validateInn, validateBik, validateCheckingAccount, validatePassportSeries, validatePassportNumber, validatePassportDeptCode } from '@/lib/validation'
 import { Avatar } from '@/components/ui/avatar'
 import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
+import { useRequisitesDraftStore } from '@/store/requisites-draft'
+import type { ParsedRequisites } from '@/lib/requisites-parser'
 
 type CpType = 'INDIVIDUAL' | 'SELF_EMPLOYED' | 'SOLE_PROPRIETOR' | 'COMPANY' | 'ANO' | 'PAO' | 'ZAO'
 
@@ -58,14 +60,105 @@ function guessForm(inn: string): string {
   return ''
 }
 
+
+// Человеческие названия полей — для полосы «Распознано: …». Порядок как в форме.
+const FIELD_LABELS: [keyof ParsedRequisites, string][] = [
+  ['name', 'наименование'],
+  ['inn', 'ИНН'],
+  ['kpp', 'КПП'],
+  ['ogrn', 'ОГРН'],
+  ['legalAddress', 'юридический адрес'],
+  ['actualAddress', 'фактический адрес'],
+  ['passportSeries', 'серия паспорта'],
+  ['passportNumber', 'номер паспорта'],
+  ['passportIssuedBy', 'кем выдан паспорт'],
+  ['passportDeptCode', 'код подразделения'],
+  ['bankName', 'банк'],
+  ['checkingAccount', 'расчётный счёт'],
+  ['bik', 'БИК'],
+  ['correspondentAccount', 'корр. счёт'],
+  ['email', 'почта'],
+  ['phone', 'телефон'],
+]
+
+/** «1 поле» / «2 поля» / «11 полей» */
+function pluralFields(n: number): string {
+  const abs = n % 100
+  const d = abs % 10
+  if (abs >= 11 && abs <= 14) return 'полей'
+  if (d === 1) return 'поле'
+  if (d >= 2 && d <= 4) return 'поля'
+  return 'полей'
+}
+
+/** Основание полномочий из текста файла — в тип, который понимает форма подписанта. */
+function basisTypeFrom(basis: string | null): SignatoryData['basisType'] {
+  if (!basis) return 'CHARTER'
+  if (/доверен/i.test(basis)) return 'POA'
+  if (/свидетельств/i.test(basis)) return 'CERTIFICATE'
+  if (/положен/i.test(basis)) return 'REGULATION'
+  if (/устав/i.test(basis)) return 'CHARTER'
+  return 'OTHER'
+}
+
+/** Подписант из файла — в карточках реквизитов встречается редко, но бывает. */
+function signatoriesFromParsed(p: ParsedRequisites | null): SignatoryData[] {
+  if (!p?.signatoryName) return []
+  return [{
+    fullName: p.signatoryName,
+    signatureName: p.signatoryName,
+    position: p.signatoryPosition ?? '',
+    basisType: basisTypeFrom(p.signatoryBasis),
+    poaNumber: '', poaDate: '', poaExpiry: '', scopes: [],
+  }]
+}
+
+/** Распознанные поля → значения формы. Незаполненное остаётся пустым, не «null». */
+function formFromParsed(p: ParsedRequisites): FormData {
+  const v = (x: string | null) => x ?? ''
+  return {
+    ...EMPTY,
+    type: p.type ?? EMPTY.type,
+    name: v(p.name), inn: v(p.inn), kpp: v(p.kpp), ogrn: v(p.ogrn),
+    legalAddress: v(p.legalAddress), actualAddress: v(p.actualAddress),
+    passportSeries: v(p.passportSeries), passportNumber: v(p.passportNumber),
+    passportIssuedBy: v(p.passportIssuedBy), passportIssueDate: v(p.passportIssueDate),
+    passportDeptCode: v(p.passportDeptCode),
+    email: v(p.email), phone: v(p.phone),
+    bankName: v(p.bankName), checkingAccount: v(p.checkingAccount),
+    bik: v(p.bik), correspondentAccount: v(p.correspondentAccount),
+  }
+}
+
 export default function NewCounterpartyPage() {
   const router = useRouter()
-  const [form, setForm] = useState<FormData>(EMPTY)
-  const [signatories, setSignatories] = useState<SignatoryData[]>([])
+  // Реквизиты, распознанные из файла на предыдущем шаге, — читаем при первом
+  // построении формы. Черновик одноразовый: очищаем его эффектом ниже, чтобы он
+  // не всплыл при следующем заходе на эту же страницу.
+  const requisitesDraft = useRequisitesDraftStore((s) => s.draft)
+  const clearRequisitesDraft = useRequisitesDraftStore((s) => s.clear)
+
+  const [form, setForm] = useState<FormData>(
+    () => (requisitesDraft ? formFromParsed(requisitesDraft.fields) : EMPTY))
+  const [signatories, setSignatories] = useState<SignatoryData[]>(
+    () => signatoriesFromParsed(requisitesDraft?.fields ?? null))
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSignatory, setEditingSignatory] = useState<SignatoryData | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Полоса «Распознано …» и пометка подписанта считаются один раз, вместе с формой.
+  const [parsedFrom] = useState(() => requisitesDraft
+    ? {
+        fileName: requisitesDraft.fileName,
+        labels: FIELD_LABELS
+          .filter(([key]) => requisitesDraft.fields[key])
+          .map(([, label]) => label),
+      }
+    : null)
+  const [signatoryFromFile] = useState(() => !!requisitesDraft?.fields.signatoryName)
+
+  useEffect(() => { clearRequisitesDraft() }, [clearRequisitesDraft])
 
   const set = (key: keyof FormData, val: string) => setForm((p) => ({ ...p, [key]: val }))
   const isPerson = form.type === 'INDIVIDUAL' || form.type === 'SELF_EMPLOYED'
@@ -141,6 +234,43 @@ export default function NewCounterpartyPage() {
         <h2 style={{ fontSize: 28, fontFamily: 'var(--font-display)', fontWeight: 400, marginBottom: 6 }}>Добавить контрагента</h2>
         <p className="text-[14px] text-[var(--ink-3)]">Введите ИНН — заполним основные поля автоматически по данным ФНС. Дальше — банк и подписанты.</p>
       </div>
+
+      {/* Что удалось вытащить из файла: перечисляем поимённо, чтобы было видно,
+          что именно проверять и чего не хватает. */}
+      {parsedFrom && (
+        <div className={[
+          'mt-[14px] flex items-start gap-[10px] rounded-[var(--radius-md)] px-[14px] py-[12px] border',
+          parsedFrom.labels.length
+            ? 'border-[var(--line)] bg-[var(--accent-soft)]'
+            : 'border-[var(--line)] bg-[var(--warn-soft)]',
+        ].join(' ')}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+            stroke={parsedFrom.labels.length ? 'var(--accent)' : 'var(--warn)'} className="mt-[2px] shrink-0">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" />
+          </svg>
+          <div className="min-w-0">
+            {parsedFrom.labels.length ? (
+              <>
+                <p className="text-[13px] font-medium text-[var(--ink)]">
+                  Распознано {parsedFrom.labels.length} {pluralFields(parsedFrom.labels.length)} из файла «{parsedFrom.fileName}»
+                </p>
+                <p className="text-[12px] text-[var(--ink-3)] mt-[3px]">
+                  {parsedFrom.labels.join(', ')}. Проверьте значения и дополните недостающее — все поля можно править.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] font-medium text-[var(--ink)]">
+                  В файле «{parsedFrom.fileName}» реквизиты не нашлись
+                </p>
+                <p className="text-[12px] text-[var(--ink-3)] mt-[3px]">
+                  Возможно, это не карточка реквизитов или данные в нём набраны не текстом. Заполните поля вручную.
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-[1fr_280px] gap-[20px] mt-[24px]">
         {/* Левая колонка — форма */}
@@ -307,6 +437,11 @@ export default function NewCounterpartyPage() {
             {signatories.length === 0 ? (
               <div className="py-[12px] text-center">
                 <p className="text-[13px] text-[var(--ink-4)]">Подписантов пока нет — добавьте хотя бы одного</p>
+                {parsedFrom && (
+                  <p className="text-[12px] text-[var(--ink-4)] mt-[4px]">
+                    В карточке реквизитов подписанта обычно и не бывает. Но он нужен для шапки договора — добавьте вручную.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="flex flex-col gap-[8px]">
@@ -315,7 +450,12 @@ export default function NewCounterpartyPage() {
                     <Avatar name={sig.fullName} size={32} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[13px] font-medium text-[var(--ink)]">{sig.fullName}</p>
-                      <p className="text-[12px] text-[var(--ink-3)]">{sig.position}</p>
+                      <p className="text-[12px] text-[var(--ink-3)]">
+                        {sig.position}
+                        {signatoryFromFile && i === 0 && (
+                          <span className="text-[var(--ink-4)]"> · из файла, проверьте</span>
+                        )}
+                      </p>
                     </div>
                     <button onClick={() => openEdit(sig)} className="text-[12px] text-[var(--ink-3)] hover:text-[var(--ink)] transition-colors cursor-pointer">Свернуть</button>
                     <button onClick={() => setSignatories((prev) => prev.filter((_, j) => j !== i))} className="text-[12px] text-[var(--danger)] hover:text-[var(--danger)] transition-colors cursor-pointer">×</button>
