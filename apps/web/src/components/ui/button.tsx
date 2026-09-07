@@ -1,6 +1,6 @@
 import * as React from 'react'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'accent' | 'danger'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'accent' | 'danger'
 type ButtonSize = 'sm' | 'md' | 'lg'
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -25,6 +25,13 @@ const variantStyles: Record<ButtonVariant, string> = {
   ghost: [
     'bg-transparent text-[var(--ink-2)] border-transparent',
     'hover:bg-[var(--surface-inset)] hover:text-[var(--ink)]',
+    'disabled:opacity-40',
+  ].join(' '),
+  // Третичная кнопка: контур есть, но фон прозрачный — так «Назад» отличается
+  // и от белой secondary («Сохранить черновик»), и от чёрной primary.
+  outline: [
+    'bg-transparent text-[var(--ink-2)] border-[var(--line-2)]',
+    'hover:border-[var(--line-strong)] hover:bg-[var(--surface-inset)] hover:text-[var(--ink)]',
     'disabled:opacity-40',
   ].join(' '),
   accent: [

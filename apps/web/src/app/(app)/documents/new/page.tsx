@@ -1522,8 +1522,10 @@ export default function NewDocumentPage() {
             {error}
           </div>
         )}
-        <div className="flex items-center justify-between">
-          <Button variant="ghost" onClick={() => step > 1 ? setStep(step - 1) : router.push('/documents')}>
+        {/* Все действия слева одной группой: «Назад» (контур) → «Сохранить
+            черновик» (белая) → главное действие (чёрная) */}
+        <div className="flex items-center gap-[10px] flex-wrap">
+          <Button variant="outline" onClick={() => step > 1 ? setStep(step - 1) : router.push('/documents')}>
             {step > 1 ? '← Назад' : 'Отменить'}
           </Button>
           <div className="flex items-center gap-[10px]">
