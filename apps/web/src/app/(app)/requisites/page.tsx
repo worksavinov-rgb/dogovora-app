@@ -10,7 +10,6 @@ import { useAuthStore } from '@/store/auth'
 import { useToast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { RequisitesPreview, type RequisitesData } from '@/components/requisites-preview'
-import { SignatoryModal, SignatoryData } from '@/components/counterparties/signatory-modal'
 
 // ─── Типы ─────────────────────────────────────────────────────────────────────
 
@@ -28,17 +27,6 @@ interface BankDetail {
   checkingAccount: string
   bik: string
   correspondentAccount: string
-}
-
-interface ProfileSignatory {
-  id: string
-  fullName: string
-  position: string
-  basisType: 'CHARTER' | 'POA' | 'CERTIFICATE' | 'REGULATION' | 'OTHER'
-  poaNumber: string | null
-  poaDate: string | null
-  poaExpiry: string | null
-  isDefault: boolean
 }
 
 interface Profile {
@@ -189,22 +177,6 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
   const setBank = (key: keyof BankDetail, val: string) =>
     onChange({ ...profile, bankDetails: [{ ...bank, [key]: val }] })
 
-  // ─── Подписанты профиля (несколько на одну сторону — директор, по доверенности и т.д.) ──
-  const [signatories, setSignatories] = useState<ProfileSignatory[]>([])
-  const [signatoryModalOpen, setSignatoryModalOpen] = useState(false)
-  const [editingSignatory, setEditingSignatory] = useState<ProfileSignatory | null>(null)
-  const [deleteSignatoryId, setDeleteSignatoryId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!profileId) { setSignatories([]); return }
-    fetch(`/api/profiles`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((all: Array<{ id: string; signatories?: ProfileSignatory[] }>) => {
-        setSignatories(all.find((p) => p.id === profileId)?.signatories ?? [])
-      })
-      .catch(() => {})
-  }, [profileId])
-
   // ─── Следующий свободный номер договора для этого юрлица ──────────────────
   const [nextNumber, setNextNumber] = useState<string | null>(null)
 
@@ -220,37 +192,6 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
       .catch(() => {})
     return () => { cancelled = true }
   }, [profileId])
-
-  const handleSaveSignatory = async (data: SignatoryData) => {
-    if (!profileId) return
-    const payload = {
-      fullName: data.fullName,
-      position: data.position,
-      basisType: data.basisType,
-      poaNumber: data.poaNumber || null,
-      poaDate: data.poaDate || null,
-      poaExpiry: data.poaExpiry || null,
-    }
-    const res = editingSignatory
-      ? await fetch(`/api/profiles/${profileId}/signatories/${editingSignatory.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-        })
-      : await fetch(`/api/profiles/${profileId}/signatories`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-        })
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error ?? 'Ошибка сохранения') }
-    const saved: ProfileSignatory = await res.json()
-    setSignatories((prev) => editingSignatory
-      ? prev.map((s) => s.id === saved.id ? saved : s)
-      : [...prev, saved])
-  }
-
-  const confirmDeleteSignatory = async () => {
-    if (!deleteSignatoryId || !profileId) return
-    await fetch(`/api/profiles/${profileId}/signatories/${deleteSignatoryId}`, { method: 'DELETE' })
-    setSignatories((prev) => prev.filter((s) => s.id !== deleteSignatoryId))
-    setDeleteSignatoryId(null)
-  }
 
   // G.2: при смене типа сбрасываем несовместимые поля (только при создании)
   const handleTypeChange = (newType: ProfileType) =>
@@ -274,7 +215,7 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
       <div className="flex gap-[2px] border-b border-[var(--line)] -mt-[4px]">
         {([
           { key: 'requisites', label: 'Реквизиты' },
-          { key: 'signatories', label: 'Подписанты' },
+          { key: 'signatories', label: 'Подписант' },
           { key: 'numbering', label: 'Нумерация договоров' },
         ] as const).map((t) => (
           <button
@@ -296,6 +237,10 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
       <Card>
         <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Нумерация договоров</p>
         <NumberFormatBuilder
+          // key по юрлицу: у конструктора есть собственное состояние (выбранный
+          // вид, буквы перед номером). Без пересоздания при переключении юрлиц
+          // он показывал настройки ПРЕДЫДУЩЕГО — на экране одно, в базе другое.
+          key={profileId ?? 'new'}
           value={profile.contractNumberFormat}
           onChange={(format) => set('contractNumberFormat', format)}
         />
@@ -482,8 +427,11 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
         </div>
       </Card>
 
+      </>)}
+
+      {section === 'signatories' && (<>
       <Card>
-        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Подпись и печать</p>
+        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Подписант</p>
         <div className="flex flex-col gap-[12px]">
           <div className="grid grid-cols-2 gap-[12px]">
             <Field label="Подписант (ФИО)">
@@ -507,8 +455,9 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
               } />
           </Field>
           <p className="text-[11px] text-[var(--ink-4)]">
-            Это поле — резервный подписант на случай, если ниже не заведено ни одного. Если нужно выбирать
-            между несколькими подписантами (директор, по доверенности и т.д.) при создании договора — заведите их в разделе ниже.
+            Так вы будете представлены в шапке договора: «в лице генерального директора Иванова И. И.,
+            действующего на основании Устава». У своего юрлица подписант один — если договор подписывает
+            кто-то другой, укажите здесь его.
           </p>
           <div className="flex gap-[12px] mt-[4px]">
             <FileUploadZone label="Загрузить факсимиле" hint="PNG, SVG — без фона" value={profile.signatureFilePath} onChange={() => {}} />
@@ -519,65 +468,6 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
 
       </>)}
 
-      {/* У несохранённого юрлица подписантов быть не может — их CRUD работает по id. */}
-      {section === 'signatories' && (isNew || !profileId) && (
-        <Card>
-          <p className="text-[13px] text-[var(--ink-3)]">
-            Сначала сохраните юрлицо — после этого можно будет добавить подписантов.
-          </p>
-        </Card>
-      )}
-
-      {section === 'signatories' && !isNew && profileId && (
-        <Card>
-          <div className="flex items-center justify-between mb-[12px]">
-            <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em]">Подписанты</p>
-            <Button variant="secondary" size="sm" onClick={() => { setEditingSignatory(null); setSignatoryModalOpen(true) }}>+ Добавить</Button>
-          </div>
-          {signatories.length === 0 ? (
-            <p className="text-[12px] text-[var(--ink-4)]">Подписанты не заведены — будет использовано поле «Подписант» выше.</p>
-          ) : (
-            <div className="flex flex-col gap-[6px]">
-              {signatories.map((sig) => (
-                <div key={sig.id} className="flex items-center gap-[10px] px-[12px] py-[9px] rounded-[var(--radius-md)]" style={{ background: 'var(--surface-inset)' }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-[var(--ink)] truncate">
-                      {sig.fullName}{sig.isDefault && <span className="ml-[6px] text-[11px] text-[var(--ink-4)]">по умолчанию</span>}
-                    </p>
-                    <p className="text-[12px] text-[var(--ink-4)] truncate">{sig.position}</p>
-                  </div>
-                  <button onClick={() => { setEditingSignatory(sig); setSignatoryModalOpen(true) }} className="text-[12px] text-[var(--ink-3)] hover:text-[var(--ink)] cursor-pointer transition-colors">Изм.</button>
-                  <button onClick={() => setDeleteSignatoryId(sig.id)} className="text-[12px] text-[var(--danger)] cursor-pointer hover:opacity-70 transition-opacity">×</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {signatoryModalOpen && (
-        <SignatoryModal
-          initial={editingSignatory ? {
-            id: editingSignatory.id, fullName: editingSignatory.fullName,
-            signatureName: '', position: editingSignatory.position,
-            basisType: editingSignatory.basisType,
-            poaNumber: editingSignatory.poaNumber ?? '', poaDate: editingSignatory.poaDate ?? '',
-            poaExpiry: editingSignatory.poaExpiry ?? '', scopes: [],
-          } : null}
-          counterpartyName={profile.name || undefined}
-          onSave={handleSaveSignatory}
-          onClose={() => { setSignatoryModalOpen(false); setEditingSignatory(null) }}
-        />
-      )}
-
-      <ConfirmDialog
-        open={!!deleteSignatoryId}
-        title="Удалить подписанта?"
-        message="Подписант будет удалён. Это действие нельзя отменить."
-        confirmLabel="Удалить"
-        onConfirm={confirmDeleteSignatory}
-        onCancel={() => setDeleteSignatoryId(null)}
-      />
     </div>
   )
 }
