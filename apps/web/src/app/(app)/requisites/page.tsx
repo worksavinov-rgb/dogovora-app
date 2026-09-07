@@ -259,12 +259,56 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
   const innError = profile.inn ? validateInn(profile.inn) : null
   const ogrnError = profile.ogrn ? validateOgrn(profile.ogrn, profile.type === 'COMPANY' ? 'company' : 'ip') : null
   const bikError = bank.bik ? validateBik(bank.bik) : null
+  // Подвкладки внутри юрлица. Нумерация вынесена из «Реквизитов» отдельным
+  // разделом: это правило делопроизводства, а не реквизит организации, и в текст
+  // договора оно не попадает. Сохранение общее — раздел меняет только то, какие
+  // поля показаны.
+  const [section, setSection] = useState<'requisites' | 'signatories' | 'numbering'>('requisites')
+
   const accountError = bank.checkingAccount ? validateCheckingAccount(bank.checkingAccount, bank.bik) : null
   const kppError = profile.kpp ? validateKpp(profile.kpp) : null
 
 
   return (
     <div className="flex flex-col gap-[12px]">
+      <div className="flex gap-[2px] border-b border-[var(--line)] -mt-[4px]">
+        {([
+          { key: 'requisites', label: 'Реквизиты' },
+          { key: 'signatories', label: 'Подписанты' },
+          { key: 'numbering', label: 'Нумерация договоров' },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setSection(t.key)}
+            className="h-[34px] px-[12px] text-[12px] font-medium transition-colors cursor-pointer relative"
+            style={{ color: section === t.key ? 'var(--ink)' : 'var(--ink-3)' }}
+          >
+            {t.label}
+            {section === t.key && (
+              <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--ink)] rounded-t-full" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {section === 'numbering' && (
+      <Card>
+        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Нумерация договоров</p>
+        <NumberFormatBuilder
+          value={profile.contractNumberFormat}
+          onChange={(format) => set('contractNumberFormat', format)}
+        />
+        {!isNew && profileId && nextNumber && (
+          <p className="text-[11px] text-[var(--ink-4)] mt-[12px]">
+            Следующий номер: <span className="font-mono text-[var(--ink-2)]">{nextNumber}</span>
+          </p>
+        )}
+      </Card>
+
+      )}
+
+      {section === 'requisites' && (<>
       <Card>
         <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Основное</p>
         <div className="flex flex-col gap-[12px]">
@@ -414,19 +458,6 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
       </Card>
 
       <Card>
-        <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Нумерация договоров</p>
-        <NumberFormatBuilder
-          value={profile.contractNumberFormat}
-          onChange={(format) => set('contractNumberFormat', format)}
-        />
-        {!isNew && profileId && nextNumber && (
-          <p className="text-[11px] text-[var(--ink-4)] mt-[12px]">
-            Следующий номер: <span className="font-mono text-[var(--ink-2)]">{nextNumber}</span>
-          </p>
-        )}
-      </Card>
-
-      <Card>
         <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em] mb-[16px]">Банковские реквизиты</p>
         <div className="flex flex-col gap-[12px]">
           <Field label="Банк">
@@ -486,7 +517,18 @@ function ProfileForm({ profile, onChange, isNew, profileId }: {
         </div>
       </Card>
 
-      {!isNew && profileId && (
+      </>)}
+
+      {/* У несохранённого юрлица подписантов быть не может — их CRUD работает по id. */}
+      {section === 'signatories' && (isNew || !profileId) && (
+        <Card>
+          <p className="text-[13px] text-[var(--ink-3)]">
+            Сначала сохраните юрлицо — после этого можно будет добавить подписантов.
+          </p>
+        </Card>
+      )}
+
+      {section === 'signatories' && !isNew && profileId && (
         <Card>
           <div className="flex items-center justify-between mb-[12px]">
             <p className="text-[11px] font-medium text-[var(--ink-4)] uppercase tracking-[0.1em]">Подписанты</p>
