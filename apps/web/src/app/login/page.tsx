@@ -114,7 +114,7 @@ export default function LoginPage() {
           </p>
 
           {/* Центральный контент — скрыт на мобильных, чтобы форма была сразу видна */}
-          <div className="hidden md:flex flex-1 flex-col justify-center max-w-[400px] mt-[48px]">
+          <div className="hidden md:flex flex-1 flex-col justify-start max-w-[400px] mt-[56px]">
             <h1 style={{ fontSize: 40, lineHeight: 1.1, marginBottom: 20, fontWeight: 400 }}>
               Договоры, которые{' '}
               <em className="not-italic text-[var(--accent)]">пишут</em>{' '}
@@ -127,8 +127,8 @@ export default function LoginPage() {
               с помощью Догодка. Версии, контрагенты и реквизиты — в одном тихом месте.
             </p>
 
-            {/* Hallmarks */}
-            <div className="flex items-center gap-[24px] text-[13px] text-[var(--ink-3)] flex-nowrap">
+            {/* Hallmarks — прижаты к низу колонки */}
+            <div className="flex items-center gap-[24px] text-[13px] text-[var(--ink-3)] flex-nowrap mt-auto pt-[24px]">
               <div className="flex items-center gap-[8px] whitespace-nowrap">
                 <ShieldIcon />
                 152-ФЗ
