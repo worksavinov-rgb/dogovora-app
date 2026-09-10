@@ -87,10 +87,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-[16px] sm:p-6">
-      {/* Карточка авторизации: на мобильных — одна колонка (шапка + форма) */}
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-[16px] sm:p-6 overflow-y-auto">
+      {/* Карточка авторизации: на мобильных — одна колонка (шапка + форма).
+          Высота ограничена окном: если форма выше экрана, скроллится только
+          правая колонка, страница целиком не едет и ничего не обрезается. */}
       <div
-        className="w-full max-w-[900px] grid grid-cols-1 md:grid-cols-2 md:min-h-[600px] rounded-[var(--radius-xl)] overflow-hidden border border-[var(--line-2)] shadow-[var(--shadow-2)]"
+        className="w-full max-w-[900px] grid grid-cols-1 md:grid-cols-2 md:min-h-[560px] max-h-[calc(100dvh-32px)] sm:max-h-[calc(100dvh-48px)] rounded-[var(--radius-xl)] overflow-hidden border border-[var(--line-2)] shadow-[var(--shadow-2)]"
         style={{ background: 'var(--bg)' }}
       >
 
@@ -143,12 +145,15 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* ─── Правая колонка — форма ────────────────────────────────── */}
-        <div className="flex flex-col justify-center p-[24px_20px] md:p-[48px_56px] bg-[var(--surface)]">
+        {/* ─── Правая колонка — форма (скроллится внутри себя) ────────── */}
+        <div className="bg-[var(--surface)] overflow-y-auto">
+          {/* min-h-full центрирует форму, когда она помещается, и позволяет
+              аккуратно прокрутить её, когда она выше колонки */}
+          <div className="min-h-full flex flex-col justify-center p-[24px_20px] md:p-[40px_56px]">
           <div className="max-w-[360px] w-full mx-auto">
 
             {/* Переключатель Войти / Регистрация */}
-            <div className="flex gap-[4px] mb-[32px] p-[4px] bg-[var(--surface-inset)] rounded-[var(--radius-md)] w-fit">
+            <div className="flex gap-[4px] mb-[24px] p-[4px] bg-[var(--surface-inset)] rounded-[var(--radius-md)] w-fit">
               {(['login', 'register'] as Mode[]).map((m) => (
                 <button
                   key={m}
@@ -170,7 +175,7 @@ export default function LoginPage() {
             <h2 className="text-[24px] font-[var(--font-display)] font-normal mb-[6px]">
               {mode === 'login' ? 'С возвращением' : 'Создать аккаунт'}
             </h2>
-            <p className="text-[14px] text-[var(--ink-3)] mb-[28px]">
+            <p className="text-[14px] text-[var(--ink-3)] mb-[20px]">
               {mode === 'login'
                 ? 'Войдите, чтобы продолжить работу с договорами'
                 : 'Заполните данные для создания аккаунта'}
@@ -341,7 +346,7 @@ export default function LoginPage() {
             </form>
 
             {/* Разделитель */}
-            <div className="flex items-center gap-[12px] my-[24px] text-[12px] text-[var(--ink-4)]">
+            <div className="flex items-center gap-[12px] my-[20px] text-[12px] text-[var(--ink-4)]">
               <hr className="flex-1 border-0 border-t border-[var(--line)]" />
               или
               <hr className="flex-1 border-0 border-t border-[var(--line)]" />
@@ -371,6 +376,7 @@ export default function LoginPage() {
               </Link>
             </p>
 
+          </div>
           </div>
         </div>
       </div>
