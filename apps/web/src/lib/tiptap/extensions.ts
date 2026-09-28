@@ -20,7 +20,13 @@ import { OrderedListStyle } from './ordered-list-style'
 
 export const TIPTAP_EXTENSIONS = [
   StarterKit,
-  Table.configure({ resizable: false }),
+  // resizable: ширину столбцов можно тянуть мышью за границу (только на экране —
+  // конвертер DOCX делит ширину поровну). colwidth переживает sanitize (в
+  // ALLOWED_ATTRS он не фигурирует, а санитайзер режет лишь style/on*), поэтому
+  // заданная ширина сохраняется при перезагрузке рабочего экрана.
+  // allowTableNodeSelection: клик по границе выделяет таблицу целиком как узел —
+  // тогда Backspace/Delete удаляет её одним нажатием.
+  Table.configure({ resizable: true, allowTableNodeSelection: true }),
   TableRow,
   TableCell,
   TableHeader,

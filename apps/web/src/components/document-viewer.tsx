@@ -74,6 +74,13 @@ export function DocumentViewer({ content, editable = false, onUpdate, externalCo
     content: initialContentRef.current,
     editable,
     immediatelyRender: false,
+    editorProps: {
+      // Вставка из Excel/Word тащит служебную разметку Office (mso-стили,
+      // <o:p>, условные комментарии, <style>). Чистим её до разбора ProseMirror,
+      // чтобы в документ попадала аккуратная таблица, а не мусор. Саму структуру
+      // таблицы (tr/td/th, colspan/rowspan) не трогаем — её разбирает движок.
+      transformPastedHTML: cleanPastedHtml,
+    },
     onFocus: ({ editor }) => onFocusRef.current?.(editor),
     onUpdate: ({ editor, transaction }) => {
       // Только ручной ввод (docChanged); программный setContent не эхоём наверх
@@ -120,6 +127,24 @@ export function DocumentViewer({ content, editable = false, onUpdate, externalCo
       <EditorContent editor={editor} />
     </div>
   )
+}
+
+// ─── Очистка вставки из Excel / Word ──────────────────────────────────────────
+// Office кладёт в буфер обмена HTML с кучей служебной разметки. ProseMirror сам
+// разбирает таблицы по схеме, но mso-обёртки мешают и оставляют пустые узлы.
+// Убираем заведомо мусорное, структуру таблицы сохраняем как есть.
+function cleanPastedHtml(html: string): string {
+  if (!html) return html
+  return html
+    // Условные комментарии Word: <!--[if gte mso 9]>…<![endif]--> и обычные
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Блоки <style>…</style> и служебные одиночные теги
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<(meta|link|xml)[^>]*>/gi, '')
+    // Теги с namespace Office: <o:p>, <w:...>, <x:...>, <v:...>, <m:...>
+    .replace(/<\/?[a-z]+:[^>]*>/gi, '')
+    // class/style с mso-мусором на ячейках и абзацах
+    .replace(/\s(?:class|style)="[^"]*mso[^"]*"/gi, '')
 }
 
 // ─── Синхронная конвертация Markdown → HTML ───────────────────────────────────

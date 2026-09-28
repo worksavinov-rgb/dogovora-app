@@ -598,6 +598,46 @@ button { font-family: inherit; }
   font-weight: 600;
 }
 
+/* ── Ручное редактирование таблиц (ресайз столбцов, выделение ячеек) ──────────
+   Тянуть ширину столбца можно за границу; для этого раскладка таблицы должна
+   быть фиксированной (иначе браузер игнорирует заданные colwidth). Действует
+   только в режиме правки, чтобы не менять поведение обычного просмотра. */
+.document-viewer[data-editable] .ProseMirror table {
+  table-layout: fixed;
+}
+/* Ячейка — контейнер для ручки ресайза и подсветки выделения */
+.document-viewer[data-editable] .ProseMirror td,
+.document-viewer[data-editable] .ProseMirror th {
+  position: relative;
+}
+/* Синяя полоска у правой границы столбца — за неё тянем ширину */
+.document-viewer .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.document-viewer .ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+/* Подсветка выделенных ячеек (для объединения/удаления) */
+.document-viewer .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(66, 84, 168, 0.12);
+  pointer-events: none;
+}
+/* Таблица, выделенная целиком как узел (клик по границе, allowTableNodeSelection):
+   рамка показывает, что Backspace/Delete удалит её одним нажатием */
+.document-viewer .ProseMirror table.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* Блок реквизитов/подписей — таблица из одной строки: показываем колонки рядом,
    но без рамок и заливки (это не таблица данных, а вёрстка подписей сторон).
    Определяем структурно (:has), т.к. редактор не сохраняет класс. */
