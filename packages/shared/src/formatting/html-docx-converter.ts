@@ -426,26 +426,16 @@ function buildBlocks(nodes: Node[], compact = false): (Paragraph | Table)[] {
       }
       case 'table': {
         const tableCls = n.attribs['class'] ?? ''
-        if (tableCls.includes('doc-preamble-meta-table')) {
-          // Строка «город … дата», пришедшая из редактора таблицей: выводим тем
-          // же абзацем с правым таб-стопом, что и исходный вариант со span.
-          const cells: ElNode[] = []
-          const collect = (nodes: Node[]) => {
-            for (const c of nodes) {
-              if (c.type !== 'el') continue
-              if (c.tag === 'td' || c.tag === 'th') cells.push(c)
-              else collect(c.children)
-            }
-          }
-          collect(n.children)
-          const cityTxt = (cells[0] ? nodeText(cells[0]) : '').trim()
-          const dateTxt = (cells[1] ? nodeText(cells[1]) : '').trim()
-          out.push(new Paragraph({
-            spacing: { after: 120, line: BODY_LINE_SPACING },
-            tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
-            children: [new TextRun({ text: dateTxt ? `${cityTxt}\t${dateTxt}` : cityTxt })],
-          }))
-        } else if (tableCls.includes('doc-requisites-table')) {
+        // Документы, сохранённые до того, как редактор научился сохранять class
+        // у таблиц, приходят без класса — тогда служебные таблицы (подписи
+        // сторон, «город/дата») узнаём по структуре и содержимому, иначе Word
+        // показал бы их с рамками.
+        const kind = tableCls.includes('doc-preamble-meta-table') ? 'meta'
+          : tableCls.includes('doc-requisites-table') ? 'requisites'
+          : looksLikeServiceTable(n)
+        if (kind === 'meta') {
+          out.push(buildPreambleMeta(n))
+        } else if (kind === 'requisites') {
           out.push(buildRequisitesTableFromCells(n))
         } else {
           out.push(buildTable(n))
@@ -493,6 +483,62 @@ function cellParagraphs(cell: ElNode, headerBold: boolean): Paragraph[] {
   }
   const runs = collectRuns(cell.children, headerBold ? { bold: true } : {})
   return [new Paragraph({ children: runs.length ? runs : [new TextRun('')] })]
+}
+
+/** Строка «город … дата» из редактора — тем же абзацем с правым таб-стопом,
+ *  что и исходный вариант со span. */
+function buildPreambleMeta(table: ElNode): Paragraph {
+  const cells: ElNode[] = []
+  const collect = (nodes: Node[]) => {
+    for (const c of nodes) {
+      if (c.type !== 'el') continue
+      if (c.tag === 'td' || c.tag === 'th') cells.push(c)
+      else collect(c.children)
+    }
+  }
+  collect(table.children)
+  const cityTxt = (cells[0] ? nodeText(cells[0]) : '').trim()
+  const dateTxt = (cells[1] ? nodeText(cells[1]) : '').trim()
+  return new Paragraph({
+    spacing: { after: 120, line: BODY_LINE_SPACING },
+    tabStops: [{ type: TabStopType.RIGHT, position: CONTENT_WIDTH }],
+    children: [new TextRun({ text: dateTxt ? `${cityTxt}\t${dateTxt}` : cityTxt })],
+  })
+}
+
+/**
+ * Узнаём служебные таблицы, потерявшие class при сохранении из редактора
+ * (старое поведение TipTap): единственная строка из двух простых ячеек
+ * (без th и без colspan/rowspan). Дальше смотрим на содержимое:
+ * — реквизиты/подписи: банковские поля или линии подписи;
+ * — «город/дата»: короткая строка «г. Город» + год.
+ * Таблицу данных с такой структурой и таким текстом пользователь вставляет
+ * крайне редко; если вдруг — правится возвратом класса через редактор.
+ */
+function looksLikeServiceTable(table: ElNode): 'requisites' | 'meta' | null {
+  const rows: ElNode[] = []
+  const cells: ElNode[] = []
+  let hasHeader = false
+  const walk = (nodes: Node[]) => {
+    for (const c of nodes) {
+      if (c.type !== 'el') continue
+      if (c.tag === 'tr') { rows.push(c); walk(c.children) }
+      else if (c.tag === 'td') cells.push(c)
+      else if (c.tag === 'th') hasHeader = true
+      else walk(c.children)
+    }
+  }
+  walk(table.children)
+  const merged = cells.some((c) =>
+    (parseInt(c.attribs['colspan'] ?? '1', 10) || 1) > 1 ||
+    (parseInt(c.attribs['rowspan'] ?? '1', 10) || 1) > 1)
+  if (rows.length !== 1 || cells.length !== 2 || hasHeader || merged) return null
+
+  const texts = cells.map((c) => nodeText(c).trim())
+  const combined = texts.join('\n')
+  if (/(ИНН|КПП|ОГРН|БИК|подпис|реквизит|р\/с|к\/с|_{3,})/i.test(combined)) return 'requisites'
+  if (combined.length <= 120 && /(^|\s)г\.\s*\p{L}/u.test(texts[0]) && /\b\d{4}\b/.test(texts[1])) return 'meta'
+  return null
 }
 
 function buildTable(table: ElNode): Table {

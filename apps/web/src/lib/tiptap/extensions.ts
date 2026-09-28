@@ -18,6 +18,25 @@ import { Highlight } from '@tiptap/extension-highlight'
 import { TextAlignClass } from './text-align-class'
 import { OrderedListStyle } from './ordered-list-style'
 
+// Базовый Table не сохраняет class у <table>: после любого редактирования
+// getHTML() отдавал таблицу без класса, и DOCX-конвертер переставал узнавать
+// служебные таблицы (doc-requisites-table — подписи сторон, doc-preamble-meta-table
+// — «город/дата») и рисовал их с рамками. Добавляем атрибут class, чтобы класс
+// переживал цикл «загрузка → правка → сохранение → экспорт».
+const TableWithClass = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      class: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute('class'),
+        renderHTML: (attrs: Record<string, string | null>) =>
+          attrs.class ? { class: attrs.class } : {},
+      },
+    }
+  },
+})
+
 export const TIPTAP_EXTENSIONS = [
   StarterKit,
   // resizable: ширину столбцов можно тянуть мышью за границу (только на экране —
@@ -26,7 +45,7 @@ export const TIPTAP_EXTENSIONS = [
   // заданная ширина сохраняется при перезагрузке рабочего экрана.
   // allowTableNodeSelection: клик по границе выделяет таблицу целиком как узел —
   // тогда Backspace/Delete удаляет её одним нажатием.
-  Table.configure({ resizable: true, allowTableNodeSelection: true }),
+  TableWithClass.configure({ resizable: true, allowTableNodeSelection: true }),
   TableRow,
   TableCell,
   TableHeader,
