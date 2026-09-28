@@ -10,7 +10,7 @@
 
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  WidthType, BorderStyle, AlignmentType, HeadingLevel, VerticalMergeType, TabStopType,
+  WidthType, BorderStyle, AlignmentType, HeadingLevel, VerticalMergeType, VerticalAlignTable, TabStopType,
 } from 'docx'
 import { marked } from 'marked'
 
@@ -624,6 +624,9 @@ function buildRequisitesTableFromCells(table: ElNode): Table {
     borders: noBorders,
     width: { size: colWidth, type: WidthType.DXA },
     margins: { top: 40, bottom: 40, left: 80, right: 120 },
+    // Прижимаем содержимое к низу: у сторон разное число строк, и без этого
+    // строки подписи («____ /ФИО/») стояли на разной высоте.
+    verticalAlign: VerticalAlignTable.BOTTOM,
   }))
 
   return new Table({
@@ -652,6 +655,8 @@ function buildRequisitesTable(div: ElNode): Table {
     borders: noBorders,
     width: { size: colWidth, type: WidthType.DXA },
     margins: { top: 40, bottom: 40, left: 80, right: 120 },
+    // Как и в buildRequisitesTableFromCells: подписи сторон на одной линии снизу
+    verticalAlign: VerticalAlignTable.BOTTOM,
   }))
 
   return new Table({

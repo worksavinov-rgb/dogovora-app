@@ -24,6 +24,8 @@ describe('служебные таблицы в DOCX — без рамок', () =
     const docx = await convertToDocx(wrap(`<table><tbody>${REQS_CELLS}</tbody></table>`))
     const xml = await readDocumentXml(docx)
     expect(xml).not.toContain('w:val="single"')
+    // Ячейки прижаты к низу — строки подписи сторон стоят на одной высоте
+    expect(xml).toContain('<w:vAlign w:val="bottom"/>')
   })
 
   it('обычная таблица данных 1×2 без маркеров реквизитов — рамки сохраняются', async () => {
