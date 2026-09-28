@@ -594,6 +594,21 @@ function buildTable(table: ElNode): Table {
 }
 
 /**
+ * Строка подписи («____ /ФИО/») в конце колонки в исходных Word-документах
+ * отделена от должности пустой строкой. Если пустой строки нет — вставляем,
+ * чтобы колонки сторон выглядели одинаково («как у Заказчика»).
+ */
+function withSignatureGap(paragraphs: Paragraph[], col: ElNode): Paragraph[] {
+  const blocks = col.children.filter((c): c is ElNode => c.type === 'el' && /^(p|h[1-6])$/.test(c.tag))
+  if (blocks.length < 2 || paragraphs.length < 2) return paragraphs
+  if (!/_{3,}/.test(nodeText(blocks[blocks.length - 1]))) return paragraphs
+  if (nodeText(blocks[blocks.length - 2]).trim() === '') return paragraphs // зазор уже есть
+  const out = [...paragraphs]
+  out.splice(out.length - 1, 0, new Paragraph({ text: '' }))
+  return out
+}
+
+/**
  * Блок реквизитов, пришедший из редактора в виде таблицы (table.doc-requisites-table).
  * Рисуем теми же правилами, что и вариант с колонками-div: без рамок, компактные
  * абзацы. Иначе Word показал бы обычную таблицу с сеткой.
@@ -620,7 +635,7 @@ function buildRequisitesTableFromCells(table: ElNode): Table {
   const colWidth = Math.floor(CONTENT_WIDTH / columns.length)
 
   const cells = columns.map((col) => new TableCell({
-    children: buildBlocks(col.children, true).filter((b): b is Paragraph => b instanceof Paragraph),
+    children: withSignatureGap(buildBlocks(col.children, true).filter((b): b is Paragraph => b instanceof Paragraph), col),
     borders: noBorders,
     width: { size: colWidth, type: WidthType.DXA },
     margins: { top: 40, bottom: 40, left: 80, right: 120 },
@@ -651,7 +666,7 @@ function buildRequisitesTable(div: ElNode): Table {
   const colWidth = Math.floor(CONTENT_WIDTH / columns.length)
 
   const cells = columns.map(col => new TableCell({
-    children: buildBlocks(col.children, true).filter((b): b is Paragraph => b instanceof Paragraph),
+    children: withSignatureGap(buildBlocks(col.children, true).filter((b): b is Paragraph => b instanceof Paragraph), col),
     borders: noBorders,
     width: { size: colWidth, type: WidthType.DXA },
     margins: { top: 40, bottom: 40, left: 80, right: 120 },

@@ -46,4 +46,27 @@ describe('служебные таблицы в DOCX — без рамок', () =
     expect(xml).not.toContain('w:val="single"')
     expect(xml).toContain('г. Москва')
   })
+
+  it('перед строкой подписи вставляется пустая строка, если её нет («как у Заказчика»)', async () => {
+    const docx = await convertToDocx(wrap(`<table><tbody>${REQS_CELLS}</tbody></table>`))
+    const xml = await readDocumentXml(docx)
+    // Между «КПП: …» и «Подпись: ____» должно быть 2 открывающих абзаца:
+    // пустой (вставленный зазор) + абзац подписи
+    const seg = xml.slice(xml.indexOf('КПП: 770701001'), xml.indexOf('Подпись:'))
+    expect(seg.match(/<w:p[\s/>]/g)!.length).toBe(2)
+  })
+
+  it('существующая пустая строка перед подписью не задваивается', async () => {
+    const withGap =
+      '<tr>' +
+      '<td><p><strong>Заказчик:</strong></p><p>ИНН: 7707083893</p><p></p><p>Подпись: ____________</p></td>' +
+      '<td><p><strong>Исполнитель:</strong></p><p>ИНН: 502906602876</p><p>Подпись: ____________</p></td>' +
+      '</tr>'
+    const docx = await convertToDocx(wrap(`<table><tbody>${withGap}</tbody></table>`))
+    const xml = await readDocumentXml(docx)
+    // У Заказчика зазор уже был: между «ИНН: 7707083893» и «Подпись» ровно
+    // 2 абзаца (существующий пустой + подпись), не 3
+    const seg = xml.slice(xml.indexOf('ИНН: 7707083893'), xml.indexOf('Подпись:'))
+    expect(seg.match(/<w:p[\s/>]/g)!.length).toBe(2)
+  })
 })
