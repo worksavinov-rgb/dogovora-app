@@ -23,6 +23,8 @@ apps/web/storage/
 .env
 .env.local
 .env.production
+.backup-webdav.env
+var/
 certs/
 
 # OS

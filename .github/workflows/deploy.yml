@@ -62,7 +62,8 @@ jobs:
           command_timeout: 10m
           script: |
             cd /app
-            git pull origin main
+            git fetch --prune origin
+            git reset --hard origin/main
             echo ${{ secrets.GHCR_TOKEN }} | docker login ghcr.io -u worksavinov-rgb --password-stdin
             docker compose -f docker-compose.prod.yml --env-file .env.production pull web worker
             # Применяем миграции БД на свежем образе ДО перезапуска сервисов,
